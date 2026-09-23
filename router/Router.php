@@ -1,5 +1,7 @@
 <?php
 
+namespace App\Router;
+
 class Router {
     use Loggable;
     private $routes = [];
@@ -56,7 +58,9 @@ class Router {
 
     //cambiarlas
     //cargo las rutas (siempre van a estar hardcodeadas)
-    public function cargar_rutas(){}
+    public function cargar_rutas(){
+        $this->register('GET@/', 'HomeController@homeSinLogg');
+    }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){
         $this->routes[$method_http_y_path] = $controller_y_action;
