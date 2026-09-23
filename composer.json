@@ -1,0 +1,38 @@
+{
+    "name": "la25/alojamiento-temporario-backend",
+    "description": "Backend de Alojamiento Temporario",
+    "type": "project",
+    "authors": [
+        {
+            "name":"Valentino Aimale",
+            "role": "Desarrollador"
+
+        },
+        {
+            "name":"Federico Kasparian",
+            "role": "Desarrollador"
+           
+        },
+        {
+            "name":"Justino Bernal",
+            "role": "Desarrollador"
+        },
+        {
+            "name":"Agustina Ortiz",
+            "role": "Desarrolladora"
+        }
+    ],
+    "require": {
+        "php": ">=8.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\Router\\": "router/",
+            "App\\Controller\\": "controllers/",
+            "App\\Request\\":"request/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
