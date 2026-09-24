@@ -40,7 +40,7 @@ class Router {
             $this->call($valorcontrolleraction[0], $valorcontrolleraction[1]);
         }
 
-        catch (Exception $e){
+        catch (\Throwable $e){//Throwable atrapa tanto Exception como Error (ej: clase o metodo inexistente)
             $valorcontrolleraction = $this->getController($this->internalError);//si salta la exception, intenta obtener
             //controlador + accion a realizar para el caso de exception
             $this->call($valorcontrolleraction[0], $valorcontrolleraction[1]);
@@ -50,7 +50,7 @@ class Router {
     //cambiarlas
     //cargo las rutas (siempre van a estar hardcodeadas)
     public function cargar_rutas(){
-        $this->register('GET@/', 'HomeController@homeSinLogg');
+        $this->register('POST@/registrarse', 'RegistroController@registrar');
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){

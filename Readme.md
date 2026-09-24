@@ -203,3 +203,79 @@ Para configurar tu entorno:
    ```
 
 > Si alguien cambia la **estructura** de la configuración (por ejemplo, agrega un entorno nuevo), tiene que actualizar también `phinx.example.php`, para que el resto del equipo lo reciba.
+
+---
+
+## CORS
+
+### ¿Qué es?
+
+Por seguridad, los navegadores aplican la **política del mismo origen** (*same-origin policy*): el JavaScript de una página solo puede leer respuestas de su **mismo origen**. El origen es la combinación de **protocolo + dominio + puerto**.
+
+En este proyecto el frontend y el backend están en orígenes distintos:
+
+| | Origen |
+|---|---|
+| Frontend (Live Server) | `http://localhost:5500` o `http://127.0.0.1:5500` |
+| Backend (PHP) | `http://localhost:8000` |
+
+Cambia el puerto, así que para el navegador son sitios distintos, y bloquea las respuestas del backend al frontend.
+
+**CORS** (*Cross-Origin Resource Sharing*) es el mecanismo con el que el **servidor** le indica al navegador qué otros orígenes pueden leer sus respuestas. Lo hace mediante headers HTTP en cada respuesta.
+
+### Líneas agregadas en `bootstrap/bootstrap.php`
+
+Estas son las líneas que se agregaron por CORS. Están al principio de `bootstrap/bootstrap.php`, antes de crear el router, entre los comentarios `---------- CORS ----------` y `---------- fin CORS ----------`:
+
+```php
+//---------- CORS ----------
+$origenesPermitidos = ['http://localhost:5500', 'http://127.0.0.1:5500'];
+$origen = $_SERVER['HTTP_ORIGIN'] ?? '';
+
+if (in_array($origen, $origenesPermitidos, true)) {
+    header("Access-Control-Allow-Origin: $origen");
+    header('Vary: Origin');
+}
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type');
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
+//---------- fin CORS ----------
+```
+
+| Línea | Qué hace |
+|---|---|
+| `$origenesPermitidos = [...]` | Lista de orígenes del frontend que pueden usar el backend. Están los dos porque Live Server puede abrir la página como `localhost` o como `127.0.0.1`, y el navegador los considera orígenes distintos. |
+| `$origen = $_SERVER['HTTP_ORIGIN'] ?? ''` | El navegador envía en el header `Origin` desde qué página se hizo la petición. |
+| `Access-Control-Allow-Origin` | Autoriza a ese origen a leer la respuesta. Solo se envía si el origen está en la lista. |
+| `Vary: Origin` | Indica que la respuesta cambia según el origen, para que ningún caché la reutilice con otro origen. |
+| `Access-Control-Allow-Methods` | Métodos HTTP que el frontend puede usar. |
+| `Access-Control-Allow-Headers: Content-Type` | Permite que el frontend envíe el header `Content-Type`, necesario para mandar JSON. |
+| `if (... === 'OPTIONS') { ... exit; }` | Responde el *preflight* (ver abajo) y termina, sin pasar por el router. |
+
+**El *preflight*:** antes de un `POST` que envía JSON (por ejemplo, el registro), el navegador hace automáticamente una petición previa con el método `OPTIONS` para preguntar si tiene permiso. Si la respuesta trae los headers de arriba, recién ahí envía el `POST` real. Por eso el backend tiene que responder las peticiones `OPTIONS`.
+
+### ¿Qué pasaría si no incluimos estas líneas?
+
+El frontend no podría comunicarse con el backend. Cada `fetch` fallaría y en la consola del navegador (F12) aparecería un error como este:
+
+```
+Access to fetch at 'http://localhost:8000/registro' from origin 'http://127.0.0.1:5500'
+has been blocked by CORS policy: Response to preflight request doesn't pass access
+control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
+
+En concreto:
+
+- **En un `POST` con JSON (registro, login):** el *preflight* no recibe permiso, así que el navegador **ni siquiera envía** el `POST`. El usuario no se registraría.
+- **En un `GET`:** la petición sí llega al backend y se ejecuta, pero el navegador **no le deja leer la respuesta** al JavaScript. Para el frontend es como si hubiera fallado.
+
+El error aparece solo en el navegador. Si se prueba el backend con `curl` o Postman funciona igual, porque esas herramientas no aplican CORS. Por eso, si algo anda con Postman pero no desde el frontend, lo primero que hay que revisar es CORS.
+
+### Cosas a tener en cuenta
+
+- **Si el frontend corre en otro puerto u otra dirección**, hay que agregar ese origen a `$origenesPermitidos`. Si no, el navegador lo bloquea.
+- **CORS no protege al backend.** Solo controla qué páginas pueden leer las respuestas **desde un navegador**. Cualquiera puede hacer peticiones al backend con `curl` o Postman. La seguridad (validar datos, verificar la sesión y los permisos) se hace siempre en el backend.
