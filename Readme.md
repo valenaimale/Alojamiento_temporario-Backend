@@ -206,6 +206,49 @@ Para configurar tu entorno:
 
 ---
 
+## Verificar los datos en la base de datos
+
+Para comprobar que algo se guardó bien (por ejemplo, después de registrar un usuario), hay que entrar a MySQL desde la terminal:
+
+```bash
+mysql -u root -p
+```
+
+Pide la contraseña de MySQL (mientras se escribe no se ve nada, es normal). Si la terminal no reconoce el comando `mysql`, hay que usar la ruta completa. En PowerShell:
+
+```powershell
+& "C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe" -u root -p
+```
+
+Una vez en el prompt `mysql>`, ejecutar los comandos que hagan falta. Cada uno termina con `;`:
+
+| Comando | Qué muestra |
+|---|---|
+| `USE alojamiento;` | Selecciona la base del proyecto. **Hay que ejecutarlo primero**, si no los demás comandos no saben en qué base buscar. |
+| `SHOW TABLES;` | Las tablas que existen. Tiene que aparecer `usuarios` y `phinxlog`. |
+| `DESCRIBE usuarios;` | Las columnas de la tabla y sus tipos. Sirve para verificar que una migración se aplicó bien. |
+| `SELECT * FROM usuarios;` | Todos los registros de la tabla. |
+| `SELECT id, nombre, mail, rol, fecha_alta FROM usuarios ORDER BY id DESC LIMIT 5;` | Los últimos 5 usuarios registrados, sin la columna de la contraseña. |
+| `SELECT * FROM usuarios WHERE mail = 'ana@mail.com';` | Un usuario puntual. |
+| `SELECT * FROM phinxlog;` | Las migraciones que Phinx ya aplicó en tu base. |
+| `exit` | Sale de MySQL. |
+
+**Qué revisar después de un registro:**
+
+- El usuario aparece con el `nombre`, `mail` y `rol` enviados, y el mail guardado **en minúsculas**.
+- La columna `contrasenia` tiene un hash que empieza con `$2y$`, **nunca la contraseña en texto plano**.
+- `fecha_alta` tiene la fecha y hora del registro.
+
+**Atajo:** para ejecutar una sola consulta sin entrar al prompt, se puede usar `-e`:
+
+```bash
+mysql -u root -p alojamiento -e "SELECT id, nombre, mail, rol FROM usuarios;"
+```
+
+> Para borrar los usuarios de prueba y empezar de cero: `DELETE FROM usuarios;`. Borra **todos** los registros de la tabla, solo de tu base local.
+
+---
+
 ## CORS
 
 ### ¿Qué es?
