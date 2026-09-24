@@ -29,8 +29,10 @@
     "autoload": {
         "psr-4": {
             "App\\Router\\": "router/",
-            "App\\Controller\\": "controllers/",
-            "App\\Request\\":"request/"
+            "App\\Controllers\\": "controllers/",
+            "App\\Request\\":"request/",
+            "App\\Exceptions\\":"exceptions/",
+            "App\\Database\\": "database/"
         }
     },
     "config": {

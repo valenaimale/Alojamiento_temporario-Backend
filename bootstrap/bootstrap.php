@@ -20,7 +20,7 @@ require __DIR__ . '/../vendor/autoload.php';
 //mediante el use.
 
 use App\Router\Router;
-
+use App\Request\Request;
 $router = new Router();//este objeto va a redirigir
 
 $request = new Request();//el objeto request va a tener los datos de la request.
