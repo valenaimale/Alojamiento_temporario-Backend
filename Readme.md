@@ -1,0 +1,205 @@
+# Alojamiento Temporario — Backend
+
+Este es el repositorio del **backend** del sistema de alojamiento temporario. El frontend (vistas HTML, estilos y JavaScript) está en un repositorio aparte.
+
+El backend está hecho en **PHP** (8.1 o superior) y usa **Composer** para manejar las dependencias y la carga automática de clases. No devuelve vistas: recibe las peticiones que hace el frontend y responde con datos en formato **JSON**.
+
+---
+
+## Composer: qué es y por qué lo usamos
+
+[Composer](https://getcomposer.org/) es el gestor de dependencias de PHP (lo mismo que npm en JavaScript o pip en Python). En este proyecto cumple dos funciones:
+
+1. **Instala las librerías que usamos.** Las librerías que necesita el proyecto están listadas en `composer.json`. Composer las descarga en la carpeta `vendor/` y anota la versión exacta instalada en `composer.lock`. Así todo el equipo trabaja con las mismas versiones.
+2. **Carga nuestras clases automáticamente (autoload).** En `composer.json` hay un mapeo de *namespace → carpeta* (estándar PSR-4):
+
+   ```json
+   "App\\Router\\": "router/",
+   "App\\Controller\\": "controllers/",
+   "App\\Request\\": "request/"
+   ```
+
+   Gracias a esto no hace falta hacer `require` de cada archivo. Se incluye una sola vez `vendor/autoload.php` al inicio de la aplicación, y después cada archivo solo declara `use App\Router\Router;`. Cuando se usa una clase, el autoloader busca y carga su archivo.
+
+### ¿Qué pasaría si no usáramos Composer?
+
+**Para cargar nuestras clases**, habría que hacer `require` a mano de cada archivo que se usa:
+
+```php
+require __DIR__ . '/../router/Router.php';
+require __DIR__ . '/../request/Request.php';
+require __DIR__ . '/../controllers/HomeController.php';
+// ... uno por cada clase del proyecto
+```
+
+- La ruta es relativa al archivo que hace el `require`, así que cambia según la carpeta desde donde se pida la clase (`../`, `../../`, ...).
+- El orden importa: si una clase usa un trait o hereda de otra, esa otra tiene que cargarse antes.
+- Si un archivo se carga dos veces, PHP falla con `Cannot redeclare class`.
+- Cada clase nueva o archivo que se mueve obliga a revisar los `require` de todo el proyecto.
+
+**Para usar librerías** (por ejemplo, Phinx), habría que descargarlas a mano, descargar también las librerías de las que dependen, hacer `require` de todos sus archivos y asegurarse de que los cuatro integrantes tengan exactamente las mismas versiones. Cada actualización implicaría repetir todo.
+
+### ¿Por qué `vendor/` no se sube al repo?
+
+La carpeta `vendor/` está en el `.gitignore` porque **se puede regenerar en cualquier momento** con `composer install`:
+
+- **No es código nuestro.** Tiene las librerías de terceros y el autoloader, que Composer genera automáticamente. Lo que sí es nuestro, la lista de dependencias (`composer.json`) y sus versiones exactas (`composer.lock`), sí se sube al repo.
+- **Es pesada.** Solo Phinx y sus dependencias ya son cientos de archivos. Subirla llenaría el repo y el historial de git de archivos ajenos.
+- **Evita conflictos.** Si se subiera, cada `composer install` o `dump-autoload` que hiciera alguien modificaría archivos de `vendor/` y generaría conflictos de git sin sentido entre los integrantes.
+- **Mantiene la consistencia sin subirla.** Como `composer.lock` fija las versiones exactas, cada persona obtiene el mismo contenido de `vendor/` al ejecutar `composer install`.
+
+---
+
+## Cómo levantar el proyecto
+
+### Requisitos
+
+- PHP 8.1 o superior
+- [Composer](https://getcomposer.org/download/)
+- MySQL
+- La extensión **`pdo_mysql`** de PHP habilitada (ver abajo)
+
+#### Habilitar `pdo_mysql`
+
+PHP necesita la extensión `pdo_mysql` para conectarse a MySQL. En una instalación nueva de PHP suele venir desactivada, y Phinx falla con este error:
+
+```
+RuntimeException: You need to enable the PDO_Mysql extension for Phinx to run properly.
+```
+
+Para habilitarla:
+
+1. Buscar qué `php.ini` usa tu PHP:
+
+   ```bash
+   php --ini
+   ```
+
+   El archivo es el que figura en `Loaded Configuration File` (por ejemplo, `C:\Php\php.ini`).
+2. Abrir ese archivo, buscar la línea `;extension=pdo_mysql` y quitarle el `;` del principio (el `;` la comenta):
+
+   ```ini
+   extension=pdo_mysql
+   ```
+
+3. Verificar que quedó habilitada. Este comando tiene que mostrar `pdo_mysql`:
+
+   ```bash
+   php -m
+   ```
+
+> Si `php --ini` muestra `Loaded Configuration File: (none)`, no hay un `php.ini` activo: en la carpeta de PHP, copiar `php.ini-development` como `php.ini` y repetir el paso 2.
+
+### Pasos
+
+1. Clonar el repositorio y entrar a la carpeta.
+2. Instalar las dependencias:
+
+   ```bash
+   composer install
+   ```
+
+   Instala exactamente las versiones que figuran en `composer.lock` y genera el autoloader.
+3. Configurar la base de datos y correr las migraciones (ver la sección [Configuración](#configuración-phinxphp-y-phinxexamplephp)).
+
+### Después de cada `git pull`
+
+Cuando se traen cambios de otros integrantes, puede haber librerías nuevas, clases nuevas o cambios en la base de datos. Para que todo quede al día, después de cada `git pull`:
+
+1. **Actualizar las dependencias y el autoloader:**
+
+   ```bash
+   composer install
+   ```
+
+   Si alguien agregó una librería (cambió `composer.lock`), la instala. Además, regenera el autoloader, así se reconocen los namespaces nuevos que se hayan agregado en `composer.json`. Si no hubo cambios, no hace nada, así que se puede ejecutar siempre.
+2. **Aplicar las migraciones nuevas:**
+
+   ```bash
+   vendor/bin/phinx migrate
+   ```
+
+   Si alguien creó una migración (un archivo nuevo en `db/migrations/`), la aplica en tu base. Si no hay migraciones pendientes, no hace nada.
+3. **Revisar si cambió `phinx.example.php`.** Tu `phinx.php` no se actualiza con el `git pull` porque no está en el repo. Si la plantilla cambió (por ejemplo, un entorno o una opción nueva), hay que pasar ese cambio a mano a tu `phinx.php`, manteniendo tus datos.
+
+Para ver qué archivos cambiaron en el último `git pull`:
+
+```bash
+git diff --stat HEAD@{1} HEAD
+```
+
+> **Nunca usar `composer update` después de un `git pull`.** El comando correcto es `composer install`, que respeta las versiones de `composer.lock`.
+
+### Comandos de Composer
+
+| Comando | Cuándo usarlo |
+|---|---|
+| `composer install` | Al clonar el proyecto y después de cada `git pull`. |
+| `composer dump-autoload` | Cuando se agrega un namespace nuevo en la sección `autoload` de `composer.json`. |
+| `composer require <paquete>` | Para agregar una librería nueva. Después se suben al repo `composer.json` y `composer.lock`. |
+| `composer update` | Solo si se quiere actualizar las librerías a versiones más nuevas. **No usarlo para instalar el proyecto**: cambia `composer.lock` y puede dejar a cada uno con versiones distintas. |
+
+---
+
+## Phinx: migraciones de la base de datos
+
+[Phinx](https://phinx.org/) es una herramienta de **migraciones**: cada cambio en la estructura de la base de datos (crear una tabla, agregar una columna, etc.) se escribe en un archivo dentro de `db/migrations/`, que se sube al repo. Phinx registra en la tabla `phinxlog` qué migraciones ya se aplicaron, y cuando se ejecuta aplica solo las que faltan.
+
+Así, nadie tiene que modificar su base a mano: después de un `git pull`, con un solo comando cada uno tiene la misma estructura.
+
+### ¿Por qué Phinx y no Flyway?
+
+- **Se instala con Composer**, igual que el resto del proyecto. Flyway es una herramienta de Java y cada uno tendría que instalarla aparte (o correrla con Docker).
+- **Permite deshacer migraciones** (`phinx rollback`). En la versión gratuita de Flyway no se puede.
+- **Nombra las migraciones con fecha y hora.** Con Flyway (`V1`, `V2`, ...) dos personas pueden crear la misma versión al mismo tiempo y chocar.
+- **Tiene *seeders*** para cargar datos de prueba (por ejemplo, usuarios de prueba).
+
+### Comandos
+
+| Comando | Qué hace |
+|---|---|
+| `vendor/bin/phinx migrate` | Aplica las migraciones pendientes. |
+| `vendor/bin/phinx status` | Muestra qué migraciones están aplicadas y cuáles no. |
+| `vendor/bin/phinx create NombreEnCamelCase` | Crea una migración nueva en `db/migrations/`. |
+| `vendor/bin/phinx rollback` | Deshace la última migración. |
+| `vendor/bin/phinx seed:run` | Carga los datos de prueba. |
+
+> **Regla del equipo:** una migración que ya se subió al repo **no se modifica**. Si hay que cambiar algo, se crea una migración nueva.
+
+---
+
+## Configuración: `phinx.php` y `phinx.example.php`
+
+Phinx lee los datos de conexión a la base (host, nombre de la base, usuario y **contraseña**) desde el archivo `phinx.php`.
+
+### ¿Por qué `phinx.php` está en el `.gitignore`?
+
+- **Tiene la contraseña de la base de datos.** Cualquier cosa que se sube al repo queda en el historial de git para siempre, aunque después se borre. Las contraseñas nunca se suben.
+- **Cada persona tiene datos distintos.** Cada uno tiene su propio MySQL con su propio usuario y contraseña. Si `phinx.php` estuviera en el repo, cada `git pull` pisaría la configuración de los demás.
+
+### ¿Qué es `phinx.example.php`?
+
+Es una **copia de `phinx.php` sin datos sensibles**, que **sí se sube al repo**. Sirve de plantilla: muestra la estructura que tiene que tener la configuración, sin la contraseña de nadie.
+
+Para configurar tu entorno:
+
+1. Copiá la plantilla con el nombre real:
+
+   ```bash
+   cp phinx.example.php phinx.php
+   ```
+
+2. Abrí `phinx.php` y completá tus datos en el entorno `development` (`user`, `pass` y, si hace falta, `host` y `port`).
+3. Creá la base de datos vacía en MySQL, con el mismo nombre que figura en `name`. Phinx crea las tablas, pero no la base:
+
+   ```sql
+   CREATE DATABASE alojamiento CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   ```
+
+4. Corré las migraciones:
+
+   ```bash
+   vendor/bin/phinx migrate
+   ```
+
+> Si alguien cambia la **estructura** de la configuración (por ejemplo, agrega un entorno nuevo), tiene que actualizar también `phinx.example.php`, para que el resto del equipo lo reciba.
