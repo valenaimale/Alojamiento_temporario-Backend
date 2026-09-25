@@ -55,7 +55,7 @@ session_set_cookie_params([
     'secure'   => false,   //en desarrollo usamos http; en producción, con https, va true
 ]);
 session_start();//recupera la sesión del usuario si trae la cookie, o crea una nueva
-$router = new Router();//este objeto va a redirigir
+$router = new Router();//este objeto va a redirigir la peticion al controlador que sepa resolverla
 
 $request = new Request();//el objeto request va a tener los datos de la request.
 
