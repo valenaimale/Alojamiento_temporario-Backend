@@ -11,7 +11,7 @@ class InicioSesionController{
         $contrasenia = $datos_inicio_sesion['contrasenia'] ?? '';
         $pdo = Conexion::obtener();
         $consulta = $pdo->prepare(
-            'SELECT u.contrasenia, u.id, u.rol, u.nombre from usuarios u WHERE u.mail=? LIMIT 1'
+            'SELECT u.contrasenia, u.id, u.rol, u.nombre, u.mail from usuarios u WHERE u.mail=? LIMIT 1'
         );
         $consulta->execute([$mail]);
         $fila=$consulta->fetch();//devuelve false si no encontro ninguna fila
@@ -24,6 +24,7 @@ class InicioSesionController{
             'id'     => $fila['id'],
             'nombre' => $fila['nombre'],
             'rol'    => $fila['rol'],
+            'mail'=>$fila['mail']
             ];
             return $this->respuestaInicioSesion('Sesión iniciada', $_SESSION['usuario']);
         }

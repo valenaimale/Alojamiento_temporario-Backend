@@ -217,7 +217,7 @@ POST /iniciar-sesion
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `200` | `{"ok": "Sesión iniciada", "usuario": {"id": 7, "nombre": "Ana Pérez", "rol": "huesped"}}` | Mail y contraseña correctos. Además, el backend envía la cookie de sesión. |
+| `200` | `{"ok": "Sesión iniciada", "usuario": {"id": 7, "nombre": "Ana Pérez", "rol": "huesped", "mail": "ana@mail.com"}}` | Mail y contraseña correctos. Además, el backend envía la cookie de sesión. |
 | `401` | `{"error": "Mail o contraseña incorrectos"}` | El mail no existe o la contraseña es incorrecta. Es **el mismo mensaje** en los dos casos, para no revelar qué mails tienen cuenta. |
 
 El frontend usa `usuario.rol` para decidir a qué página de inicio redirigir.
@@ -234,7 +234,7 @@ Sirve para saber si hay un usuario logueado y quién es, por ejemplo al cargar u
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `200` | `{"usuario": {"id": 7, "nombre": "Ana Pérez", "rol": "huesped"}}` | Hay una sesión iniciada. |
+| `200` | `{"usuario": {"id": 7, "nombre": "Ana Pérez", "rol": "huesped", "mail": "ana@mail.com"}}` | Hay una sesión iniciada. |
 | `401` | `{"error": "No hay sesión iniciada"}` | No hay sesión, o expiró. |
 
 #### Cerrar sesión
