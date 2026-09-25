@@ -141,6 +141,118 @@ git diff --stat HEAD@{1} HEAD
 
 ---
 
+## API: rutas y contratos
+
+Estos son los **contratos** entre el frontend y el backend: qué ruta llamar, qué datos enviar y qué responde el backend en cada caso. Cualquier cambio en una ruta o en el formato de una respuesta hay que actualizarlo acá, y avisar a quien trabaje en el frontend.
+
+### Convenciones generales
+
+- **URL base (desarrollo):** `http://localhost:8000`
+- **Formato:** todas las peticiones con cuerpo envían JSON (header `Content-Type: application/json`) y **todas las respuestas son JSON**.
+- **Errores:** siempre tienen la forma `{"error": "mensaje"}`. El mensaje está pensado para mostrárselo al usuario.
+- **Ruta inexistente:** `404 {"error": "Ruta no encontrada"}`
+- **Error interno del servidor:** `500 {"error": "Estamos con algunos inconvenientes. Vuelva a intentar en unos instantes..."}`
+
+### Registro de usuario
+
+```
+POST /registrarse
+```
+
+**Envía:**
+
+```json
+{
+    "nombre": "Ana Pérez",
+    "mail": "ana@mail.com",
+    "contrasenia": "12345678",
+    "rol": "huesped"
+}
+```
+
+| Campo | Reglas |
+|---|---|
+| `nombre` | Obligatorio. Entre 2 y 70 caracteres. |
+| `mail` | Obligatorio. Formato de mail válido. Se guarda en minúsculas y sin espacios en los extremos. |
+| `contrasenia` | Obligatorio. Entre 8 y 72 caracteres. Se guarda hasheada con `password_hash()`. |
+| `rol` | Obligatorio. Uno de: `huesped`, `propietario`, `administrador`, `operador`. |
+
+**Responde:**
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `201` | `{"ok": "Cuenta creada exitosamente"}` | El usuario se registró. |
+| `422` | `{"error": "Todos los campos son obligatorios"}` | Falta algún campo o está vacío. |
+| `422` | `{"error": "El mail es invalido"}` | El mail no tiene formato válido. |
+| `422` | `{"error": "La contraseña debe tener entre 8 y 72 caracteres"}` | Contraseña demasiado corta o larga. |
+| `422` | `{"error": "El nombre debe tener entre 2 y 70 caracteres"}` | Nombre demasiado corto o largo. |
+| `422` | `{"error": "El rol no existe"}` | El rol no es uno de los permitidos. |
+| `422` | `{"error": "El mail ya esta registrado"}` | Ya existe una cuenta con ese mail. |
+
+### Autenticación (sesiones de PHP)
+
+La autenticación usa **sesiones de PHP**. Al iniciar sesión, el backend guarda los datos del usuario en el servidor y le envía al navegador una **cookie de sesión** `HttpOnly` (el JavaScript no puede leerla). El navegador la envía automáticamente en cada petición siguiente, y así el backend sabe quién es el usuario.
+
+Para que la cookie funcione entre el frontend y el backend:
+
+- Todo `fetch` a estas rutas, y a cualquier ruta que necesite saber quién es el usuario, tiene que incluir **`credentials: 'include'`**.
+- El frontend se abre como **`http://localhost:5500`**, no como `127.0.0.1:5500`. Para el navegador, `localhost` y `127.0.0.1` son sitios distintos, y restringe las cookies entre sitios distintos.
+
+#### Iniciar sesión
+
+```
+POST /iniciar-sesion
+```
+
+**Envía:**
+
+```json
+{
+    "mail": "ana@mail.com",
+    "contrasenia": "12345678"
+}
+```
+
+**Responde:**
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"ok": "Sesión iniciada", "usuario": {"id": 7, "nombre": "Ana Pérez", "rol": "huesped"}}` | Mail y contraseña correctos. Además, el backend envía la cookie de sesión. |
+| `401` | `{"error": "Mail o contraseña incorrectos"}` | El mail no existe o la contraseña es incorrecta. Es **el mismo mensaje** en los dos casos, para no revelar qué mails tienen cuenta. |
+
+El frontend usa `usuario.rol` para decidir a qué página de inicio redirigir.
+
+#### Consultar la sesión actual
+
+```
+GET /sesion
+```
+
+Sirve para saber si hay un usuario logueado y quién es, por ejemplo al cargar una página que requiere sesión. No envía cuerpo.
+
+**Responde:**
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"usuario": {"id": 7, "nombre": "Ana Pérez", "rol": "huesped"}}` | Hay una sesión iniciada. |
+| `401` | `{"error": "No hay sesión iniciada"}` | No hay sesión, o expiró. |
+
+#### Cerrar sesión
+
+```
+POST /cerrar-sesion
+```
+
+No envía cuerpo.
+
+**Responde:**
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"ok": "Sesión cerrada"}` | La sesión se destruyó en el servidor. |
+
+---
+
 ## Phinx: migraciones de la base de datos
 
 [Phinx](https://phinx.org/) es una herramienta de **migraciones**: cada cambio en la estructura de la base de datos (crear una tabla, agregar una columna, etc.) se escribe en un archivo dentro de `db/migrations/`, que se sube al repo. Phinx registra en la tabla `phinxlog` qué migraciones ya se aplicaron, y cuando se ejecuta aplica solo las que faltan.

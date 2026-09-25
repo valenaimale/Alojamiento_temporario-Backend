@@ -35,6 +35,7 @@ if (in_array($origen, $origenesPermitidos, true)) {
 }
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');//metodos permitidos
 header('Access-Control-Allow-Headers: Content-Type');//headers que el front puede enviar
+header('Access-Control-Allow-Credentials: true');//para que la cookie pueda viajar entre el front y el back
 
 //Antes de un POST con JSON, el navegador manda una peticion OPTIONS (preflight)
 //para preguntar si tiene permiso. Se responde con los headers de arriba y se corta aca.
@@ -47,6 +48,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 //Todas las respuestas del back son JSON.
 header('Content-Type: application/json; charset=utf-8');
 
+//---------- SESIONES ----------
+session_set_cookie_params([
+    'httponly' => true,    //el JavaScript del front no puede leer la cookie (protege ante XSS)
+    'samesite' => 'Lax',   //el navegador no manda la cookie en peticiones iniciadas desde otros sitios
+    'secure'   => false,   //en desarrollo usamos http; en producción, con https, va true
+]);
+session_start();//recupera la sesión del usuario si trae la cookie, o crea una nueva
 $router = new Router();//este objeto va a redirigir
 
 $request = new Request();//el objeto request va a tener los datos de la request.

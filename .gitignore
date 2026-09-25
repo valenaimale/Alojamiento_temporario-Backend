@@ -1,2 +1,4 @@
 /vendor/
 phinx.php
+# cookies guardadas por curl en las pruebas (-c / -b): son sesiones reales
+cookies.txt

@@ -41,6 +41,7 @@ class Router {
         }
 
         catch (\Throwable $e){//Throwable atrapa tanto Exception como Error (ej: clase o metodo inexistente)
+            error_log($e);//escribe el error real en la terminal del servidor (php -S); al usuario solo le llega el mensaje generico
             $valorcontrolleraction = $this->getController($this->internalError);//si salta la exception, intenta obtener
             //controlador + accion a realizar para el caso de exception
             $this->call($valorcontrolleraction[0], $valorcontrolleraction[1]);
@@ -51,6 +52,9 @@ class Router {
     //cargo las rutas (siempre van a estar hardcodeadas)
     public function cargar_rutas(){
         $this->register('POST@/registrarse', 'RegistroController@registrar');
+        $this->register('POST@/iniciar-sesion', 'InicioSesionController@iniciaSesion');
+        $this->register('POST@/cerrar-sesion', 'InicioSesionController@cierraSesion');
+        $this->register('GET@/sesion', 'InicioSesionController@dameSesion');
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){

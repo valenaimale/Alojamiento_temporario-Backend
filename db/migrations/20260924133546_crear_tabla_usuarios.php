@@ -27,6 +27,5 @@ final class CrearTablaUsuarios extends AbstractMigration
             ->addColumn('fecha_alta', 'datetime', ['default' => 'CURRENT_TIMESTAMP'])
             ->addIndex(['mail'], ['unique' => true])
             ->create();
-
     }
 }

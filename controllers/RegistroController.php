@@ -26,7 +26,7 @@ class RegistroController{
             return $this->error('El mail es invalido');
         }
         if(strlen($contrasenia)> 72 || strlen($contrasenia)< 8){
-            return $this->error('La constraseña debe tener entre 8 y 72 caracteres');
+            return $this->error('La contraseña debe tener entre 8 y 72 caracteres');
         }
         if (mb_strlen($nombre) < 2 || mb_strlen($nombre) > 70) {
             return $this->error('El nombre debe tener entre 2 y 70 caracteres');
@@ -56,7 +56,7 @@ class RegistroController{
             'contrasenia' => $hashContra,
             'rol'         => $rol,
         ]);
-        return $this->respuesta('Cuenta creada existosamente');
+        return $this->respuesta('Cuenta creada exitosamente');
     }    
     private function error(string $mensaje, int $codigo = 422){
         http_response_code($codigo);
@@ -64,6 +64,6 @@ class RegistroController{
     }
     private function respuesta(string $mensaje, int $codigo =201){
         http_response_code($codigo);
-        echo json_encode(['exito'=>$mensaje]);
+        echo json_encode(['ok'=>$mensaje]);
     }
 }
