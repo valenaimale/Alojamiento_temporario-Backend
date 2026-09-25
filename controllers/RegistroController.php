@@ -56,14 +56,24 @@ class RegistroController{
             'contrasenia' => $hashContra,
             'rol'         => $rol,
         ]);
-        return $this->respuesta('Cuenta creada exitosamente');
+        $_SESSION['usuario'] = [
+            'id'     => (int) $pdo->lastInsertId(),   // el id que MySQL le asignó al usuario recién creado
+            'nombre' => $nombre,
+            'rol'    => $rol,
+            'mail'   => $mail,
+        ];
+        session_regenerate_id(true);   // igual que en el login: ID de sesión nuevo al autenticarse
+
+        return $this->respuesta('Cuenta creada exitosamente', $_SESSION['usuario']);
+       
     }    
     private function error(string $mensaje, int $codigo = 422){
         http_response_code($codigo);
         echo json_encode(['error' => $mensaje]);
     }
-    private function respuesta(string $mensaje, int $codigo =201){
+    private function respuesta(string $mensaje, array $datosUsuario, int $codigo =201){
         http_response_code($codigo);
-        echo json_encode(['ok'=>$mensaje]);
+        echo json_encode(['ok'=>$mensaje,
+        'usuario'=>$datosUsuario]);
     }
 }

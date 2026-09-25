@@ -181,13 +181,15 @@ POST /registrarse
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `201` | `{"ok": "Cuenta creada exitosamente"}` | El usuario se registró. |
+| `201` | `{"ok": "Cuenta creada exitosamente", "usuario": {"id": 8, "nombre": "Ana Pérez", "rol": "huesped", "mail": "ana@mail.com"}}` | El usuario se registró. Además, **queda con la sesión iniciada**: el backend envía la cookie de sesión, igual que en el login. |
 | `422` | `{"error": "Todos los campos son obligatorios"}` | Falta algún campo o está vacío. |
 | `422` | `{"error": "El mail es invalido"}` | El mail no tiene formato válido. |
 | `422` | `{"error": "La contraseña debe tener entre 8 y 72 caracteres"}` | Contraseña demasiado corta o larga. |
 | `422` | `{"error": "El nombre debe tener entre 2 y 70 caracteres"}` | Nombre demasiado corto o largo. |
 | `422` | `{"error": "El rol no existe"}` | El rol no es uno de los permitidos. |
 | `422` | `{"error": "El mail ya esta registrado"}` | Ya existe una cuenta con ese mail. |
+
+**Inicio de sesión automático:** al registrarse, el usuario no tiene que iniciar sesión aparte. El backend guarda sus datos en la sesión y responde el `usuario` con el mismo formato que `POST /iniciar-sesion`, así que el frontend puede usar `usuario.rol` para llevarlo al home que corresponde. Para que la cookie de sesión quede guardada, el `fetch` del registro tiene que incluir **`credentials: 'include'`** (ver [Autenticación](#autenticación-sesiones-de-php)).
 
 ### Autenticación (sesiones de PHP)
 
