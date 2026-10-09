@@ -32,7 +32,8 @@
             "App\\Controllers\\": "controllers/",
             "App\\Request\\":"request/",
             "App\\Exceptions\\":"exceptions/",
-            "App\\Database\\": "database/"
+            "App\\Database\\": "database/",
+            "App\\Autorizacion\\": "autorizacion/"
         }
     },
     "config": {
