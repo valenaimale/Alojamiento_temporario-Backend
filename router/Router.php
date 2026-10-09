@@ -65,6 +65,9 @@ class Router {
         // ---------- Tarea 2: verificación de mail y backoffice ----------
         $this->register('POST@/verificar-mail', 'VerificacionMailController@verificar');
         $this->register('POST@/reenviar-verificacion', 'VerificacionMailController@reenviar');
+        $this->register('GET@/backoffice/usuarios', 'BackofficeController@listar');
+        $this->register('GET@/backoffice/usuario', 'BackofficeController@detalle');
+        $this->register('POST@/backoffice/usuario/estado', 'BackofficeController@cambiarEstado');
         // ---------- fin Tarea 2 ----------
 
         // ---------- Tarea 3: sesiones escalables ----------
