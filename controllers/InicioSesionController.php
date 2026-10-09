@@ -2,6 +2,8 @@
 
 namespace App\Controllers;
 use App\Database\Conexion;
+use App\Autorizacion\SesionUsuario;
+use App\Autorizacion\Autorizacion;
 
 class InicioSesionController{
     public function iniciaSesion(){
@@ -11,49 +13,31 @@ class InicioSesionController{
         $contrasenia = $datos_inicio_sesion['contrasenia'] ?? '';
         $pdo = Conexion::obtener();
         $consulta = $pdo->prepare(
-            'SELECT u.contrasenia, u.id, u.rol, u.nombre, u.mail, u.activo from usuarios u WHERE u.mail=? LIMIT 1'
+            'SELECT id, contrasenia, activo FROM usuarios WHERE mail = ? LIMIT 1'
         );
         $consulta->execute([$mail]);
         $fila=$consulta->fetch();//devuelve false si no encontro ninguna fila
-        if(!$fila || !password_verify($contrasenia, $fila['contrasenia'])){
+        //contrasenia NULL = cuenta creada solo con Google: no puede entrar con contraseña.
+        //Mismo mensaje en todos los casos, para no revelar qué mails tienen cuenta.
+        if(!$fila || $fila['contrasenia'] === null || !password_verify($contrasenia, $fila['contrasenia'])){
             return $this->error('Mail o contraseña incorrectos');
         }
         if(!$fila['activo']){//la cuenta existe pero un administrador la deshabilito
             return $this->error('Tu cuenta está deshabilitada', 403);
         }
-        else{
-            session_regenerate_id(true);   // nuevo ID de sesión al loguearse (evita session fixation)
-            $_SESSION['usuario'] = [
-            'id'     => $fila['id'],
-            'nombre' => $fila['nombre'],
-            'rol'    => $fila['rol'],
-            'mail'=>$fila['mail']
-            ];
-            return $this->respuestaInicioSesion('Sesión iniciada', $_SESSION['usuario']);
-        }
+        //SesionUsuario arma $_SESSION['usuario'] (id, nombre, mail, dni, rol, mail_verificado) y regenera el ID de sesión
+        $usuario = SesionUsuario::iniciar((int) $fila['id']);
+        return $this->respuestaInicioSesion('Sesión iniciada', $usuario);
     }
     public function cierraSesion(){
-        $_SESSION = [];           // 1. vacía todos los datos de la sesión
-
-        $parametros = session_get_cookie_params();                  // 2. le pide al navegador que borre la cookie:
-        setcookie(session_name(), '', [                          //    se la vuelve a mandar vacía y con una fecha
-            'expires'  => time() - 3600,                         //    de vencimiento en el pasado (hace 1 hora)
-            'path'     => $parametros['path'],
-            'httponly' => $parametros['httponly'],
-            'samesite' => $parametros['samesite'],
-        ]);
-        session_destroy();        // 3. borra el archivo sess_... del servidor
+        SesionUsuario::cerrar();//vacía la sesión, borra la cookie y destruye la sesión del servidor
         return $this->respuestaSesionCerrada('Sesión cerrada');
     }
     public function dameSesion(){//el front va a pegar contra esta url cuando el usuario
     //requiera entrar a una pagina en la cual este loggeado o para mostrar algo personalizado
     //por ejemplo, un home distinto para cada rol.
-        if(!isset($_SESSION['usuario'])){
-            return $this->error('No hay sesión iniciada');
-        }
-        else{
-            return $this->respuestaGetSesion($_SESSION['usuario']);
-        }
+        Autorizacion::requiereSesion();//sin sesión (o con la cuenta deshabilitada) responde 401 y corta acá
+        return $this->respuestaGetSesion($_SESSION['usuario']);
     }
     private function error(string $mensaje, int $codigo = 401){
         http_response_code($codigo);

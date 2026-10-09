@@ -2,3 +2,5 @@
 phinx.php
 # cookies guardadas por curl en las pruebas (-c / -b): son sesiones reales
 cookies.txt
+# configuración local con datos sensibles (SMTP, Google): se copia de config/configuracion.example.php
+config/configuracion.php

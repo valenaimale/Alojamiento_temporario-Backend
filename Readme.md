@@ -100,7 +100,14 @@ Para habilitarla:
    ```
 
    Instala exactamente las versiones que figuran en `composer.lock` y genera el autoloader.
-3. Configurar la base de datos y correr las migraciones (ver la sección [Configuración](#configuración-phinxphp-y-phinxexamplephp)).
+3. Crear la configuración local copiando la plantilla:
+
+   ```bash
+   cp config/configuracion.example.php config/configuracion.php
+   ```
+
+   `config/configuracion.php` tiene datos de servicios externos (SMTP, Google), así que está en el `.gitignore` y no se sube. No se llama `config.php` porque en Windows chocaría con la clase `config/Config.php`: Windows no distingue mayúsculas en los nombres de archivo.
+4. Configurar la base de datos y correr las migraciones (ver la sección [Configuración](#configuración-phinxphp-y-phinxexamplephp)).
 
 ### Después de cada `git pull`
 
@@ -120,7 +127,7 @@ Cuando se traen cambios de otros integrantes, puede haber librerías nuevas, cla
    ```
 
    Si alguien creó una migración (un archivo nuevo en `db/migrations/`), la aplica en tu base. Si no hay migraciones pendientes, no hace nada.
-3. **Revisar si cambió `phinx.example.php`.** Tu `phinx.php` no se actualiza con el `git pull` porque no está en el repo. Si la plantilla cambió (por ejemplo, un entorno o una opción nueva), hay que pasar ese cambio a mano a tu `phinx.php`, manteniendo tus datos.
+3. **Revisar si cambiaron `phinx.example.php` o `config/configuracion.example.php`.** Tus `phinx.php` y `config/configuracion.php` no se actualizan con el `git pull` porque no están en el repo. Si una plantilla cambió (por ejemplo, una opción nueva), hay que pasar ese cambio a mano a tu archivo, manteniendo tus datos.
 
 Para ver qué archivos cambiaron en el último `git pull`:
 
@@ -175,13 +182,16 @@ POST /registrarse
 | `nombre` | Obligatorio. Entre 2 y 70 caracteres. |
 | `mail` | Obligatorio. Formato de mail válido. Se guarda en minúsculas y sin espacios en los extremos. |
 | `contrasenia` | Obligatorio. Entre 8 y 72 caracteres. Se guarda hasheada con `password_hash()`. |
-| `rol` | Obligatorio. Uno de: `huesped`, `propietario`, `administrador`, `operador`. |
+| `rol` | Obligatorio. Uno de: `huesped`, `propietario`, `administrador`, `operador`. `backoffice` no se puede registrar desde la web. |
+| `cobra_iva` | Solo si `rol` es `propietario`: `"1"` o `"0"` (si no se envía, se toma `"0"`). Se guarda en la tabla `propietarios`. |
+
+> La Tarea 1 amplía este contrato (DNI, confirmación de mail y contraseña, datos fiscales). El contrato completo va a quedar en [`docs/api/cuentas-y-roles.md`](docs/api/cuentas-y-roles.md).
 
 **Responde:**
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `201` | `{"ok": "Cuenta creada exitosamente", "usuario": {"id": 8, "nombre": "Ana Pérez", "rol": "huesped", "mail": "ana@mail.com"}}` | El usuario se registró. Además, **queda con la sesión iniciada**: el backend envía la cookie de sesión, igual que en el login. |
+| `201` | `{"ok": "Cuenta creada exitosamente", "usuario": {...}}` (ver [El objeto `usuario`](#el-objeto-usuario)) | El usuario se registró. Además, **queda con la sesión iniciada**: el backend envía la cookie de sesión, igual que en el login. |
 | `422` | `{"error": "Todos los campos son obligatorios"}` | Falta algún campo o está vacío. |
 | `422` | `{"error": "El mail es invalido"}` | El mail no tiene formato válido. |
 | `422` | `{"error": "La contraseña debe tener entre 8 y 72 caracteres"}` | Contraseña demasiado corta o larga. |
@@ -199,6 +209,27 @@ Para que la cookie funcione entre el frontend y el backend:
 
 - Todo `fetch` a estas rutas, y a cualquier ruta que necesite saber quién es el usuario, tiene que incluir **`credentials: 'include'`**.
 - El frontend se abre como **`http://localhost:5500`**, no como `127.0.0.1:5500`. Para el navegador, `localhost` y `127.0.0.1` son sitios distintos, y restringe las cookies entre sitios distintos.
+
+#### El objeto `usuario`
+
+El registro, el inicio de sesión y `GET /sesion` devuelven el usuario con este formato. Es lo mismo que se guarda en `$_SESSION['usuario']`, que se arma siempre con `App\Autorizacion\SesionUsuario` (nunca a mano en un controlador):
+
+```json
+{
+    "id": 7,
+    "nombre": "Ana Pérez",
+    "mail": "ana@mail.com",
+    "dni": "30123456",
+    "rol": "propietario",
+    "mail_verificado": false
+}
+```
+
+| Campo | Significado |
+|---|---|
+| `dni` | Puede ser `null` (cuentas creadas con Google que todavía no lo completaron, o usuarios anteriores al cambio). |
+| `rol` | Uno solo: `huesped`, `propietario`, `administrador` (de hospedajes), `operador` (de estadía) o `backoffice` (administración interna de la plataforma). Qué puede hacer cada rol se explica en [Permisos por rol](#permisos-por-rol). |
+| `mail_verificado` | `true` si el usuario confirmó su mail (ver Tarea 2). |
 
 #### Iniciar sesión
 
@@ -219,8 +250,8 @@ POST /iniciar-sesion
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `200` | `{"ok": "Sesión iniciada", "usuario": {"id": 7, "nombre": "Ana Pérez", "rol": "huesped", "mail": "ana@mail.com"}}` | Mail y contraseña correctos. Además, el backend envía la cookie de sesión. |
-| `401` | `{"error": "Mail o contraseña incorrectos"}` | El mail no existe o la contraseña es incorrecta. Es **el mismo mensaje** en los dos casos, para no revelar qué mails tienen cuenta. |
+| `200` | `{"ok": "Sesión iniciada", "usuario": {...}}` (ver [El objeto `usuario`](#el-objeto-usuario)) | Mail y contraseña correctos. Además, el backend envía la cookie de sesión. |
+| `401` | `{"error": "Mail o contraseña incorrectos"}` | El mail no existe, la contraseña es incorrecta, o la cuenta se creó solo con Google (no tiene contraseña). Es **el mismo mensaje** en todos los casos, para no revelar qué mails tienen cuenta. |
 | `403` | `{"error": "Tu cuenta está deshabilitada"}` | El mail y la contraseña son correctos, pero la cuenta tiene `activo = 0`. |
 
 El frontend usa `usuario.rol` para decidir a qué página de inicio redirigir.
@@ -237,8 +268,9 @@ Sirve para saber si hay un usuario logueado y quién es, por ejemplo al cargar u
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `200` | `{"usuario": {"id": 7, "nombre": "Ana Pérez", "rol": "huesped", "mail": "ana@mail.com"}}` | Hay una sesión iniciada. |
+| `200` | `{"usuario": {...}}` (ver [El objeto `usuario`](#el-objeto-usuario)) | Hay una sesión iniciada. |
 | `401` | `{"error": "No hay sesión iniciada"}` | No hay sesión, o expiró. |
+| `401` | `{"error": "Tu cuenta está deshabilitada"}` | La cuenta se deshabilitó (`activo = 0`) mientras tenía la sesión abierta. La sesión se cierra. |
 
 #### Cerrar sesión
 
@@ -256,10 +288,11 @@ No envía cuerpo.
 
 ### Permisos por rol
 
-Los roles son cuatro: `huesped`, `propietario`, `operador` y `administrador`. Cada usuario tiene uno solo, en la columna `rol`.
+Los roles son cinco: `huesped`, `propietario`, `operador`, `administrador` y `backoffice`. Cada usuario tiene uno solo, en la columna `rol`.
 
-- El **propietario es un huésped con funciones extra**: puede hacer todo lo que hace un huésped y además lo propio de propietario.
+- El **propietario es un huésped con funciones extra**: puede hacer todo lo que hace un huésped y además lo propio de propietario. Un huésped se puede hacer propietario en cualquier momento: cambia su `rol` y se crea su fila en la tabla `propietarios`, con sus datos fiscales.
 - **Operador y administrador son cuentas aparte**: no heredan de nadie. Si un operador o un administrador quiere alojarse, necesita otra cuenta con otro mail.
+- **Backoffice** es la administración interna de la plataforma (ver y deshabilitar usuarios). No se registra desde la web.
 
 | Rol del usuario | Pasa en rutas que piden |
 |---|---|
@@ -267,6 +300,7 @@ Los roles son cuatro: `huesped`, `propietario`, `operador` y `administrador`. Ca
 | `propietario` | `propietario` y `huesped` |
 | `operador` | `operador` |
 | `administrador` | `administrador` |
+| `backoffice` | `backoffice` |
 
 Esta regla está en un solo lugar: `autorizacion/Autorizacion.php`. Para proteger una ruta se llama en la primera línea del método del controlador:
 
@@ -286,13 +320,29 @@ class PropiedadesController{
 |---|---|
 | `Autorizacion::requiere('rol')` | Rutas de un rol puntual. |
 | `Autorizacion::requiereSesion()` | Rutas que puede usar cualquier usuario logueado. |
+| `Autorizacion::requiereMailVerificado()` | Acciones que exigen el mail confirmado (por ejemplo, reservar). |
 
-Si el usuario no puede seguir, `Autorizacion` responde y corta la ejecución, así que el controlador no tiene que hacer nada más:
+Las tres verifican además, en la base, que la cuenta siga activa: si se deshabilitó mientras el usuario tenía la sesión abierta, cierran la sesión. Si el usuario no puede seguir, `Autorizacion` responde y corta la ejecución, así que el controlador no tiene que hacer nada más:
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
 | `401` | `{"error": "No hay sesión iniciada"}` | No hay sesión, o expiró. El frontend manda al login. |
+| `401` | `{"error": "Tu cuenta está deshabilitada"}` | La cuenta tiene `activo = 0`. La sesión se cierra. |
 | `403` | `{"error": "No tenés permiso para hacer esto"}` | Hay sesión, pero el rol no alcanza. El frontend manda a "acceso denegado". |
+| `403` | `{"error": "Tenés que verificar tu mail para hacer esto"}` | Solo con `requiereMailVerificado()`: el mail todavía no está confirmado. |
+
+---
+
+## Documentación por módulo
+
+Las funcionalidades que salieron de la devolución del profesor se documentan en archivos aparte, para que cada integrante trabaje en el suyo sin generar conflictos en este `Readme.md`:
+
+| Documento | Contenido |
+|---|---|
+| [`docs/api/cuentas-y-roles.md`](docs/api/cuentas-y-roles.md) | Registro completo y "hacerme propietario" (Tarea 1). |
+| [`docs/api/verificacion-y-backoffice.md`](docs/api/verificacion-y-backoffice.md) | Verificación de mail y administración de usuarios (Tarea 2). |
+| [`docs/escalado-horizontal.md`](docs/escalado-horizontal.md) | Sesiones compartidas en Redis y *session affinity* (Tarea 3). |
+| [`docs/api/oauth.md`](docs/api/oauth.md) | Inicio de sesión con Google (Tarea 4). |
 
 ---
 

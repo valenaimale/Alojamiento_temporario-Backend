@@ -48,13 +48,31 @@ class Router {
         }
     }
 
-    //cambiarlas
     //cargo las rutas (siempre van a estar hardcodeadas)
+    //Cada tarea agrega sus rutas SOLO dentro de su bloque: así los PRs no chocan.
     public function cargar_rutas(){
+        // ---------- Base (Fase 0) ----------
         $this->register('POST@/registrarse', 'RegistroController@registrar');
         $this->register('POST@/iniciar-sesion', 'InicioSesionController@iniciaSesion');
         $this->register('POST@/cerrar-sesion', 'InicioSesionController@cierraSesion');
         $this->register('GET@/sesion', 'InicioSesionController@dameSesion');
+        // ---------- fin Base ----------
+
+        // ---------- Tarea 1: cuentas y roles ----------
+        // (la Tarea 1 agrega sus rutas acá)
+        // ---------- fin Tarea 1 ----------
+
+        // ---------- Tarea 2: verificación de mail y backoffice ----------
+        // (la Tarea 2 agrega sus rutas acá)
+        // ---------- fin Tarea 2 ----------
+
+        // ---------- Tarea 3: sesiones escalables ----------
+        // (la Tarea 3 agrega sus rutas acá)
+        // ---------- fin Tarea 3 ----------
+
+        // ---------- Tarea 4: OAuth ----------
+        // (la Tarea 4 agrega sus rutas acá)
+        // ---------- fin Tarea 4 ----------
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){
