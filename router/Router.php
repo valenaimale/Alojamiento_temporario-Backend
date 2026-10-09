@@ -63,7 +63,8 @@ class Router {
         // ---------- fin Tarea 1 ----------
 
         // ---------- Tarea 2: verificación de mail y backoffice ----------
-        // (la Tarea 2 agrega sus rutas acá)
+        $this->register('POST@/verificar-mail', 'VerificacionMailController@verificar');
+        $this->register('POST@/reenviar-verificacion', 'VerificacionMailController@reenviar');
         // ---------- fin Tarea 2 ----------
 
         // ---------- Tarea 3: sesiones escalables ----------
