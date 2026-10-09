@@ -221,6 +221,7 @@ POST /iniciar-sesion
 |---|---|---|
 | `200` | `{"ok": "Sesión iniciada", "usuario": {"id": 7, "nombre": "Ana Pérez", "rol": "huesped", "mail": "ana@mail.com"}}` | Mail y contraseña correctos. Además, el backend envía la cookie de sesión. |
 | `401` | `{"error": "Mail o contraseña incorrectos"}` | El mail no existe o la contraseña es incorrecta. Es **el mismo mensaje** en los dos casos, para no revelar qué mails tienen cuenta. |
+| `403` | `{"error": "Tu cuenta está deshabilitada"}` | El mail y la contraseña son correctos, pero la cuenta tiene `activo = 0`. |
 
 El frontend usa `usuario.rol` para decidir a qué página de inicio redirigir.
 
@@ -252,6 +253,46 @@ No envía cuerpo.
 | Código | Cuerpo | Cuándo |
 |---|---|---|
 | `200` | `{"ok": "Sesión cerrada"}` | La sesión se destruyó en el servidor. |
+
+### Permisos por rol
+
+Los roles son cuatro: `huesped`, `propietario`, `operador` y `administrador`. Cada usuario tiene uno solo, en la columna `rol`.
+
+- El **propietario es un huésped con funciones extra**: puede hacer todo lo que hace un huésped y además lo propio de propietario.
+- **Operador y administrador son cuentas aparte**: no heredan de nadie. Si un operador o un administrador quiere alojarse, necesita otra cuenta con otro mail.
+
+| Rol del usuario | Pasa en rutas que piden |
+|---|---|
+| `huesped` | `huesped` |
+| `propietario` | `propietario` y `huesped` |
+| `operador` | `operador` |
+| `administrador` | `administrador` |
+
+Esta regla está en un solo lugar: `autorizacion/Autorizacion.php`. Para proteger una ruta se llama en la primera línea del método del controlador:
+
+```php
+use App\Autorizacion\Autorizacion;
+
+class PropiedadesController{
+    public function misPropiedades(){
+        Autorizacion::requiere('propietario');
+        //a partir de aca el usuario esta logueado y es propietario
+        $idUsuario = $_SESSION['usuario']['id'];
+    }
+}
+```
+
+| Método | Para qué |
+|---|---|
+| `Autorizacion::requiere('rol')` | Rutas de un rol puntual. |
+| `Autorizacion::requiereSesion()` | Rutas que puede usar cualquier usuario logueado. |
+
+Si el usuario no puede seguir, `Autorizacion` responde y corta la ejecución, así que el controlador no tiene que hacer nada más:
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `401` | `{"error": "No hay sesión iniciada"}` | No hay sesión, o expiró. El frontend manda al login. |
+| `403` | `{"error": "No tenés permiso para hacer esto"}` | Hay sesión, pero el rol no alcanza. El frontend manda a "acceso denegado". |
 
 ---
 

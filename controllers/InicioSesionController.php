@@ -11,12 +11,15 @@ class InicioSesionController{
         $contrasenia = $datos_inicio_sesion['contrasenia'] ?? '';
         $pdo = Conexion::obtener();
         $consulta = $pdo->prepare(
-            'SELECT u.contrasenia, u.id, u.rol, u.nombre, u.mail from usuarios u WHERE u.mail=? LIMIT 1'
+            'SELECT u.contrasenia, u.id, u.rol, u.nombre, u.mail, u.activo from usuarios u WHERE u.mail=? LIMIT 1'
         );
         $consulta->execute([$mail]);
         $fila=$consulta->fetch();//devuelve false si no encontro ninguna fila
         if(!$fila || !password_verify($contrasenia, $fila['contrasenia'])){
             return $this->error('Mail o contraseña incorrectos');
+        }
+        if(!$fila['activo']){//la cuenta existe pero un administrador la deshabilito
+            return $this->error('Tu cuenta está deshabilitada', 403);
         }
         else{
             session_regenerate_id(true);   // nuevo ID de sesión al loguearse (evita session fixation)
