@@ -72,7 +72,9 @@ class Router {
         // ---------- fin Tarea 3 ----------
 
         // ---------- Tarea 4: OAuth ----------
-        // (la Tarea 4 agrega sus rutas acá)
+        $this->register('GET@/oauth/google', 'OAuthController@iniciarGoogle');
+        $this->register('GET@/oauth/google/callback', 'OAuthController@callbackGoogle');
+        $this->register('POST@/completar-datos', 'OAuthController@completarDatos');
         // ---------- fin Tarea 4 ----------
     }
     //Registra las rutas en el ROUTER
