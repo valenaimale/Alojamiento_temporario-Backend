@@ -21,6 +21,8 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use App\Router\Router;
 use App\Request\Request;
+use App\Config\Config;
+use App\Sesion\ManejadorSesionRedis;
 
 //---------- CORS ----------
 //El front corre en otro origen (otro puerto), asi que el navegador bloquea
@@ -47,14 +49,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 //Todas las respuestas del back son JSON.
 header('Content-Type: application/json; charset=utf-8');
+//Qué servidor atendió la petición: con varias réplicas detrás del balanceador, se ve en F12 → Network.
+header('X-Replica: ' . gethostname());
 
 //---------- SESIONES ----------
+//Dónde se guardan: por defecto en archivos (como siempre). Con 'redis', todas las réplicas del backend
+//comparten las sesiones, y se puede escalar horizontalmente (ver docs/escalado-horizontal.md).
+//La variable de entorno SESIONES_DRIVER (la usa docker-compose) tiene prioridad sobre config/configuracion.php.
+$driverSesiones = getenv('SESIONES_DRIVER') ?: Config::obtener('sesiones.driver');
+if ($driverSesiones === 'redis') {
+    $duracionSesion = (int) Config::obtener('sesiones.redis.duracion_segundos');
+    $redis = new \Predis\Client([
+        'host' => getenv('REDIS_HOST') ?: Config::obtener('sesiones.redis.host'),
+        'port' => (int) (getenv('REDIS_PORT') ?: Config::obtener('sesiones.redis.port')),
+    ]);
+    //a partir de acá PHP usa ManejadorSesionRedis para leer y escribir $_SESSION
+    session_set_save_handler(
+        new ManejadorSesionRedis($redis, Config::obtener('sesiones.redis.prefijo'), $duracionSesion),
+        true
+    );
+    ini_set('session.gc_maxlifetime', (string) $duracionSesion);
+}
+ini_set('session.use_strict_mode', '1');//no acepta IDs de sesión inventados por el cliente
+
 session_set_cookie_params([
     'httponly' => true,    //el JavaScript del front no puede leer la cookie (protege ante XSS)
     'samesite' => 'Lax',   //el navegador no manda la cookie en peticiones iniciadas desde otros sitios
     'secure'   => false,   //en desarrollo usamos http; en producción, con https, va true
 ]);
-session_start();//recupera la sesión del usuario si trae la cookie, o crea una nueva
+//Si Redis está caído, session_start() falla antes de llegar al router (que no lo puede atrapar):
+//se responde un error JSON prolijo y el detalle queda en la terminal del servidor.
+try {
+    session_start();//recupera la sesión del usuario si trae la cookie, o crea una nueva
+} catch (\Throwable $e) {
+    error_log($e);
+    http_response_code(503);
+    echo json_encode(['error' => 'Estamos con algunos inconvenientes. Vuelva a intentar en unos instantes...']);
+    exit;
+}
+//---------- fin SESIONES ----------
+
 $router = new Router();//este objeto va a redirigir la peticion al controlador que sepa resolverla
 
 $request = new Request();//el objeto request va a tener los datos de la request.

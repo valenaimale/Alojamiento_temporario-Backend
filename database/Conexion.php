@@ -19,9 +19,17 @@ class Conexion
             $entornos = $config['environments'];
             $db = $entornos[$entornos['default_environment']];
 
-            $dsn = "mysql:host={$db['host']};port={$db['port']};dbname={$db['name']};charset={$db['charset']}";
+            //Las variables de entorno (las define docker-compose) reemplazan los datos de phinx.php:
+            //desde un contenedor, MySQL está en otro host y se entra con otro usuario.
+            //Sin esas variables (desarrollo normal) se usa phinx.php como siempre.
+            $host = getenv('DB_HOST') ?: $db['host'];
+            $port = getenv('DB_PORT') ?: $db['port'];
+            $user = getenv('DB_USER') ?: $db['user'];
+            $pass = getenv('DB_PASS') !== false ? getenv('DB_PASS') : $db['pass'];
 
-            self::$pdo = new PDO($dsn, $db['user'], $db['pass'], [
+            $dsn = "mysql:host={$host};port={$port};dbname={$db['name']};charset={$db['charset']}";
+
+            self::$pdo = new PDO($dsn, $user, $pass, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,     //si una consulta falla, lanza una excepcion
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, //las filas vuelven como arrays ['columna' => valor]
                 PDO::ATTR_EMULATE_PREPARES => false,              //sentencias preparadas reales de MySQL

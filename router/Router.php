@@ -72,7 +72,7 @@ class Router {
         // ---------- fin Tarea 2 ----------
 
         // ---------- Tarea 3: sesiones escalables ----------
-        // (la Tarea 3 agrega sus rutas acá)
+        $this->register('GET@/estado', 'EstadoController@estado');
         // ---------- fin Tarea 3 ----------
 
         // ---------- Tarea 4: OAuth ----------
