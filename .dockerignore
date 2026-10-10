@@ -1,0 +1,11 @@
+# Lo que NO se copia a la imagen de producción (Dockerfile de la raíz).
+# Datos sensibles y archivos locales: desplegado, todo se configura con variables de entorno.
+phinx.php
+config/configuracion.php
+docker/backend.env
+cookies.txt
+# Se reinstala adentro de la imagen con composer install
+vendor/
+# No hacen falta para correr el backend
+.git/
+docs/tareas/

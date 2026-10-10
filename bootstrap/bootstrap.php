@@ -28,7 +28,10 @@ use App\Sesion\ManejadorSesionRedis;
 //El front corre en otro origen (otro puerto), asi que el navegador bloquea
 //sus peticiones salvo que el back lo autorice con estos headers.
 //Live Server puede abrir el front como localhost o como 127.0.0.1: son origenes distintos.
-$origenesPermitidos = ['http://localhost:5500', 'http://127.0.0.1:5500'];
+//En produccion se suma la URL real del front (app.url_front, o la variable de entorno APP_URL_FRONT).
+//(Con el rewrite de Vercel, el navegador ve front y back como el mismo sitio y CORS ni se usa,
+//pero queda habilitado por si se llama al back directamente.)
+$origenesPermitidos = ['http://localhost:5500', 'http://127.0.0.1:5500', rtrim(Config::obtener('app.url_front'), '/')];
 $origen = $_SERVER['HTTP_ORIGIN'] ?? '';
 
 if (in_array($origen, $origenesPermitidos, true)) {
@@ -75,7 +78,8 @@ ini_set('session.use_strict_mode', '1');//no acepta IDs de sesión inventados po
 session_set_cookie_params([
     'httponly' => true,    //el JavaScript del front no puede leer la cookie (protege ante XSS)
     'samesite' => 'Lax',   //el navegador no manda la cookie en peticiones iniciadas desde otros sitios
-    'secure'   => false,   //en desarrollo usamos http; en producción, con https, va true
+    //en desarrollo es http, así que va false; en producción (https) se activa con SESIONES_COOKIE_SEGURA=1
+    'secure'   => in_array((string) Config::obtener('sesiones.cookie_segura', '0'), ['1', 'true'], true),
 ]);
 //Si Redis está caído, session_start() falla antes de llegar al router (que no lo puede atrapar):
 //se responde un error JSON prolijo y el detalle queda en la terminal del servidor.

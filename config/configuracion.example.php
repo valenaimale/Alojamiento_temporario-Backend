@@ -8,6 +8,7 @@ return [
     ],
     'sesiones' => [
         'driver' => 'archivos',                   //'archivos' (por defecto) o 'redis' (Tarea 3)
+        'cookie_segura' => '0',                   //'1' en producción (HTTPS): la cookie de sesión solo viaja cifrada
         'redis'  => [
             'host'              => '127.0.0.1',
             'port'              => 6379,
