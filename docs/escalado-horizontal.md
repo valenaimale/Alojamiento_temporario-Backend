@@ -126,9 +126,29 @@ Los archivos están en el repo:
 
 ## Pruebas para mostrar
 
+> **Antes de empezar:** verificar con `docker ps` que ningún otro contenedor ni `php -S` esté usando el puerto 8000. Si lo está, el balanceador no arranca y las peticiones le llegan a otro programa.
+>
+> **Las sesiones anteriores no sirven:** una sesión iniciada con `php -S` quedó guardada en un archivo, no en Redis, y las réplicas no la conocen. Hay que **iniciar sesión de nuevo a través de la demo**.
+
 1. **El balanceador reparte:** `curl.exe http://localhost:8000/estado` varias veces. El campo `replica` alterna entre `backend1` y `backend2`.
-2. **La sesión se comparte:** iniciar sesión en el navegador y navegar, con F12 → *Network* abierto. El header `X-Replica` de las peticiones a `/sesion` va alternando entre `backend1` y `backend2`, y la sesión se mantiene.
-3. **La prueba clave: una réplica se cae y nadie pierde la sesión.** Con la sesión iniciada, ejecutar `docker compose stop backend1` y seguir navegando: la sesión sigue, porque está en Redis y no en la réplica. Para volver: `docker compose start backend1`.
+2. **La sesión se comparte.**
+   - **Desde el navegador:** iniciar sesión en el front y navegar, con F12 → *Network* abierto. El header `X-Replica` de las peticiones a `/sesion` va alternando entre `backend1` y `backend2`, y la sesión se mantiene.
+   - **Desde la consola (PowerShell):** primero iniciar sesión **guardando la cookie** con `-c`. El usuario tiene que existir en la base:
+
+     ```powershell
+     curl.exe --% -c cookies.txt -X POST http://localhost:8000/iniciar-sesion -H "Content-Type: application/json" -d "{\"mail\":\"un-usuario@mail.com\",\"contrasenia\":\"su-contrasenia\"}"
+     ```
+
+     El login funciona igual que siempre: busca el usuario en **MySQL** y verifica la contraseña. Lo único que cambia es dónde queda guardada la **sesión**: en Redis, en lugar de un archivo. Redis no guarda usuarios, solo sesiones (qué cookie pertenece a qué usuario).
+
+     Después, consultar la sesión **enviando la cookie** con `-b`, varias veces. Con `-i` se ve el header `X-Replica`:
+
+     ```powershell
+     curl.exe -i -b cookies.txt http://localhost:8000/sesion
+     ```
+
+     `X-Replica` alterna entre `backend1` y `backend2`, y las dos devuelven el mismo usuario.
+3. **La prueba clave: una réplica se cae y nadie pierde la sesión.** Con la sesión iniciada (paso 2), ejecutar `docker compose stop backend1` y seguir navegando, o repetir `curl.exe -i -b cookies.txt http://localhost:8000/sesion`. La sesión sigue, porque está en Redis y no en la réplica: ahora todas las respuestas son de `backend2`. Para volver: `docker compose start backend1`.
 4. **Ver las sesiones en Redis:** `docker compose exec redis redis-cli KEYS "alojamiento:sesion:*"`. Hay una clave por cada usuario logueado; los visitantes sin login no generan ninguna. Después de cerrar sesión, la clave desaparece.
 5. **Redis caído:** `docker compose stop redis`. El backend responde `503` con el mensaje genérico (no se rompe), y el error real aparece en `docker compose logs backend1`. Con `docker compose start redis` se recupera solo.
 6. **Comparación con session affinity:** descomentar `ip_hash;` en `docker/nginx/default.conf` y ejecutar `docker compose restart balanceador`. Ahora `/estado` devuelve siempre la misma réplica. Si las sesiones estuvieran en archivos, al frenar esa réplica el usuario perdería la sesión. Con Redis no la pierde, aunque cambie de réplica.
