@@ -86,6 +86,8 @@ El orden importa: cada pieza necesita la dirección de la anterior.
 
 > El plan gratis se **apaga si no se usa** por un tiempo (Aiven avisa por mail). Antes de una presentación, entrar a la consola y verificar que el servicio diga "En ejecución".
 
+> **Aiven usa el modo SQL `ANSI`**, más estricto que el MySQL que instalamos localmente. Lo más importante: **las comillas dobles indican nombres de columnas, no textos**. En `WHERE rol = "huesped"`, Aiven busca una *columna* llamada `huesped`, y la consulta falla, aunque en desarrollo funcione. **En SQL, los textos van siempre entre comillas simples** (`WHERE rol = 'huesped'`), o mejor, como parámetros de una sentencia preparada. Hoy ninguna consulta del proyecto usa comillas dobles: se probó el registro, el login, la sesión, "hacerme propietario", los datos fiscales y el backoffice contra Aiven.
+
 ### 2. Backend (Railway)
 
 1. En Railway: **New Project → Deploy from GitHub repo →** `Alojamiento_temporario-Backend`. Railway detecta el `Dockerfile` de la raíz y construye la imagen.
