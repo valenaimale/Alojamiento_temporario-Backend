@@ -27,11 +27,11 @@ class Conexion
                 $db = $entornos[$entornos['default_environment']];
             }
 
-            $host    = getenv('DB_HOST') ?: ($db['host'] ?? 'localhost');
-            $port    = getenv('DB_PORT') ?: ($db['port'] ?? '3306');
-            $nombre  = getenv('DB_NAME') ?: ($db['name'] ?? 'alojamiento');
-            $user    = getenv('DB_USER') ?: ($db['user'] ?? 'root');
-            $pass    = getenv('DB_PASS') !== false ? getenv('DB_PASS') : ($db['pass'] ?? '');
+            $host    = self::entorno('DB_HOST') ?? ($db['host'] ?? 'localhost');
+            $port    = self::entorno('DB_PORT') ?? ($db['port'] ?? '3306');
+            $nombre  = self::entorno('DB_NAME') ?? ($db['name'] ?? 'alojamiento');
+            $user    = self::entorno('DB_USER') ?? ($db['user'] ?? 'root');
+            $pass    = self::entorno('DB_PASS') ?? ($db['pass'] ?? '');
             $charset = $db['charset'] ?? 'utf8mb4';
 
             $dsn = "mysql:host={$host};port={$port};dbname={$nombre};charset={$charset}";
@@ -44,7 +44,7 @@ class Conexion
 
             //SSL: las bases en la nube (Aiven) exigen conexion cifrada. DB_SSL_CA (o mysql_attr_ssl_ca en phinx.php)
             //es la ruta al certificado de la autoridad que firmo el del servidor; puede ser relativa a la raiz del proyecto.
-            $certificado = getenv('DB_SSL_CA') ?: ($db['mysql_attr_ssl_ca'] ?? '');
+            $certificado = self::entorno('DB_SSL_CA') ?? ($db['mysql_attr_ssl_ca'] ?? '');
             if ($certificado !== '') {
                 if (!file_exists($certificado)) {
                     $certificado = __DIR__ . '/../' . $certificado;
@@ -58,5 +58,17 @@ class Conexion
         }
 
         return self::$pdo;
+    }
+
+    //Lee una variable de entorno sin los espacios del principio y del final (es fácil que se cuelen
+    //al cargarla en el panel de Railway, y un " alojamiento" con espacio no es la base "alojamiento").
+    //Devuelve null si no está definida o está vacía.
+    private static function entorno(string $nombre): ?string
+    {
+        $valor = getenv($nombre);
+        if ($valor === false || trim($valor) === '') {
+            return null;
+        }
+        return trim($valor);
     }
 }

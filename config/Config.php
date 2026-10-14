@@ -21,8 +21,8 @@ class Config
     {
         $variableEntorno = strtoupper(str_replace('.', '_', $clave));
         $deEntorno = getenv($variableEntorno);
-        if ($deEntorno !== false && $deEntorno !== '') {
-            return $deEntorno;
+        if ($deEntorno !== false && trim($deEntorno) !== '') {
+            return trim($deEntorno);//sin los espacios que se cuelan al cargar variables en un panel web
         }
 
         if (self::$valores === null) {
