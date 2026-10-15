@@ -40,6 +40,7 @@ class Conexion
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,     //si una consulta falla, lanza una excepcion
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC, //las filas vuelven como arrays ['columna' => valor]
                 PDO::ATTR_EMULATE_PREPARES => false,              //sentencias preparadas reales de MySQL
+                PDO::ATTR_TIMEOUT => 5,                           //si la base no responde en 5 segundos, falla (no deja la petición colgada)
             ];
 
             //SSL: las bases en la nube (Aiven) exigen conexion cifrada. DB_SSL_CA (o mysql_attr_ssl_ca en phinx.php)

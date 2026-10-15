@@ -23,6 +23,15 @@ use App\Router\Router;
 use App\Request\Request;
 use App\Config\Config;
 use App\Sesion\ManejadorSesionRedis;
+use App\Log\Log;
+
+//---------- ERRORES Y LOGS ----------
+ini_set('display_errors', '0');//ningún error de PHP se muestra en la respuesta: al usuario solo le llega el JSON
+ini_set('log_errors', '1');//los avisos de PHP (warnings) quedan en el log del servidor
+ini_set('zend.exception_ignore_args', '1');//los stack traces del log no incluyen los valores de los argumentos (pueden ser datos sensibles)
+header_remove('X-Powered-By');//no se informa la versión de PHP: sería una pista gratis para un atacante
+header('X-Request-Id: ' . Log::idPeticion());//el mismo identificador que va en las líneas de log de esta petición
+//---------- fin ERRORES Y LOGS ----------
 
 //---------- CORS ----------
 //El front corre en otro origen (otro puerto), asi que el navegador bloquea
@@ -86,7 +95,7 @@ session_set_cookie_params([
 try {
     session_start();//recupera la sesión del usuario si trae la cookie, o crea una nueva
 } catch (\Throwable $e) {
-    error_log($e);
+    Log::error('No se pudo iniciar la sesión', $e);
     http_response_code(503);
     echo json_encode(['error' => 'Estamos con algunos inconvenientes. Vuelva a intentar en unos instantes...']);
     exit;

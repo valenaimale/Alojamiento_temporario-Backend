@@ -106,7 +106,8 @@ El orden importa: cada pieza necesita la dirección de la anterior.
 
    `PORT` **no** se carga: la define Railway sola.
 3. En **Settings → Networking → Generate Domain**, generar la URL pública (algo como `alojamiento-backend.up.railway.app`).
-4. Probar: `https://<url-de-railway>/estado` tiene que responder `{"ok":"API funcionando",...}`.
+4. Probar: `https://<url-de-railway>/estado` tiene que responder `200` con `{"estado":"ok",...,"chequeos":{"base_de_datos":"ok"}}`.
+5. Activar el pipeline CI/CD (ver la sección siguiente).
 
 ### 3. Frontend (Vercel)
 
@@ -126,6 +127,32 @@ En Railway, cargar `APP_URL_FRONT` con la URL de Vercel (sin `/` al final). Rail
 2. `https://<url-de-vercel>/api/estado` → responde el backend, a través de Vercel.
 3. Registrarse, iniciar sesión, entrar al perfil y cerrar sesión. En F12 → *Application → Cookies* tiene que aparecer `PHPSESSID` **en el dominio de Vercel**, con `Secure` y `HttpOnly`.
 4. En Aiven, la tabla `usuarios` tiene el usuario nuevo.
+
+---
+
+## Pipeline CI/CD
+
+Cada push a `main` llega solo a producción (**Continuous Deployment**), pero **solo si pasa todos los controles**:
+
+```
+git push → GitHub Actions (lint → tests → build de la imagen) → Railway despliega → health check → la versión nueva recibe el tráfico
+                          └─ si algo falla: Railway no despliega       └─ si /estado no responde 200: Railway la descarta
+```
+
+Si algo falla en cualquier paso, **producción sigue con la versión anterior**.
+
+| Paso | Dónde | Qué hace |
+|---|---|---|
+| **CI** | `.github/workflows/ci.yml` (GitHub Actions) | En cada push y PR: lint de PHP, tests unitarios y de integración (contra MySQL y Mailpit reales), y build de la imagen de Docker. Ver `tests/README.md` |
+| **Esperar al CI** | Railway → el servicio → **Settings → Source → "Wait for CI"** (activado) | Railway despliega un commit de `main` solo cuando todos sus checks de GitHub Actions pasaron. Si un test falla, no despliega |
+| **Health check** | Railway → **Settings → Deploy → Healthcheck Path** = `/estado` | Antes de pasarle el tráfico a la versión nueva, Railway consulta `/estado`. Si no responde `200` (por ejemplo, porque no se conecta a la base), descarta esa versión y sigue la anterior |
+| **Rollback** | Railway → **Deployments** → una versión anterior → **Redeploy**. En Vercel: **Deployments** → **Promote to Production** | Volver a una versión anterior con un clic, sin tocar el código |
+
+`/estado` también informa qué commit está corriendo (`"version"`, desde la variable `RAILWAY_GIT_COMMIT_SHA` que pone Railway): sirve para comprobar que se desplegó la versión esperada.
+
+> **Si Aiven está apagado** (se apaga por inactividad), el health check falla y Railway no despliega. Es lo correcto: no tiene sentido publicar una versión que no puede usar la base. Antes de trabajar, encender Aiven.
+
+El frontend (Vercel) se despliega en cada push sin esperar a un CI: son archivos estáticos sin lógica de servidor para testear.
 
 ---
 

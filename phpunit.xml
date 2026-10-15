@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Configuración de PHPUnit. Cómo correr los tests: ver tests/README.md.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         failOnWarning="true"
+         failOnRisky="true"
+         displayDetailsOnTestsThatTriggerWarnings="true"
+         displayDetailsOnSkippedTests="true">
+    <testsuites>
+        <testsuite name="unitarios">
+            <directory>tests/Unitarios</directory>
+        </testsuite>
+        <testsuite name="integracion">
+            <directory>tests/Integracion</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>autorizacion</directory>
+            <directory>bootstrap</directory>
+            <directory>config</directory>
+            <directory>controllers</directory>
+            <directory>database</directory>
+            <directory>exceptions</directory>
+            <directory>log</directory>
+            <directory>mail</directory>
+            <directory>request</directory>
+            <directory>router</directory>
+            <directory>sesion</directory>
+            <directory>validacion</directory>
+        </include>
+    </source>
+</phpunit>

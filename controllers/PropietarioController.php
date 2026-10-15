@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Controllers;
+
+use App\Request\Request;
 use App\Database\Conexion;
 use App\Autorizacion\Autorizacion;
 use App\Autorizacion\SesionUsuario;
@@ -23,8 +25,8 @@ class PropietarioController{
             return $this->error('Completá tu DNI antes de hacerte propietario');
         }
 
-        $datos = json_decode(file_get_contents('php://input'), true);
-        $fiscales = self::validarDatosFiscales($datos ?? []);//si el cuerpo no es un JSON valido, json_decode devuelve null
+        $datos = Request::datosJson();
+        $fiscales = self::validarDatosFiscales($datos);
         if(isset($fiscales['error'])){
             return $this->error($fiscales['error']);
         }

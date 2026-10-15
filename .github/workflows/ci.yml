@@ -1,0 +1,102 @@
+# Integración continua (CI): en cada push y en cada pull request hacia main, GitHub levanta una máquina
+# limpia y verifica el backend. Si algo falla, el commit queda marcado con ❌ en GitHub, y Railway
+# (con "Wait for CI" activado) NO lo despliega: producción sigue con la versión anterior.
+#
+#   lint → tests (unitarios + integración contra MySQL y Mailpit reales) → build de la imagen de producción
+#
+# Ver tests/README.md (cómo correr los tests localmente) y docs/despliegue.md (cómo se conecta con Railway).
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+# si se sube otro commit a la misma rama mientras corre, se cancela la ejecución vieja
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Lint y tests (PHPUnit)
+    runs-on: ubuntu-latest
+
+    # Servicios que necesitan los tests de integración: corren como contenedores al lado de la máquina del CI
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - 1025:1025   # SMTP: el backend manda los mails acá (los valores de config/configuracion.example.php)
+          - 8025:8025   # API: los tests leen el mail de verificación
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar PHP 8.5
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'   # la misma versión que la imagen de producción (Dockerfile)
+          extensions: pdo_mysql, curl, mbstring, openssl
+          tools: composer:v2
+          coverage: none
+
+      - name: Validar composer.json
+        run: composer validate --no-check-publish
+
+      - name: Instalar dependencias
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Lint (sintaxis de todos los archivos PHP)
+        run: find . -path ./vendor -prune -o -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
+
+      # Aiven (la base de producción) usa el modo SQL ANSI, más estricto que el de una instalación normal
+      # (por ejemplo, las comillas dobles son nombres de columna, no textos). Los tests corren con el mismo
+      # modo, así una consulta que fallaría en producción falla acá primero.
+      - name: Configurar MySQL como Aiven (modo SQL ANSI)
+        run: >-
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot -e
+          "SET GLOBAL sql_mode = 'REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES,IGNORE_SPACE,ONLY_FULL_GROUP_BY,ANSI,STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'"
+
+      - name: Tests unitarios
+        run: vendor/bin/phpunit --testsuite unitarios
+
+      - name: Tests de integración
+        run: vendor/bin/phpunit --testsuite integracion
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_PORT: 3306
+          TEST_DB_USER: root
+          TEST_DB_PASS: root
+          MAILPIT_URL: http://127.0.0.1:8025
+
+  imagen:
+    name: Build de la imagen de producción (Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      # La misma imagen que construye Railway: si el Dockerfile o las dependencias están rotos, falla acá
+      - name: Construir la imagen
+        run: docker build --tag alojamiento-backend .
+
+      - name: Verificar que la imagen no tiene datos sensibles ni archivos de tests
+        run: |
+          docker run --rm alojamiento-backend sh -c '
+            for archivo in phinx.php config/configuracion.php docker/backend.env tests phpunit.xml; do
+              if [ -e "$archivo" ]; then echo "La imagen no debería tener $archivo"; exit 1; fi
+            done
+            echo "OK: la imagen no tiene archivos sensibles ni de tests"'
