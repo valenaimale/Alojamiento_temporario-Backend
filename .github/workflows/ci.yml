@@ -1,21 +1,27 @@
-# Integración continua (CI): en cada push y en cada pull request hacia main, GitHub levanta una máquina
-# limpia y verifica el backend. Si algo falla, el commit queda marcado con ❌ en GitHub, y Railway
-# (con "Wait for CI" activado) NO lo despliega: producción sigue con la versión anterior.
+# Pipeline CI/CD del backend.
 #
+# Integración continua (CI): en cada push y en cada pull request hacia main, GitHub levanta una máquina
+# limpia y verifica el backend:
 #   lint → tests (unitarios + integración contra MySQL y Mailpit reales) → build de la imagen de producción
 #
-# Ver tests/README.md (cómo correr los tests localmente) y docs/despliegue.md (cómo se conecta con Railway).
-name: CI
+# Despliegue continuo (CD): solo en un push a main (o sea, al mergear un PR) y solo si todo lo anterior pasó:
+#   deploy a Railway → verificación de producción (/estado responde con el commit nuevo)
+# Si algo falla antes, el deploy ni se ejecuta y producción sigue con la versión anterior.
+# El despliegue automático de Railway está apagado: la única forma de llegar a producción es este pipeline.
+#
+# Ver tests/README.md (cómo correr los tests localmente) y docs/despliegue.md (el pipeline completo).
+name: CI/CD
 
 on:
   push:
   pull_request:
     branches: [main]
 
-# si se sube otro commit a la misma rama mientras corre, se cancela la ejecución vieja
+# Si se sube otro commit a la misma rama mientras corre, se cancela la ejecución vieja.
+# En main no se cancela: un despliegue a medias tiene que terminar.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   tests:
@@ -100,3 +106,52 @@ jobs:
               if [ -e "$archivo" ]; then echo "La imagen no debería tener $archivo"; exit 1; fi
             done
             echo "OK: la imagen no tiene archivos sensibles ni de tests"'
+
+  desplegar:
+    name: Deploy a Railway (producción)
+    # solo cuando se actualiza main (un PR mergeado), nunca en otras ramas ni en los PR
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # solo si los tests y el build pasaron: si alguno falló, este job no se ejecuta
+    needs: [tests, imagen]
+    runs-on: ubuntu-latest
+    # la herramienta oficial de Railway (CLI), ya instalada en esta imagen
+    container: ghcr.io/railwayapp/cli:latest
+    env:
+      # token del proyecto en Railway, guardado como secreto del repo (Settings → Secrets and variables → Actions)
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      # /estado muestra este commit: así la verificación de abajo sabe si producción ya tiene la versión nueva
+      - name: Guardar el commit que se despliega
+        run: echo "${{ github.sha }}" > version.txt
+
+      # Sube el código; Railway construye la imagen con el Dockerfile y, antes de pasarle el tráfico,
+      # comprueba que /estado responda 200 (Settings → Deploy → Healthcheck Path)
+      - name: Desplegar en Railway
+        run: railway up --service "Alojamiento_temporario-Backend" --ci
+
+  verificar:
+    name: Verificar producción (/estado)
+    needs: [desplegar]
+    runs-on: ubuntu-latest
+    steps:
+      # Espera (hasta 6 minutos) a que producción responda con el commit nuevo y la base funcionando
+      - name: Esperar a que producción tenga la versión nueva
+        env:
+          URL_ESTADO: https://alojamientotemporario-backend-production.up.railway.app/estado
+          VERSION: ${{ github.sha }}
+        run: |
+          esperada="${VERSION:0:7}"
+          for intento in $(seq 1 36); do
+            respuesta=$(curl -s --max-time 15 "$URL_ESTADO" || true)
+            echo "Intento $intento: $respuesta"
+            if echo "$respuesta" | grep -q "\"version\":\"$esperada\"" && echo "$respuesta" | grep -q '"estado":"ok"'; then
+              echo "OK: producción tiene la versión $esperada y la base de datos responde"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Producción no respondió con la versión $esperada en 6 minutos"
+          exit 1
