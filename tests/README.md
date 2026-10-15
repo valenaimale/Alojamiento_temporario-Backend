@@ -51,7 +51,7 @@ GitHub Actions las define en `.github/workflows/ci.yml`.
 
 En Windows los tests de integración tardan alrededor de un minuto y medio: cada registro intenta mandar el mail de verificación, y si Mailpit no está levantado, Windows tarda en rechazar la conexión. En GitHub Actions (Linux) tardan mucho menos.
 
-## Integración continua (CI)
+## Integración y despliegue continuos (CI/CD)
 
 En cada push y en cada pull request hacia `main`, **GitHub Actions** corre `.github/workflows/ci.yml`:
 
@@ -60,7 +60,9 @@ En cada push y en cada pull request hacia `main`, **GitHub Actions** corre `.git
 3. Corre los **tests unitarios** y los **de integración**, contra un MySQL 8.4 configurado con el mismo modo SQL que Aiven (la base de producción) y un Mailpit.
 4. **Construye la imagen de Docker** de producción (la misma que usa Railway) y verifica que no tenga archivos sensibles.
 
-El resultado se ve en la pestaña **Actions** del repo, y al lado de cada commit y de cada PR (✅ o ❌). Railway está configurado para **desplegar solo si el CI pasó** (ver `docs/despliegue.md`).
+Cuando el cambio entra a `main` (un PR mergeado), el mismo workflow sigue con el **despliegue continuo (CD)**: despliega en Railway y verifica que producción responda con la versión nueva. Solo se ejecuta si todo lo anterior pasó (ver `docs/despliegue.md`, sección "Pipeline CI/CD").
+
+El resultado se ve en la pestaña **Actions** del repo, y al lado de cada commit y de cada PR (✅ o ❌).
 
 ## Cómo agregar un test
 

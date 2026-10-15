@@ -29,11 +29,20 @@ class EstadoController
         http_response_code($todoBien ? 200 : 503);
         echo json_encode([
             'estado'   => $todoBien ? 'ok' : 'error',
-            //el commit desplegado (Railway lo informa en RAILWAY_GIT_COMMIT_SHA): sirve para comprobar qué versión está corriendo
-            'version'  => substr(getenv('RAILWAY_GIT_COMMIT_SHA') ?: 'local', 0, 7),
+            'version'  => self::version(),
             'replica'  => gethostname(),//en Docker es el hostname de cada contenedor (backend1, backend2)
             'sesiones' => getenv('SESIONES_DRIVER') ?: Config::obtener('sesiones.driver'),
             'chequeos' => ['base_de_datos' => $baseDeDatos],
         ]);
+    }
+
+    //El commit que está corriendo, para comprobar qué versión se desplegó.
+    //version.txt lo escribe el pipeline de GitHub Actions justo antes de desplegar (no está en el repo).
+    //Si no existe, se usa RAILWAY_GIT_COMMIT_SHA (despliegue desde Railway) o 'local' (en la máquina de cada uno).
+    private static function version(): string
+    {
+        $archivo = __DIR__ . '/../version.txt';
+        $commit = is_file($archivo) ? trim((string) file_get_contents($archivo)) : (getenv('RAILWAY_GIT_COMMIT_SHA') ?: 'local');
+        return substr($commit, 0, 7);
     }
 }

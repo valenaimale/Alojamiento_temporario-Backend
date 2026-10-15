@@ -132,23 +132,31 @@ En Railway, cargar `APP_URL_FRONT` con la URL de Vercel (sin `/` al final). Rail
 
 ## Pipeline CI/CD
 
-Cada push a `main` llega solo a producción (**Continuous Deployment**), pero **solo si pasa todos los controles**:
+Todo el pipeline corre en **GitHub Actions** (`.github/workflows/ci.yml`): la **integración continua** (CI) verifica cada cambio y el **despliegue continuo** (CD) lleva a producción, solo, cada cambio que entra a `main`, **pero solo si pasó todos los controles**:
 
 ```
-git push → GitHub Actions (lint → tests → build de la imagen) → Railway despliega → health check → la versión nueva recibe el tráfico
-                          └─ si algo falla: Railway no despliega       └─ si /estado no responde 200: Railway la descarta
+PR mergeado en main → lint → tests → build de la imagen → deploy a Railway → health check (Railway) → verificación de /estado
+                       └─────────── si algo falla acá, el deploy ni se ejecuta: producción sigue con la versión anterior
 ```
-
-Si algo falla en cualquier paso, **producción sigue con la versión anterior**.
 
 | Paso | Dónde | Qué hace |
 |---|---|---|
-| **CI** | `.github/workflows/ci.yml` (GitHub Actions) | En cada push y PR: lint de PHP, tests unitarios y de integración (contra MySQL y Mailpit reales), y build de la imagen de Docker. Ver `tests/README.md` |
-| **Esperar al CI** | Railway → el servicio → **Settings → Source → "Wait for CI"** (activado) | Railway despliega un commit de `main` solo cuando todos sus checks de GitHub Actions pasaron. Si un test falla, no despliega |
+| **`main` protegida** | GitHub → **Settings → Rules** (regla "Proteger main") | Nadie hace push directo a `main`: todo entra por pull request, y el PR se puede mergear solo si el CI pasó |
+| **CI** | Jobs `Lint y tests (PHPUnit)` y `Build de la imagen de producción (Docker)` | En cada push y PR: lint de PHP, tests unitarios y de integración (contra MySQL y Mailpit reales), y build de la imagen de Docker. Ver `tests/README.md` |
+| **CD: deploy** | Job `Deploy a Railway (producción)` | Solo en un push a `main` y solo si los dos jobs anteriores pasaron. Usa la herramienta oficial de Railway (`railway up`) con un token guardado como secreto del repo (`RAILWAY_TOKEN`) |
 | **Health check** | Railway → **Settings → Deploy → Healthcheck Path** = `/estado` | Antes de pasarle el tráfico a la versión nueva, Railway consulta `/estado`. Si no responde `200` (por ejemplo, porque no se conecta a la base), descarta esa versión y sigue la anterior |
+| **Verificación** | Job `Verificar producción (/estado)` | Espera a que producción responda con **el commit recién desplegado** y la base funcionando. Si no pasa en 6 minutos, el pipeline queda en ❌ |
 | **Rollback** | Railway → **Deployments** → una versión anterior → **Redeploy**. En Vercel: **Deployments** → **Promote to Production** | Volver a una versión anterior con un clic, sin tocar el código |
 
-`/estado` también informa qué commit está corriendo (`"version"`, desde la variable `RAILWAY_GIT_COMMIT_SHA` que pone Railway): sirve para comprobar que se desplegó la versión esperada.
+**El despliegue automático de Railway está apagado** (Railway → **Settings → Source → Auto deploy is disabled**): la única forma de llegar a producción es este pipeline.
+
+`/estado` informa qué commit está corriendo (`"version"`): el pipeline lo escribe en `version.txt` justo antes de desplegar. Así se comprueba que se desplegó la versión esperada.
+
+### Configuración (una sola vez)
+
+1. **Railway:** el proyecto → **Settings → Tokens** → crear un token para el entorno *production*.
+2. **GitHub:** el repo → **Settings → Secrets and variables → Actions → New repository secret** → nombre `RAILWAY_TOKEN`, valor: el token. GitHub lo guarda cifrado y nunca lo muestra en los logs.
+3. **Railway:** **Settings → Deploy → Healthcheck Path** = `/estado`, y el despliegue automático **apagado**.
 
 > **Si Aiven está apagado** (se apaga por inactividad), el health check falla y Railway no despliega. Es lo correcto: no tiene sentido publicar una versión que no puede usar la base. Antes de trabajar, encender Aiven.
 
