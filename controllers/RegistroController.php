@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Controllers;
+
+use App\Request\Request;
 use App\Database\Conexion;
 use App\Autorizacion\SesionUsuario;
 use App\Mail\VerificacionMail;
@@ -9,7 +11,7 @@ use App\Validacion\ValidadorDocumentos;
 //Si el rol es propietario, además de la fila en usuarios se crea su fila en propietarios (datos fiscales).
 class RegistroController{
     public function registrar(){
-        $datos_registro = json_decode(file_get_contents('php://input'), true);//se decodifica el json a php de manera tal
+        $datos_registro = Request::datosJson();//Request::datosJson decodifica el json a php (y controla su forma) de manera tal
         //que la funcion de json_decode devuelve el json en formato de array asociativo, en este caso
         //que son los datos de registro, el array podria quedar asi, por ejemplo:
         //[

@@ -4,6 +4,7 @@ namespace App\Mail;
 
 use App\Config\Config;
 use App\Database\Conexion;
+use App\Log\Log;
 
 //Envía el mail con el enlace para verificar la casilla.
 //Lo llaman el registro (RegistroController) y POST /reenviar-verificacion.
@@ -47,7 +48,7 @@ class VerificacionMail
         } catch (\Throwable $e) {
             //el mail no se pudo mandar (Mailpit apagado, SMTP mal configurado, etc.):
             //queda en la terminal de php -S y el usuario puede pedir otro desde el aviso de su home
-            error_log($e);
+            Log::error('No se pudo enviar el mail de verificación', $e, ['usuario_id' => $usuarioId]);
         }
     }
 

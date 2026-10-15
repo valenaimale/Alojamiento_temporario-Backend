@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Controllers;
+
+use App\Request\Request;
 use App\Database\Conexion;
 use App\Autorizacion\SesionUsuario;
 use App\Autorizacion\Autorizacion;
@@ -8,7 +10,7 @@ use App\Autorizacion\Autorizacion;
 class InicioSesionController{
     public function iniciaSesion(){
         //se encarga del post de iniciar sesion
-        $datos_inicio_sesion = json_decode(file_get_contents('php://input'), true);
+        $datos_inicio_sesion = Request::datosJson();
         $mail= strtolower(trim($datos_inicio_sesion['mail'] ?? ''));
         $contrasenia = $datos_inicio_sesion['contrasenia'] ?? '';
         $pdo = Conexion::obtener();

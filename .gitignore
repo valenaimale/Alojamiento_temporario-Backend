@@ -4,3 +4,5 @@ phinx.php
 cookies.txt
 # configuración local con datos sensibles (SMTP, Google): se copia de config/configuracion.example.php
 config/configuracion.php
+# caché de PHPUnit (se regenera sola)
+.phpunit.cache/

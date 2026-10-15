@@ -1,6 +1,9 @@
 <?php
 
 namespace App\Controllers;
+
+use App\Request\Request;
+use App\Log\Log;
 use App\Database\Conexion;
 use App\Config\Config;
 use App\Autorizacion\Autorizacion;
@@ -78,7 +81,7 @@ class OAuthController{
             SesionUsuario::iniciar($usuarioId);//arma la sesión y regenera el ID, igual que el login con contraseña
             $this->redirigir(Config::obtener('app.url_front') . '/vistas/sesion/oauth-retorno.html');
         } catch (\Throwable $e) {
-            error_log($e);//el error real queda en la terminal del servidor
+            Log::error('Falló el inicio de sesión con Google', $e);//el error real queda en el log del servidor
             $this->volverAlLogin('error');
         }
     }
@@ -91,7 +94,7 @@ class OAuthController{
             return $this->error('Tu DNI ya está cargado', 409);
         }
 
-        $datos = json_decode(file_get_contents('php://input'), true);
+        $datos = Request::datosJson();
         $dni = ValidadorDocumentos::normalizarDni(trim($datos['dni'] ?? ''));//"30.123.456" pasa a "30123456"
         if(!ValidadorDocumentos::esDniValido($dni)){
             return $this->error('El DNI tiene que tener 7 u 8 números');

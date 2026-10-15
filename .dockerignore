@@ -9,3 +9,8 @@ vendor/
 # No hacen falta para correr el backend
 .git/
 docs/tareas/
+# Los tests y la configuración del CI no van en la imagen de producción
+tests/
+phpunit.xml
+.phpunit.cache/
+.github/

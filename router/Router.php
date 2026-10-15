@@ -3,15 +3,19 @@
 namespace App\Router;
 use App\Request\Request;
 use App\Exceptions\RouteNotFoundException;
+use App\Exceptions\DatosInvalidosException;
+use App\Log\Log;
 
 class Router {
     private $routes = [];
     public string $notFound = 'not_found';
     public string $internalError = 'internal_error';
+    public string $datosInvalidos = 'datos_invalidos';
     
     public function __construct(){
         $this->register($this->notFound,  'ErrorController@notFound');
         $this->register($this->internalError,  'ErrorController@internalError');
+        $this->register($this->datosInvalidos,  'ErrorController@datosInvalidos');
     }
 
     public function call($controller, $action){
@@ -40,8 +44,13 @@ class Router {
             $this->call($valorcontrolleraction[0], $valorcontrolleraction[1]);
         }
 
+        catch (DatosInvalidosException $e){//los datos no tienen la forma esperada: es un error del cliente (422), no del servidor
+            $valorcontrolleraction = $this->getController($this->datosInvalidos);
+            $this->call($valorcontrolleraction[0], $valorcontrolleraction[1]);
+        }
+
         catch (\Throwable $e){//Throwable atrapa tanto Exception como Error (ej: clase o metodo inexistente)
-            error_log($e);//escribe el error real en la terminal del servidor (php -S); al usuario solo le llega el mensaje generico
+            Log::error('Error no controlado', $e);//el error real queda en el log (JSON); al usuario solo le llega el mensaje generico
             $valorcontrolleraction = $this->getController($this->internalError);//si salta la exception, intenta obtener
             //controlador + accion a realizar para el caso de exception
             $this->call($valorcontrolleraction[0], $valorcontrolleraction[1]);

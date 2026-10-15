@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Controllers;
+
+use App\Request\Request;
 use App\Autorizacion\Autorizacion;
 use App\Autorizacion\SesionUsuario;
 use App\Database\Conexion;
@@ -13,7 +15,7 @@ class VerificacionMailController{
 
     //POST /verificar-mail — NO requiere sesión: el enlace del mail se puede abrir en otro navegador
     public function verificar(){
-        $datos = json_decode(file_get_contents('php://input'), true);
+        $datos = Request::datosJson();
         $token = trim($datos['token'] ?? '');
 
         //el token son 64 caracteres hexadecimales (bin2hex de 32 bytes): si no tiene esa forma,

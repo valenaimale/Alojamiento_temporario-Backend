@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Controllers;
+
+use App\Request\Request;
 use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use PDO;
@@ -18,9 +20,9 @@ class BackofficeController{
     public function listar(){
         Autorizacion::requiere('backoffice');//sin sesión 401, sin permiso 403, y corta acá
 
-        $buscar = trim($_GET['buscar'] ?? '');
-        $rol    = $_GET['rol'] ?? '';
-        $activo = $_GET['activo'] ?? '';
+        $buscar = trim(Request::parametroGet('buscar'));//parametroGet rechaza ?buscar[]=... (una lista en vez de un texto)
+        $rol    = Request::parametroGet('rol');
+        $activo = Request::parametroGet('activo');
         $pagina = max(1, (int) ($_GET['pagina'] ?? 1));//(int) de algo que no es número da 0, y max lo lleva a 1
 
         //El WHERE se arma con dos arrays: las condiciones son texto fijo del código y los valores
@@ -102,7 +104,7 @@ class BackofficeController{
     public function cambiarEstado(){
         Autorizacion::requiere('backoffice');
 
-        $datos  = json_decode(file_get_contents('php://input'), true);
+        $datos  = Request::datosJson();
         $id     = (int) ($datos['id'] ?? 0);
         $activo = $datos['activo'] ?? null;
 
