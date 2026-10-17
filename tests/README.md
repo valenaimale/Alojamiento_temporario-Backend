@@ -64,6 +64,10 @@ Cuando el cambio entra a `main` (un PR mergeado), el mismo workflow sigue con el
 
 El resultado se ve en la pestaña **Actions** del repo, y al lado de cada commit y de cada PR (✅ o ❌).
 
+## Prueba de carga (k6)
+
+Aparte de PHPUnit, `tests/carga/carga.js` es una **prueba de carga con k6**: mide cuánto tarda el backend con 1 y con 10 usuarios a la vez (RNF-13). No corre en el CI: se ejecuta a mano, con Docker. Ver `tests/carga/README.md`.
+
 ## Cómo agregar un test
 
 - **Unitario:** una clase en `tests/Unitarios` que extienda `PHPUnit\Framework\TestCase`, con métodos que empiecen con `test`.
