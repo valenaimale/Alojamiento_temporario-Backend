@@ -7,8 +7,10 @@ use App\Database\Conexion;
 use App\Autorizacion\SesionUsuario;
 use App\Mail\VerificacionMail;
 use App\Validacion\ValidadorDocumentos;
+use App\Validacion\DatosFiscales;
 
-//Si el rol es propietario, además de la fila en usuarios se crea su fila en propietarios (datos fiscales).
+//Si el rol es propietario o administrador, además de la fila en usuarios se crea su fila
+//en propietarios o en administradores, con sus datos fiscales y bancarios.
 class RegistroController{
     public function registrar(){
         $datos_registro = Request::datosJson();//Request::datosJson decodifica el json a php (y controla su forma) de manera tal
@@ -23,7 +25,8 @@ class RegistroController{
         //'contrasenia_confirmacion' => '12345678',
         //'rol'                      => 'huesped',
         //]
-        //Si el rol es propietario llegan ademas cobra_iva, cuit, razon_social y domicilio_fiscal.
+        //Si el rol es propietario o administrador llegan ademas cobra_iva, cuit, razon_social, domicilio_fiscal,
+        //cbu, alias y titular_cuenta.
         $nombre= trim($datos_registro['nombre'] ?? '');//trim elimina espacios en blanco al comienzo y al final del nombre
         $dni = trim($datos_registro['dni'] ?? '');
         $mail = strtolower(trim($datos_registro['mail'] ?? ''));//strtolower pasa el texto a todo minuscula
@@ -58,10 +61,10 @@ class RegistroController{
         if($contrasenia !== $contraseniaConfirmacion){
             return $this->error('Las contraseñas no coinciden');
         }
-        //los datos fiscales solo se piden si se registra como propietario
+        //los datos fiscales y bancarios solo se piden si se registra como propietario o administrador
         $fiscales = null;
-        if($rol === 'propietario'){
-            $fiscales = PropietarioController::validarDatosFiscales($datos_registro);
+        if($rol === 'propietario' || $rol === 'administrador'){
+            $fiscales = DatosFiscales::validar($datos_registro);
             if(isset($fiscales['error'])){
                 return $this->error($fiscales['error']);
             }
@@ -84,12 +87,12 @@ class RegistroController{
         if($consulta2->fetchColumn()){
             return $this->error('El DNI ya está registrado');
         }
-        if($fiscales !== null && PropietarioController::cuitRegistrado($fiscales['cuit'])){
+        if($fiscales !== null && DatosFiscales::cuitRegistrado($fiscales['cuit'])){
             return $this->error('El CUIT ya está registrado');
         }
         $hashContra = password_hash($contrasenia, PASSWORD_DEFAULT);
 
-        //usuario + (si es propietario) su fila en propietarios van juntos: si falla uno, no queda guardado ninguno
+        //usuario + (si es propietario o administrador) su fila con los datos fiscales van juntos: si falla uno, no queda guardado ninguno
         $pdo->beginTransaction();
         try {
             $consulta3 = $pdo->prepare(
@@ -105,7 +108,7 @@ class RegistroController{
             $idUsuario = (int) $pdo->lastInsertId();// el id que MySQL le asignó al usuario recién creado
 
             if($fiscales !== null){
-                PropietarioController::guardarDatosFiscales($idUsuario, $fiscales);
+                DatosFiscales::guardar($rol, $idUsuario, $fiscales);//en propietarios o en administradores, según el rol
             }
             $pdo->commit();
         } catch (\Throwable $e) {
