@@ -183,9 +183,9 @@ POST /registrarse
 | `mail` | Obligatorio. Formato de mail válido. Se guarda en minúsculas y sin espacios en los extremos. |
 | `contrasenia` | Obligatorio. Entre 8 y 72 caracteres. Se guarda hasheada con `password_hash()`. |
 | `rol` | Obligatorio. Uno de: `huesped`, `propietario`, `administrador`, `operador`. `backoffice` no se puede registrar desde la web. |
-| `cobra_iva` | Solo si `rol` es `propietario`: `"1"` o `"0"` (si no se envía, se toma `"0"`). Se guarda en la tabla `propietarios`. |
+| `cobra_iva`, datos fiscales y cuenta bancaria | Solo si `rol` es `propietario` o `administrador`. Se guardan en la tabla `propietarios` o `administradores`. |
 
-> La Tarea 1 amplía este contrato (DNI, confirmación de mail y contraseña, datos fiscales). El contrato completo va a quedar en [`docs/api/cuentas-y-roles.md`](docs/api/cuentas-y-roles.md).
+> Este es un resumen. El contrato completo (DNI, confirmación de mail y contraseña, datos fiscales y cuenta bancaria) está en [`docs/api/cuentas-y-roles.md`](docs/api/cuentas-y-roles.md).
 
 **Responde:**
 

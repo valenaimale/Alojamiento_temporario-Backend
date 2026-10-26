@@ -140,18 +140,21 @@ GET /backoffice/usuario?id=9
 | `422` | `{"error": "Usuario inválido"}` | Falta el `id` o no es un entero positivo. |
 | `404` | `{"error": "El usuario no existe"}` | No hay un usuario con ese id. |
 
-`datos_fiscales` es `null` para todos los usuarios que no son propietarios. Para un propietario:
+`datos_fiscales` es `null` para todos los usuarios que no son propietarios ni administradores. Para un propietario o un administrador:
 
 ```json
 {
     "cobra_iva": true,
     "cuit": "20301234563",
     "razon_social": "Pérez SRL",
-    "domicilio_fiscal": "Av. Siempre Viva 742"
+    "domicilio_fiscal": "Av. Siempre Viva 742",
+    "cbu": "2850590940090418135201",
+    "alias": "perez.cabanias",
+    "titular_cuenta": "Ana Pérez"
 }
 ```
 
-`cuit`, `razon_social` y `domicilio_fiscal` son `null` si el propietario no cobra IVA.
+`cuit`, `razon_social` y `domicilio_fiscal` son `null` si no cobra IVA. `alias` es `null` si no cargó uno.
 
 ### `POST /backoffice/usuario/estado`
 
