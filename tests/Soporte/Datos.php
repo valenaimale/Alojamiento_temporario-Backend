@@ -47,10 +47,36 @@ final class Datos
             'contrasenia_confirmacion' => self::CONTRASENIA,
             'rol'                      => $rol,
         ];
-        if ($rol === 'propietario') {
-            $datos['cobra_iva'] = '0';
+        if ($rol === 'propietario' || $rol === 'administrador') {
+            $datos = array_merge($datos, ['cobra_iva' => '0'], self::cuentaBancaria());
         }
         return array_merge($datos, $cambios);
+    }
+
+    //Un CBU válido (los dos dígitos verificadores calculados como en ValidadorDocumentos::esCbuValido)
+    public static function cbu(): string
+    {
+        $verificador = function (string $digitos, array $pesos): int {
+            $suma = 0;
+            foreach ($pesos as $i => $peso) {
+                $suma += (int) $digitos[$i] * $peso;
+            }
+            return (10 - $suma % 10) % 10;
+        };
+        $bloque1 = '285' . random_int(1000, 9999);
+        $bloque2 = (string) random_int(1_000_000_000_000, 9_999_999_999_999);
+        return $bloque1 . $verificador($bloque1, [7, 1, 3, 9, 7, 1, 3])
+            . $bloque2 . $verificador($bloque2, [3, 9, 7, 1, 3, 9, 7, 1, 3, 9, 7, 1, 3]);
+    }
+
+    //La cuenta bancaria que piden el registro de propietarios y administradores y "hacerme propietario"
+    public static function cuentaBancaria(): array
+    {
+        return [
+            'cbu'            => self::cbu(),
+            'alias'          => 'cuenta.' . bin2hex(random_bytes(4)),
+            'titular_cuenta' => 'Persona de Prueba',
+        ];
     }
 
     //Datos fiscales de un propietario que cobra IVA

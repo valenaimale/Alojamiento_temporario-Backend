@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Request\Request;
 use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
+use App\Validacion\DatosFiscales;
 use PDO;
 
 //Administración interna de la plataforma (Tarea 2): el backoffice ve a todos los usuarios,
@@ -132,14 +133,12 @@ class BackofficeController{
         ]);
     }
 
-    //Busca un usuario con sus datos fiscales (si es propietario). Devuelve null si no existe.
+    //Busca un usuario con sus datos fiscales y bancarios (si es propietario o administrador). Devuelve null si no existe.
     private function buscarUsuario(int $id): ?array
     {
         $consulta = Conexion::obtener()->prepare(
-            'SELECT u.id, u.nombre, u.mail, u.dni, u.rol, u.activo, u.mail_verificado_en, u.fecha_alta,
-                    p.cobra_iva, p.cuit, p.razon_social, p.domicilio_fiscal
+            'SELECT u.id, u.nombre, u.mail, u.dni, u.rol, u.activo, u.mail_verificado_en, u.fecha_alta
              FROM usuarios u
-             LEFT JOIN propietarios p ON p.usuario_id = u.id
              WHERE u.id = ?'
         );
         $consulta->execute([$id]);
@@ -149,13 +148,8 @@ class BackofficeController{
         }
 
         $usuario = $this->formatearUsuario($fila);
-        //si el usuario no tiene fila en propietarios, el LEFT JOIN deja las columnas fiscales en NULL
-        $usuario['datos_fiscales'] = $fila['cobra_iva'] === null ? null : [
-            'cobra_iva'        => (bool) $fila['cobra_iva'],
-            'cuit'             => $fila['cuit'],
-            'razon_social'     => $fila['razon_social'],
-            'domicilio_fiscal' => $fila['domicilio_fiscal'],
-        ];
+        //null si el rol no tiene datos fiscales (huésped, operador, backoffice)
+        $usuario['datos_fiscales'] = DatosFiscales::buscar($fila['rol'], (int) $fila['id']);
         return $usuario;
     }
 

@@ -53,10 +53,10 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertSame($dni, $fila['dni']);
     }
 
-    public function testUnPropietarioQueCobraIvaSeRegistraConSusDatosFiscales(): void
+    public function testUnPropietarioQueCobraIvaSeRegistraConSusDatosFiscalesYBancarios(): void
     {
         $fiscales = Datos::fiscalesConIva();
-        [$cliente] = $this->registrar('propietario', $fiscales);
+        [$cliente, $datos] = $this->registrar('propietario', $fiscales);
 
         $respuesta = $cliente->get('/datos-fiscales');
         $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
@@ -65,7 +65,53 @@ final class RegistroTest extends CasoDeIntegracion
             'cuit'             => $fiscales['cuit'],
             'razon_social'     => $fiscales['razon_social'],
             'domicilio_fiscal' => $fiscales['domicilio_fiscal'],
+            'cbu'              => $datos['cbu'],
+            'alias'            => $datos['alias'],
+            'titular_cuenta'   => $datos['titular_cuenta'],
         ], $respuesta->json()['datos_fiscales']);
+    }
+
+    //Épica 2: el administrador también tiene sus datos fiscales y bancarios, en la tabla administradores
+    public function testUnAdministradorSeRegistraConSusDatosFiscalesYBancarios(): void
+    {
+        [$cliente, $datos, $usuario] = $this->registrar('administrador', ['alias' => '']);
+
+        $respuesta = $cliente->get('/datos-fiscales');
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame([
+            'cobra_iva'        => false,
+            'cuit'             => null,
+            'razon_social'     => null,
+            'domicilio_fiscal' => null,
+            'cbu'              => $datos['cbu'],
+            'alias'            => null,
+            'titular_cuenta'   => $datos['titular_cuenta'],
+        ], $respuesta->json()['datos_fiscales']);
+
+        $consulta = $this->pdo()->prepare('SELECT COUNT(*) FROM administradores WHERE usuario_id = ?');
+        $consulta->execute([$usuario['id']]);
+        $this->assertSame(1, (int) $consulta->fetchColumn());
+    }
+
+    public function testUnHuespedNoTieneDatosFiscales(): void
+    {
+        [$cliente] = $this->registrar('huesped');
+
+        $respuesta = $cliente->get('/datos-fiscales');
+
+        $this->assertSame(403, $respuesta->codigo);
+    }
+
+    //Una persona (un DNI) tiene una sola cuenta: el CUIT de un propietario no puede usarlo un administrador
+    public function testNoSePuedeRepetirElCuitEntrePropietarioYAdministrador(): void
+    {
+        $fiscales = Datos::fiscalesConIva();
+        $this->registrar('propietario', $fiscales);
+
+        $respuesta = $this->cliente()->post('/registrarse', Datos::registro('administrador', $fiscales));
+
+        $this->assertSame(422, $respuesta->codigo);
+        $this->assertSame('El CUIT ya está registrado', $respuesta->json()['error']);
     }
 
     public function testNoSePuedeRepetirElMail(): void
@@ -115,6 +161,10 @@ final class RegistroTest extends CasoDeIntegracion
             'backoffice no se registra'     => [['rol' => 'backoffice'], 'El rol no existe'],
             'propietario sin decir si cobra IVA' => [['rol' => 'propietario', 'cobra_iva' => ''], 'Indicá si cobrás IVA'],
             'CUIT con verificador incorrecto' => [['rol' => 'propietario', 'cobra_iva' => '1', 'cuit' => '20-30123456-9', 'razon_social' => 'X SRL', 'domicilio_fiscal' => 'Calle 123'], 'El CUIT no es válido'],
+            'propietario sin CBU'           => [['rol' => 'propietario', 'cbu' => ''], 'El CBU tiene que tener 22 números'],
+            'administrador sin decir si cobra IVA' => [['rol' => 'administrador', 'cobra_iva' => ''], 'Indicá si cobrás IVA'],
+            'administrador con CBU inválido' => [['rol' => 'administrador', 'cbu' => '2850590940090418135202'], 'El CBU no es válido: revisá que esté bien escrito'],
+            'administrador sin titular'     => [['rol' => 'administrador', 'titular_cuenta' => ''], 'El titular de la cuenta debe tener entre 2 y 150 caracteres'],
         ];
     }
 
