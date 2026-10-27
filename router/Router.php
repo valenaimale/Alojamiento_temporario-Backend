@@ -6,24 +6,29 @@ use App\Exceptions\RouteNotFoundException;
 use App\Exceptions\DatosInvalidosException;
 use App\Log\Log;
 
+//El Router recibe cada petición, busca qué controlador y qué método la atienden (por método HTTP y ruta)
+//y lo ejecuta. Si algo falla, responde el error que corresponde (404, 422 o 500) y lo deja en el log.
 class Router {
     private $routes = [];
     public string $notFound = 'not_found';
     public string $internalError = 'internal_error';
     public string $datosInvalidos = 'datos_invalidos';
     
+    //Registra las rutas internas de los errores (no las pide nadie desde afuera: las usa direct())
     public function __construct(){
         $this->register($this->notFound,  'ErrorController@notFound');
         $this->register($this->internalError,  'ErrorController@internalError');
         $this->register($this->datosInvalidos,  'ErrorController@datosInvalidos');
     }
 
+    //Crea el controlador y ejecuta su método
     public function call($controller, $action){
         $controller_name = "App\\Controllers\\{$controller}";
         $objController = new $controller_name;
         $objController->$action();
     }
 
+    //Devuelve [controlador, método] de una ruta, o lanza RouteNotFoundException si no existe
     public function getController($clavemethodmaspath){
         if(!array_key_exists($clavemethodmaspath, $this->routes)){
             throw new RouteNotFoundException("No existe ruta para este path");
@@ -31,6 +36,7 @@ class Router {
         return $valorControllerYAction = explode("@", $this->routes[$clavemethodmaspath]);
     }    
 
+    //Atiende la petición: ejecuta el controlador de la ruta y, si algo falla, la respuesta de error que corresponda
     public function direct(Request $request){
         $clavemethodmaspath = $request->route();//obtengo de la request el method_http + la url solicitada por el usuario
 
@@ -89,6 +95,26 @@ class Router {
         $this->register('GET@/oauth/google/callback', 'OAuthController@callbackGoogle');
         $this->register('POST@/completar-datos', 'OAuthController@completarDatos');
         // ---------- fin Tarea 4 ----------
+
+        // ---------- Épicas 2 y 3: base de las unidades ----------
+        $this->register('GET@/localidades', 'LocalidadesController@listar');
+        $this->register('GET@/unidades/resumen', 'ResumenUnidadController@resumen');
+        // ---------- fin base de las unidades ----------
+
+        // ---------- PR 2: alta y datos de la unidad (US2.1, US2.6) ----------
+        // ---------- fin PR 2 ----------
+
+        // ---------- PR 3: condiciones comerciales (US2.7, US2.8, US2.9) ----------
+        // ---------- fin PR 3 ----------
+
+        // ---------- PR 4: publicación y bloqueos (US3.1, US3.3) ----------
+        // ---------- fin PR 4 ----------
+
+        // ---------- PR 5: búsqueda y detalle (US3.2) ----------
+        // ---------- fin PR 5 ----------
+
+        // ---------- PR 6: gestión de la unidad (US2.2, US2.3, US2.4, US2.5) ----------
+        // ---------- fin PR 6 ----------
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){
