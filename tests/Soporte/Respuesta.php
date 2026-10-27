@@ -5,6 +5,7 @@ namespace Tests\Soporte;
 //Lo que respondió el backend: código HTTP, cuerpo y headers.
 final class Respuesta
 {
+    //Guarda el código, el cuerpo y los headers de la respuesta
     public function __construct(
         public readonly int $codigo,
         public readonly string $cuerpo,
@@ -28,6 +29,7 @@ final class Respuesta
         return $this->headers($nombre)[0] ?? null;
     }
 
+    //Todos los valores de un header (sin distinguir mayúsculas)
     public function headers(string $nombre): array
     {
         foreach ($this->headers as $clave => $valores) {

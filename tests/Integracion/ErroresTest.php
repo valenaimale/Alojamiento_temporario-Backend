@@ -13,6 +13,7 @@ final class ErroresTest extends CasoDeIntegracion
     private static int $puerto;
     private static string $log;
 
+    //Levanta un segundo backend apuntando a una base que no existe, para simular la base caída
     public static function setUpBeforeClass(): void
     {
         parent::setUpBeforeClass();
@@ -24,16 +25,19 @@ final class ErroresTest extends CasoDeIntegracion
         ]);
     }
 
+    //Al terminar, apaga ese segundo backend
     public static function tearDownAfterClass(): void
     {
         EntornoDePrueba::detenerServidor(self::$puerto);
     }
 
+    //Un cliente que le habla al backend sin base de datos
     private function sinBase(): ClienteApi
     {
         return new ClienteApi(EntornoDePrueba::urlApi(self::$puerto));
     }
 
+    //Con la base caída, /estado responde 503 (así Railway no le pasa tráfico a esa versión)
     public function testElHealthCheckResponde503SiLaBaseNoResponde(): void
     {
         $respuesta = $this->sinBase()->get('/estado');
@@ -43,6 +47,7 @@ final class ErroresTest extends CasoDeIntegracion
         $this->assertSame('error', $respuesta->json()['chequeos']['base_de_datos']);
     }
 
+    //Un error interno responde 500 con un mensaje genérico, sin mostrar detalles del servidor ni de la base
     public function testElUsuarioRecibeUnMensajeGenericoSinDetallesInternos(): void
     {
         $respuesta = $this->sinBase()->post('/iniciar-sesion', ['mail' => 'ana@test.local', 'contrasenia' => 'clave-segura-1']);
@@ -57,6 +62,7 @@ final class ErroresTest extends CasoDeIntegracion
         }
     }
 
+    //El detalle del error queda en el log, en JSON y con el mismo id de petición que recibió el usuario
     public function testElErrorQuedaEnElLogEnFormatoJson(): void
     {
         $respuesta = $this->sinBase()->post('/iniciar-sesion', ['mail' => 'ana@test.local', 'contrasenia' => 'clave-segura-1']);
@@ -76,6 +82,7 @@ final class ErroresTest extends CasoDeIntegracion
         $this->assertNotEmpty($registro['trace']);
     }
 
+    //Con cookie_segura activada, la cookie de sesión lleva Secure (solo viaja por HTTPS)
     public function testConCookieSeguraLaCookieSoloViajaPorHttps(): void
     {
         $respuesta = $this->sinBase()->get('/estado');
@@ -86,6 +93,7 @@ final class ErroresTest extends CasoDeIntegracion
         $this->assertStringContainsStringIgnoringCase('HttpOnly', $cookie);
     }
 
+    //Ninguna respuesta dice qué versión de PHP usamos (no le da pistas a un atacante)
     public function testNingunaRespuestaInformaLaVersionDePhp(): void
     {
         foreach ([$this->cliente()->get('/estado'), $this->cliente()->get('/no-existe'), $this->sinBase()->get('/estado')] as $respuesta) {
@@ -93,6 +101,7 @@ final class ErroresTest extends CasoDeIntegracion
         }
     }
 
+    //Una ruta que no existe responde 404 en JSON, como el resto de la API
     public function testUnaRutaInexistenteResponde404EnJson(): void
     {
         $respuesta = $this->cliente()->get('/no-existe');
@@ -102,6 +111,7 @@ final class ErroresTest extends CasoDeIntegracion
         $this->assertStringStartsWith('application/json', (string) $respuesta->header('Content-Type'));
     }
 
+    //CORS: el navegador solo deja que nuestro front llame a la API, no cualquier otro sitio
     public function testCorsSoloAutorizaAlFront(): void
     {
         $permitido = $this->cliente()->options('/iniciar-sesion', ['Origin' => EntornoDePrueba::URL_FRONT, 'Access-Control-Request-Method' => 'POST']);

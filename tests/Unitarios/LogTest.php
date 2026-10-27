@@ -10,16 +10,19 @@ final class LogTest extends TestCase
 {
     private array $serverOriginal;
 
+    //Guarda $_SERVER antes de cada test, porque los tests lo modifican
     protected function setUp(): void
     {
         $this->serverOriginal = $_SERVER;
     }
 
+    //Lo restaura después de cada test
     protected function tearDown(): void
     {
         $_SERVER = $this->serverOriginal;
     }
 
+    //Cada registro tiene sus campos fijos: hora, nivel, mensaje, id de petición, método, ruta y usuario
     public function testElRegistroTieneLosCamposFijos(): void
     {
         $_SERVER['REQUEST_METHOD'] = 'POST';
@@ -36,12 +39,14 @@ final class LogTest extends TestCase
         $this->assertArrayNotHasKey('exception', $registro);
     }
 
+    //Todas las líneas de una misma petición llevan el mismo id
     public function testElIdDePeticionEsElMismoEnTodaLaPeticion(): void
     {
         $this->assertMatchesRegularExpression('/^[0-9a-f]{16}$/', Log::idPeticion());
         $this->assertSame(Log::idPeticion(), Log::armar('error', 'x')['request_id']);
     }
 
+    //Con una excepción, guarda su clase, mensaje, archivo, línea y traza
     public function testConUnaExcepcionGuardaElDetalle(): void
     {
         $registro = Log::armar('error', 'Error no controlado', new \RuntimeException('se rompió algo'));
@@ -54,6 +59,7 @@ final class LogTest extends TestCase
         $this->assertIsString($registro['trace']);
     }
 
+    //El registro se puede pasar a JSON, también con tildes y ñ
     public function testElRegistroSePuedePasarAJson(): void
     {
         $linea = json_encode(Log::armar('warning', 'Acentos: ñandú'));

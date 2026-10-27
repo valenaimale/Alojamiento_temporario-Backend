@@ -11,6 +11,7 @@ use GuzzleHttp\Client;
 //en una máquina local, si Mailpit no está levantado, ese test se saltea).
 final class VerificacionMailTest extends CasoDeIntegracion
 {
+    //Un enlace válido verifica el mail y la sesión pasa a tener mail_verificado en true
     public function testUnEnlaceValidoVerificaElMail(): void
     {
         [$cliente, , $usuario] = $this->registrar();
@@ -23,6 +24,7 @@ final class VerificacionMailTest extends CasoDeIntegracion
         $this->assertTrue($cliente->get('/sesion')->json()['usuario']['mail_verificado']);
     }
 
+    //Un enlace ya usado no sirve de nuevo
     public function testElEnlaceSeUsaUnaSolaVez(): void
     {
         [, , $usuario] = $this->registrar();
@@ -34,6 +36,7 @@ final class VerificacionMailTest extends CasoDeIntegracion
         $this->assertSame(422, $segunda->codigo);
     }
 
+    //Un enlace vencido no sirve
     public function testUnEnlaceVencidoNoSirve(): void
     {
         [, , $usuario] = $this->registrar();
@@ -45,6 +48,7 @@ final class VerificacionMailTest extends CasoDeIntegracion
         $this->assertStringContainsString('venció', $respuesta->json()['error']);
     }
 
+    //Un token con un formato inválido se rechaza con 422, sin consultar la base
     public function testUnTokenConFormatoInvalido(): void
     {
         foreach (['', 'abc', str_repeat('z', 64), "' OR 1=1 -- "] as $token) {
@@ -54,6 +58,7 @@ final class VerificacionMailTest extends CasoDeIntegracion
         }
     }
 
+    //No se puede pedir otro mail antes de un minuto (protege la casilla del usuario)
     public function testNoSePuedePedirOtroMailAntesDeUnMinuto(): void
     {
         //el registro ya generó un enlace: pedir otro enseguida está limitado (protege la casilla del usuario)
@@ -65,6 +70,7 @@ final class VerificacionMailTest extends CasoDeIntegracion
         $this->assertSame('Esperá un minuto antes de pedir otro mail', $respuesta->json()['error']);
     }
 
+    //Con el mail ya verificado no se manda otro
     public function testUnMailYaVerificadoNoPideOtro(): void
     {
         [$cliente, , $usuario] = $this->registrar();
@@ -73,6 +79,7 @@ final class VerificacionMailTest extends CasoDeIntegracion
         $this->assertSame(409, $cliente->post('/reenviar-verificacion')->codigo);
     }
 
+    //Recorrido real: el mail llega a Mailpit, se abre su enlace y el mail queda verificado
     public function testRecorridoCompletoConElMailReal(): void
     {
         $mailpit = new Client(['base_uri' => getenv('MAILPIT_URL') ?: 'http://127.0.0.1:8025', 'timeout' => 5, 'http_errors' => false]);

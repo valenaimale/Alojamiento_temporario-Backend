@@ -4,13 +4,18 @@ namespace App\Request;
 
 use App\Exceptions\DatosInvalidosException;
 
+//Los datos de la petición que llega: la ruta (para el Router), el cuerpo JSON y los parámetros de la URL,
+//controlando que tengan la forma esperada.
 class Request{
+    //La ruta pedida, sin el query string: "/backoffice/usuario?id=5" → "/backoffice/usuario"
     public function uri(){
         return parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
     }
+    //El método HTTP: GET, POST, OPTIONS...
     public function method_http(){
         return $_SERVER['REQUEST_METHOD'];
     }
+    //La clave con la que el Router busca la ruta: "POST@/iniciar-sesion"
     public function route(){
         return $this->method_http(). "@" .$this->uri();
     }

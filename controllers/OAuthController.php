@@ -185,6 +185,7 @@ class OAuthController{
         return $usuarioId;
     }
 
+    //Vincula la cuenta con su identificador fijo de Google (el "sub"), para reconocerla la próxima vez
     private function guardarIdentidad(int $usuarioId, string $sub): void{
         $consulta = Conexion::obtener()->prepare(
             "INSERT INTO identidades_oauth (usuario_id, proveedor, sujeto) VALUES (?, 'google', ?)"
@@ -192,12 +193,14 @@ class OAuthController{
         $consulta->execute([$usuarioId, $sub]);
     }
 
+    //true si la cuenta no fue deshabilitada por el backoffice
     private function estaActivo(int $usuarioId): bool{
         $consulta = Conexion::obtener()->prepare('SELECT activo FROM usuarios WHERE id = ?');
         $consulta->execute([$usuarioId]);
         return (bool) $consulta->fetchColumn();
     }
 
+    //Arma el cliente de Google con los datos de la configuración (google.*)
     private function proveedor(): Google{
         return new Google([
             'clientId'     => Config::obtener('google.client_id'),
@@ -217,6 +220,7 @@ class OAuthController{
         header('Location: ' . $url);
     }
 
+    //Responde un error en JSON con su código HTTP
     private function error(string $mensaje, int $codigo = 422){
         http_response_code($codigo);
         echo json_encode(['error' => $mensaje]);

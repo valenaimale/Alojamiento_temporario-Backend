@@ -66,6 +66,7 @@ class Autorizacion
         }
     }
 
+    //Responde el error en JSON y termina la petición: así el controlador no sigue después de un permiso denegado
     private static function cortar(int $codigo, string $mensaje): void
     {
         http_response_code($codigo);

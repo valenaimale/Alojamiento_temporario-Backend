@@ -10,12 +10,14 @@ final class BackofficeTest extends CasoDeIntegracion
     private ClienteApi $backoffice;
     private array $usuarioBackoffice;
 
+    //Antes de cada test: una cuenta de backoffice con la sesión iniciada
     protected function setUp(): void
     {
         $this->usuarioBackoffice = $this->crearUsuarioEnBase('backoffice');
         $this->backoffice = $this->iniciarSesion($this->usuarioBackoffice['mail']);
     }
 
+    //El listado encuentra a un usuario buscándolo por su mail
     public function testListaYBuscaUsuarios(): void
     {
         [, $datos] = $this->registrar();
@@ -29,6 +31,7 @@ final class BackofficeTest extends CasoDeIntegracion
         $this->assertArrayNotHasKey('contrasenia', $listado['usuarios'][0]);
     }
 
+    //El filtro por rol devuelve solo usuarios de ese rol
     public function testFiltraPorRol(): void
     {
         $this->registrar('propietario');
@@ -39,6 +42,7 @@ final class BackofficeTest extends CasoDeIntegracion
         $this->assertSame(['propietario'], array_values(array_unique(array_column($usuarios, 'rol'))));
     }
 
+    //?buscar[]=... (una lista en vez de un texto) se rechaza con 422, sin llegar a un error 500
     public function testUnaBusquedaConUnaListaEsRechazada(): void
     {
         $respuesta = $this->backoffice->get('/backoffice/usuarios', ['buscar' => ['a', 'b']]);
@@ -47,6 +51,7 @@ final class BackofficeTest extends CasoDeIntegracion
         $this->assertSame('Los datos enviados no son válidos', $respuesta->json()['error']);
     }
 
+    //El detalle trae los datos del usuario y, si es propietario, sus datos fiscales
     public function testDetalleDeUnUsuario(): void
     {
         [, , $usuario] = $this->registrar('propietario');
@@ -58,12 +63,14 @@ final class BackofficeTest extends CasoDeIntegracion
         $this->assertFalse($respuesta->json()['usuario']['datos_fiscales']['cobra_iva']);
     }
 
+    //Un id que no existe da 404; un id que no es un número, 422
     public function testDetalleDeUnUsuarioInexistente(): void
     {
         $this->assertSame(404, $this->backoffice->get('/backoffice/usuario', ['id' => 999999])->codigo);
         $this->assertSame(422, $this->backoffice->get('/backoffice/usuario', ['id' => 'abc'])->codigo);
     }
 
+    //Deshabilitar una cuenta le impide entrar, y reactivarla se lo vuelve a permitir
     public function testDeshabilitarYReactivarUnaCuenta(): void
     {
         [, $datos, $usuario] = $this->registrar();
@@ -82,6 +89,7 @@ final class BackofficeTest extends CasoDeIntegracion
         $this->assertSame(200, $login->codigo);
     }
 
+    //El backoffice no se puede deshabilitar a sí mismo (se quedaría sin acceso)
     public function testNoPuedeDeshabilitarSuPropiaCuenta(): void
     {
         $respuesta = $this->backoffice->post('/backoffice/usuario/estado', ['id' => $this->usuarioBackoffice['id'], 'activo' => false]);
@@ -90,6 +98,7 @@ final class BackofficeTest extends CasoDeIntegracion
         $this->assertSame('No podés deshabilitar tu propia cuenta', $respuesta->json()['error']);
     }
 
+    //"activo" tiene que ser true o false de JSON: "false", 0, "0" o null se rechazan
     public function testElEstadoTieneQueSerTrueOFalse(): void
     {
         [, , $usuario] = $this->registrar();

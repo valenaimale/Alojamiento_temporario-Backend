@@ -15,6 +15,7 @@ class VerificacionMail
 {
     private const HORAS_DE_VIGENCIA = 24;
 
+    //Genera un enlace nuevo de verificación para el usuario y se lo manda por mail
     public static function enviar(int $usuarioId): void
     {
         try {

@@ -13,6 +13,7 @@ use PHPMailer\PHPMailer\PHPMailer;
 //(VerificacionMail la atrapa, porque el registro no tiene que fallar por un mail).
 class EnviadorMail
 {
+    //Manda un mail (con versión HTML y de texto plano) por SMTP
     public static function enviar(string $para, string $nombreDestinatario, string $asunto, string $html, string $textoPlano): void
     {
         $mailer = new PHPMailer(true);   //true: lanza excepciones en lugar de devolver false

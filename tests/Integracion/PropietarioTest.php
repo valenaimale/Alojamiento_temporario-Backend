@@ -7,6 +7,7 @@ use Tests\Soporte\Datos;
 //"Hacerme propietario" (un huésped pasa a propietario) y sus datos fiscales y bancarios.
 final class PropietarioTest extends CasoDeIntegracion
 {
+    //Un huésped se hace propietario sin IVA, con su cuenta bancaria, y la sesión pasa a tener el rol nuevo
     public function testUnHuespedSeHacePropietarioSinIva(): void
     {
         [$cliente] = $this->registrar();
@@ -24,6 +25,7 @@ final class PropietarioTest extends CasoDeIntegracion
         $this->assertSame($cuenta['titular_cuenta'], $datosFiscales['titular_cuenta']);
     }
 
+    //Con IVA, el CUIT con guiones se guarda solo con números
     public function testUnHuespedSeHacePropietarioConIva(): void
     {
         [$cliente] = $this->registrar();
@@ -36,6 +38,7 @@ final class PropietarioTest extends CasoDeIntegracion
         $this->assertSame($fiscales['cuit'], $cliente->get('/datos-fiscales')->json()['datos_fiscales']['cuit']);
     }
 
+    //Un propietario que vuelve a pedirlo recibe 409
     public function testUnPropietarioNoPuedeVolverAHacerse(): void
     {
         [$cliente] = $this->registrar('propietario');
@@ -46,6 +49,7 @@ final class PropietarioTest extends CasoDeIntegracion
         $this->assertSame('Ya sos propietario', $respuesta->json()['error']);
     }
 
+    //No se puede usar el CUIT de otro propietario
     public function testNoSePuedeRepetirElCuit(): void
     {
         $fiscales = Datos::fiscalesConIva();
@@ -58,6 +62,7 @@ final class PropietarioTest extends CasoDeIntegracion
         $this->assertSame('El CUIT ya está registrado', $respuesta->json()['error']);
     }
 
+    //Cada dato fiscal o bancario inválido se rechaza con su mensaje, y el usuario sigue siendo huésped
     public function testDatosFiscalesInvalidos(): void
     {
         [$cliente] = $this->registrar();

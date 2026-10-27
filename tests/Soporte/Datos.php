@@ -8,11 +8,13 @@ final class Datos
 {
     public const CONTRASENIA = 'clave-segura-1';
 
+    //Un mail único, para que cada test use el suyo
     public static function mail(): string
     {
         return 'prueba-' . bin2hex(random_bytes(6)) . '@test.local';
     }
 
+    //Un DNI al azar de 8 dígitos
     public static function dni(): string
     {
         return (string) random_int(10_000_000, 99_999_999);

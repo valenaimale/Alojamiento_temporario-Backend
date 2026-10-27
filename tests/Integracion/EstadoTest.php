@@ -6,6 +6,7 @@ namespace Tests\Integracion;
 //(El caso de la base caída está en ErroresTest, que levanta un servidor sin base.)
 final class EstadoTest extends CasoDeIntegracion
 {
+    //Con la base funcionando, /estado responde 200 y dice que todo está bien
     public function testConLaBaseFuncionandoResponde200(): void
     {
         $respuesta = $this->cliente()->get('/estado');
@@ -18,6 +19,7 @@ final class EstadoTest extends CasoDeIntegracion
         $this->assertArrayHasKey('version', $datos);
     }
 
+    //Cada respuesta trae su propio X-Request-Id, para buscarla en los logs
     public function testCadaRespuestaTraeUnIdDePeticionDistinto(): void
     {
         $primera = $this->cliente()->get('/estado')->header('X-Request-Id');

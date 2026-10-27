@@ -27,6 +27,7 @@ final class EntornoDePrueba
     /** @var array<int, resource> */
     private static array $servidores = [];
 
+    //Prepara la base de prueba y levanta el backend, una sola vez por ejecución
     public static function iniciar(): void
     {
         if (self::$iniciado) {
@@ -40,16 +41,19 @@ final class EntornoDePrueba
         self::levantarServidor(self::puerto());
     }
 
+    //El puerto del backend de prueba (TEST_PUERTO, o 8089)
     public static function puerto(): int
     {
         return (int) (getenv('TEST_PUERTO') ?: 8089);
     }
 
+    //La URL del backend de prueba
     public static function urlApi(int $puerto = 0): string
     {
         return 'http://127.0.0.1:' . ($puerto ?: self::puerto());
     }
 
+    //Los datos de conexión de la base de prueba (los de desarrollo, con otro nombre de base)
     public static function datosBase(): array
     {
         $desarrollo = [];
@@ -138,6 +142,7 @@ final class EntornoDePrueba
         throw new \RuntimeException("El servidor de prueba no arrancó en el puerto $puerto. Log: " . @file_get_contents($log));
     }
 
+    //Apaga el backend que se levantó en ese puerto
     public static function detenerServidor(int $puerto): void
     {
         if (isset(self::$servidores[$puerto])) {
@@ -147,6 +152,7 @@ final class EntornoDePrueba
         }
     }
 
+    //Apaga todos los backends de prueba (corre al terminar los tests)
     public static function detenerTodo(): void
     {
         foreach (array_keys(self::$servidores) as $puerto) {
@@ -154,6 +160,7 @@ final class EntornoDePrueba
         }
     }
 
+    //Crea la base de prueba desde cero (la borra si ya existía)
     private static function crearBase(): void
     {
         $db = self::datosBase();
@@ -188,6 +195,7 @@ final class EntornoDePrueba
         (new Manager($config, new ArrayInput([]), new NullOutput()))->migrate('testing');
     }
 
+    //true si algo ya está escuchando en ese puerto
     private static function puertoAbierto(int $puerto): bool
     {
         $conexion = @fsockopen('127.0.0.1', $puerto, $codigo, $mensaje, 0.2);

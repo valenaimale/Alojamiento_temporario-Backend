@@ -12,11 +12,13 @@ final class DatosFiscalesTest extends TestCase
 {
     private const CBU = '2850590940090418135201';
 
+    //Datos válidos de alguien que no cobra IVA; $cambios reemplaza campos puntuales
     private static function sinIva(array $cambios = []): array
     {
         return array_merge(['cobra_iva' => '0', 'cbu' => self::CBU, 'alias' => '', 'titular_cuenta' => 'Marisa Gómez'], $cambios);
     }
 
+    //Datos válidos de alguien que cobra IVA
     private static function conIva(array $cambios = []): array
     {
         return self::sinIva(array_merge([
@@ -27,6 +29,7 @@ final class DatosFiscalesTest extends TestCase
         ], $cambios));
     }
 
+    //Sin IVA, los datos fiscales quedan en null, y el alias vacío también
     public function testSinIvaNoPideDatosFiscalesYDejaElAliasEnNull(): void
     {
         $this->assertSame([
@@ -40,6 +43,7 @@ final class DatosFiscalesTest extends TestCase
         ], DatosFiscales::validar(self::sinIva()));
     }
 
+    //Con IVA, el CUIT y el CBU quedan solo con números y el alias en minúsculas
     public function testConIvaNormalizaElCuitElCbuYElAlias(): void
     {
         $datos = DatosFiscales::validar(self::conIva(['cbu' => '2850590 940090418135201', 'alias' => ' Casa.Playa.Sol ']));
@@ -50,12 +54,14 @@ final class DatosFiscalesTest extends TestCase
         $this->assertSame('casa.playa.sol', $datos['alias']);
     }
 
+    //Cada dato inválido devuelve su mensaje de error
     #[DataProvider('datosInvalidos')]
     public function testRechazaDatosInvalidos(array $datos, string $error): void
     {
         $this->assertSame(['error' => $error], DatosFiscales::validar($datos));
     }
 
+    //Cada caso: los datos y el error que tienen que dar
     public static function datosInvalidos(): array
     {
         return [

@@ -70,6 +70,7 @@ class PropietarioController{
         echo json_encode(['datos_fiscales' => $datos]);
     }
 
+    //Responde un error en JSON con su código HTTP
     private function error(string $mensaje, int $codigo = 422){
         http_response_code($codigo);
         echo json_encode(['error' => $mensaje]);

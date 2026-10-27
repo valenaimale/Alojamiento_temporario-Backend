@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Phinx\Migration\AbstractMigration;
 
+//Primera migración: crea la tabla usuarios (todas las cuentas del sistema, de cualquier rol).
 final class CrearTablaUsuarios extends AbstractMigration
 {
     /**

@@ -10,12 +10,14 @@ use PHPUnit\Framework\TestCase;
 //operador, administrador y backoffice son cuentas aparte.
 final class AutorizacionTest extends TestCase
 {
+    //Cada rol pasa solo en lo que le corresponde (el propietario hereda lo del huésped)
     #[DataProvider('permisos')]
     public function testTienePermiso(string $rolUsuario, string $rolRequerido, bool $esperado): void
     {
         $this->assertSame($esperado, Autorizacion::tienePermiso($rolUsuario, $rolRequerido));
     }
 
+    //Cada caso: rol del usuario, rol que pide la ruta y si tiene que pasar
     public static function permisos(): array
     {
         return [
