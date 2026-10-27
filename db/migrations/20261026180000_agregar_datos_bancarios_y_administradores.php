@@ -13,6 +13,7 @@ use Phinx\Migration\AbstractMigration;
 //OJO: en esta versión de Phinx las columnas son NULL por defecto; las obligatorias llevan 'null' => false.
 final class AgregarDatosBancariosYAdministradores extends AbstractMigration
 {
+    //Controla que no haya cuentas sin datos bancarios, y agrega la cuenta bancaria y la tabla administradores (vendor/bin/phinx migrate)
     public function up(): void
     {
         //Las cuentas que ya existen no tienen estos datos y no se pueden inventar: la migración no sigue.
@@ -58,6 +59,7 @@ final class AgregarDatosBancariosYAdministradores extends AbstractMigration
         }
     }
 
+    //Deshace los cambios: borra administradores y la cuenta bancaria de propietarios (vendor/bin/phinx rollback)
     public function down(): void
     {
         $this->table('administradores')->drop()->save();

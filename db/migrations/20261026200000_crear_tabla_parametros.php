@@ -11,6 +11,7 @@ use Phinx\Migration\AbstractMigration;
 //OJO: en esta versión de Phinx las columnas son NULL por defecto; las obligatorias llevan 'null' => false.
 final class CrearTablaParametros extends AbstractMigration
 {
+    //Crea la tabla y carga los valores del DER (vendor/bin/phinx migrate)
     public function up(): void
     {
         $this->table('parametros', ['id' => false, 'primary_key' => ['clave']])
@@ -35,6 +36,7 @@ final class CrearTablaParametros extends AbstractMigration
         ])->saveData();
     }
 
+    //Borra la tabla (vendor/bin/phinx rollback)
     public function down(): void
     {
         $this->table('parametros')->drop()->save();

@@ -12,6 +12,7 @@ use Phinx\Migration\AbstractMigration;
 //OJO: en esta versión de Phinx las columnas son NULL por defecto; las obligatorias llevan 'null' => false.
 final class AgregarBackofficeVerificacionYPropietarios extends AbstractMigration
 {
+    //Aplica los cambios (vendor/bin/phinx migrate)
     public function up(): void
     {
         $this->table('usuarios')
@@ -39,6 +40,7 @@ final class AgregarBackofficeVerificacionYPropietarios extends AbstractMigration
     }
 
     //Antes de hacer rollback hay que borrar los usuarios con rol 'backoffice' (solo desarrollo)
+    //Deshace los cambios (vendor/bin/phinx rollback)
     public function down(): void
     {
         $this->table('propietarios')->drop()->save();

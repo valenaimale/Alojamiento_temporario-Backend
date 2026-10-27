@@ -16,6 +16,7 @@ class Conexion
 {
     private static ?PDO $pdo = null;
 
+    //Devuelve la conexión a MySQL; la crea la primera vez que se pide y después reutiliza la misma
     public static function obtener(): PDO
     {
         if (self::$pdo === null) {

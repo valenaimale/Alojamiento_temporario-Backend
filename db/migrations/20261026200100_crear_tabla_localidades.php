@@ -11,6 +11,7 @@ use Phinx\Migration\AbstractMigration;
 //OJO: en esta versión de Phinx las columnas son NULL por defecto; las obligatorias llevan 'null' => false.
 final class CrearTablaLocalidades extends AbstractMigration
 {
+    //Crea la tabla y carga las localidades iniciales (vendor/bin/phinx migrate)
     public function up(): void
     {
         $this->table('localidades')
@@ -37,6 +38,7 @@ final class CrearTablaLocalidades extends AbstractMigration
         $this->table('localidades')->insert($filas)->saveData();
     }
 
+    //Borra la tabla (vendor/bin/phinx rollback)
     public function down(): void
     {
         $this->table('localidades')->drop()->save();

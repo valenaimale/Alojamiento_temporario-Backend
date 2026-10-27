@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Phinx\Migration\AbstractMigration;
 
+//Agrega a usuarios el DNI (único) y "activo" (el backoffice puede deshabilitar una cuenta).
 final class AgregarDniYActivoAUsuarios extends AbstractMigration
 {
     /**

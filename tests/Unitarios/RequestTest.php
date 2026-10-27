@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 //RNF de validación de datos: el cuerpo de las peticiones tiene que ser un objeto JSON con valores simples.
 final class RequestTest extends TestCase
 {
+    //Un objeto JSON se convierte en un array asociativo
     public function testUnObjetoJsonSeDecodifica(): void
     {
         $this->assertSame(
@@ -18,6 +19,7 @@ final class RequestTest extends TestCase
         );
     }
 
+    //Sin cuerpo (o solo espacios) devuelve un array vacío
     public function testSinCuerpoDevuelveVacio(): void
     {
         $this->assertSame([], Request::decodificarJson(''));
@@ -25,6 +27,7 @@ final class RequestTest extends TestCase
         $this->assertSame([], Request::decodificarJson('{}'));
     }
 
+    //Cada cuerpo inválido lanza DatosInvalidosException (el router responde 422)
     #[DataProvider('cuerposInvalidos')]
     public function testCuerposInvalidosLanzanDatosInvalidos(string $cuerpo): void
     {
@@ -32,6 +35,7 @@ final class RequestTest extends TestCase
         Request::decodificarJson($cuerpo);
     }
 
+    //Cada caso: un cuerpo que no tiene la forma esperada
     public static function cuerposInvalidos(): array
     {
         return [

@@ -12,6 +12,7 @@ use Phinx\Migration\AbstractMigration;
 //OJO: en esta versión de Phinx las columnas son NULL por defecto; las obligatorias llevan 'null' => false.
 final class CrearTablaAdministraciones extends AbstractMigration
 {
+    //Crea la tabla con su CHECK de la comisión (vendor/bin/phinx migrate)
     public function up(): void
     {
         $this->table('administraciones', ['id' => false, 'primary_key' => ['unidad_id']])
@@ -31,6 +32,7 @@ final class CrearTablaAdministraciones extends AbstractMigration
         );
     }
 
+    //Borra la tabla (vendor/bin/phinx rollback)
     public function down(): void
     {
         $this->table('administraciones')->drop()->save();

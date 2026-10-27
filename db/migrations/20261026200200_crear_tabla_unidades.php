@@ -13,6 +13,7 @@ use Phinx\Migration\AbstractMigration;
 //OJO: en esta versión de Phinx las columnas son NULL por defecto; las obligatorias llevan 'null' => false.
 final class CrearTablaUnidades extends AbstractMigration
 {
+    //Crea la tabla con sus claves foráneas y sus CHECK (vendor/bin/phinx migrate)
     public function up(): void
     {
         $porcentaje = ['precision' => 5, 'scale' => 2, 'null' => false];
@@ -61,6 +62,7 @@ final class CrearTablaUnidades extends AbstractMigration
         );
     }
 
+    //Borra la tabla (vendor/bin/phinx rollback)
     public function down(): void
     {
         $this->table('unidades')->drop()->save();

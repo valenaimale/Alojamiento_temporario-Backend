@@ -24,16 +24,19 @@ class Log
         return self::$idPeticion;
     }
 
+    //Registra un error (algo falló y hay que revisarlo), con la excepción si la hay
     public static function error(string $mensaje, ?\Throwable $excepcion = null, array $contexto = []): void
     {
         self::escribir(self::armar('error', $mensaje, $excepcion, $contexto));
     }
 
+    //Registra una advertencia (algo raro que no impidió responder)
     public static function warning(string $mensaje, ?\Throwable $excepcion = null, array $contexto = []): void
     {
         self::escribir(self::armar('warning', $mensaje, $excepcion, $contexto));
     }
 
+    //Registra un evento informativo
     public static function info(string $mensaje, array $contexto = []): void
     {
         self::escribir(self::armar('info', $mensaje, null, $contexto));
@@ -64,6 +67,7 @@ class Log
         return $registro;
     }
 
+    //Escribe el registro como una línea JSON en la salida de errores (la terminal o los logs de Railway)
     private static function escribir(array $registro): void
     {
         $linea = json_encode($registro, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);

@@ -8,6 +8,7 @@ use Tests\Soporte\Datos;
 //POST /registrarse (RF-23) y el RNF de validación de datos en el backend.
 final class RegistroTest extends CasoDeIntegracion
 {
+    //Un huésped se registra y queda con la sesión iniciada, sin que la respuesta traiga la contraseña
     public function testUnHuespedSeRegistraYQuedaConLaSesionIniciada(): void
     {
         $cliente = $this->cliente();
@@ -28,6 +29,7 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertSame($datos['mail'], $sesion->json()['usuario']['mail']);
     }
 
+    //La contraseña se guarda hasheada con bcrypt, nunca en texto plano
     public function testLaContraseniaSeGuardaHasheada(): void
     {
         [, $datos] = $this->registrar();
@@ -38,6 +40,7 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertTrue(password_verify($datos['contrasenia'], $fila['contrasenia']));
     }
 
+    //El mail se guarda en minúsculas y el DNI solo con números
     public function testElMailYElDniSeGuardanNormalizados(): void
     {
         $mail = Datos::mail();
@@ -53,6 +56,7 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertSame($dni, $fila['dni']);
     }
 
+    //Un propietario con IVA queda con sus datos fiscales y su cuenta bancaria
     public function testUnPropietarioQueCobraIvaSeRegistraConSusDatosFiscalesYBancarios(): void
     {
         $fiscales = Datos::fiscalesConIva();
@@ -93,6 +97,7 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertSame(1, (int) $consulta->fetchColumn());
     }
 
+    //Un huésped no tiene datos fiscales: /datos-fiscales le responde 403
     public function testUnHuespedNoTieneDatosFiscales(): void
     {
         [$cliente] = $this->registrar('huesped');
@@ -114,6 +119,7 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertSame('El CUIT ya está registrado', $respuesta->json()['error']);
     }
 
+    //No se puede registrar un mail que ya tiene cuenta
     public function testNoSePuedeRepetirElMail(): void
     {
         [, $datos] = $this->registrar();
@@ -125,6 +131,7 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertSame('El mail ya está registrado', $respuesta->json()['error']);
     }
 
+    //No se puede registrar un DNI que ya tiene cuenta
     public function testNoSePuedeRepetirElDni(): void
     {
         [, $datos] = $this->registrar();
@@ -145,6 +152,7 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertSame($error, $respuesta->json()['error']);
     }
 
+    //Cada caso: qué dato se cambia y qué error tiene que responder
     public static function datosInvalidos(): array
     {
         return [
@@ -168,6 +176,7 @@ final class RegistroTest extends CasoDeIntegracion
         ];
     }
 
+    //Un campo con una lista u objeto en lugar de un texto se rechaza con 422, sin llegar a un error 500
     public function testRechazaCamposConElTipoEquivocado(): void
     {
         $respuesta = $this->cliente()->post('/registrarse', ['nombre' => ['Ana'], 'mail' => ['x' => 1]]);
@@ -176,6 +185,7 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertSame('Los datos enviados no son válidos', $respuesta->json()['error']);
     }
 
+    //Un cuerpo que no es JSON válido se rechaza con 422
     public function testRechazaUnCuerpoQueNoEsJson(): void
     {
         $respuesta = $this->cliente()->post('/registrarse', '{"nombre":');
@@ -184,6 +194,7 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertSame('Los datos enviados no son válidos', $respuesta->json()['error']);
     }
 
+    //Si el registro se rechaza, no queda nada guardado en la base
     public function testUnRegistroRechazadoNoGuardaNada(): void
     {
         $datos = Datos::registro('huesped', ['contrasenia_confirmacion' => 'otra-clave-1']);

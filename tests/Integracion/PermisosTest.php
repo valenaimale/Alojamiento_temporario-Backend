@@ -7,6 +7,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 //RN-19 y OWASP n.º 1 (control de acceso): sin sesión responde 401, con un rol sin permiso responde 403.
 final class PermisosTest extends CasoDeIntegracion
 {
+    //Cada ruta protegida responde 401 sin sesión
     #[DataProvider('rutasProtegidas')]
     public function testSinSesionResponde401(string $metodo, string $ruta): void
     {
@@ -17,6 +18,7 @@ final class PermisosTest extends CasoDeIntegracion
         $this->assertSame('No hay sesión iniciada', $respuesta->json()['error']);
     }
 
+    //Las rutas protegidas que se prueban sin sesión
     public static function rutasProtegidas(): array
     {
         return [
@@ -31,6 +33,7 @@ final class PermisosTest extends CasoDeIntegracion
         ];
     }
 
+    //Un usuario con un rol sin permiso recibe 403
     #[DataProvider('accesosDenegados')]
     public function testUnRolSinPermisoResponde403(string $rol, string $metodo, string $ruta): void
     {
@@ -43,6 +46,7 @@ final class PermisosTest extends CasoDeIntegracion
         $this->assertSame('No tenés permiso para hacer esto', $respuesta->json()['error']);
     }
 
+    //Cada caso: qué rol, qué ruta, y que no la puede usar
     public static function accesosDenegados(): array
     {
         return [
@@ -55,6 +59,7 @@ final class PermisosTest extends CasoDeIntegracion
         ];
     }
 
+    //Si el backoffice deshabilita una cuenta con la sesión abierta, esa sesión deja de servir
     public function testSiDeshabilitanLaCuentaSePierdeLaSesionAbierta(): void
     {
         [$cliente, $datos] = $this->registrar();

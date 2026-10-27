@@ -12,6 +12,8 @@ use App\Validacion\DatosFiscales;
 //Si el rol es propietario o administrador, además de la fila en usuarios se crea su fila
 //en propietarios o en administradores, con sus datos fiscales y bancarios.
 class RegistroController{
+    //POST /registrarse: valida los datos, crea la cuenta (y, si corresponde, sus datos fiscales y bancarios),
+    //manda el mail de verificación e inicia la sesión
     public function registrar(){
         $datos_registro = Request::datosJson();//Request::datosJson decodifica el json a php (y controla su forma) de manera tal
         //que la funcion de json_decode devuelve el json en formato de array asociativo, en este caso
@@ -126,10 +128,12 @@ class RegistroController{
 
         return $this->respuesta('Cuenta creada exitosamente', $usuario);
     }
+    //Responde un error en JSON con su código HTTP
     private function error(string $mensaje, int $codigo = 422){
         http_response_code($codigo);
         echo json_encode(['error' => $mensaje]);
     }
+    //Responde la cuenta creada, con los datos del usuario
     private function respuesta(string $mensaje, array $datosUsuario, int $codigo =201){
         http_response_code($codigo);
         echo json_encode(['ok'=>$mensaje,

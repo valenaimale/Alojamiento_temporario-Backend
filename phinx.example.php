@@ -1,5 +1,7 @@
 <?php
 
+//Plantilla de phinx.php (la configuración de la base de datos para Phinx y para Conexion en desarrollo).
+//Se copia como phinx.php (ignorado por git) y se completan el usuario y la contraseña de MySQL de cada uno.
 return
 [
     'paths' => [

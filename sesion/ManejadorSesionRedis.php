@@ -10,6 +10,7 @@ use Predis\Client;
 //el resto del código sigue usando $_SESSION igual que antes.
 class ManejadorSesionRedis implements \SessionHandlerInterface, \SessionUpdateTimestampHandlerInterface
 {
+    //Recibe la conexión a Redis, el prefijo de las claves y cuánto dura cada sesión
     public function __construct(
         private Client $redis,
         private string $prefijo,

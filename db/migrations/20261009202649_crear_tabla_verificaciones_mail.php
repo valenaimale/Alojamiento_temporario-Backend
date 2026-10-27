@@ -11,6 +11,7 @@ use Phinx\Migration\AbstractMigration;
 //OJO: en esta versión de Phinx las columnas son NULL por defecto; las obligatorias llevan 'null' => false.
 final class CrearTablaVerificacionesMail extends AbstractMigration
 {
+    //Crea la tabla; Phinx sabe deshacerla sola (rollback) porque usa change()
     public function change(): void
     {
         $this->table('verificaciones_mail')

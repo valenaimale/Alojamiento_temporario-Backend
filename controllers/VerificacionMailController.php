@@ -84,10 +84,12 @@ class VerificacionMailController{
         return $this->respuesta('Te enviamos un nuevo mail de verificación a ' . $usuario['mail']);
     }
 
+    //Responde un error en JSON con su código HTTP
     private function error(string $mensaje, int $codigo = 422){
         http_response_code($codigo);
         echo json_encode(['error' => $mensaje]);
     }
+    //Responde un éxito en JSON con su código HTTP
     private function respuesta(string $mensaje, int $codigo = 200){
         http_response_code($codigo);
         echo json_encode(['ok' => $mensaje]);

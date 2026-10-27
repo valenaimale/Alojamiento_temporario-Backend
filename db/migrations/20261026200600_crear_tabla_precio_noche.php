@@ -14,6 +14,7 @@ use Phinx\Migration\AbstractMigration;
 //OJO: en esta versión de Phinx las columnas son NULL por defecto; las obligatorias llevan 'null' => false.
 final class CrearTablaPrecioNoche extends AbstractMigration
 {
+    //Crea la tabla con su CHECK del precio (vendor/bin/phinx migrate)
     public function up(): void
     {
         $this->table('precio_noche', ['id' => false, 'primary_key' => ['unidad_id', 'fecha', 'vigente_desde']])
@@ -33,6 +34,7 @@ final class CrearTablaPrecioNoche extends AbstractMigration
         );
     }
 
+    //Borra la tabla (vendor/bin/phinx rollback)
     public function down(): void
     {
         $this->table('precio_noche')->drop()->save();

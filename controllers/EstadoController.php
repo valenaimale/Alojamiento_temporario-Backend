@@ -15,6 +15,7 @@ use App\Log\Log;
 //No prueba funcionalidades (eso lo hacen los tests): tiene que ser rápido y no modificar nada.
 class EstadoController
 {
+    //Responde si el backend y la base de datos funcionan, con la versión desplegada
     public function estado()
     {
         $baseDeDatos = 'ok';

@@ -13,6 +13,7 @@ final class ClienteApi
     private Client $http;
     private CookieJar $cookies;
 
+    //Un "navegador" nuevo, con sus propias cookies, que le habla al backend de prueba
     public function __construct(?string $urlBase = null)
     {
         $this->cookies = new CookieJar();
@@ -25,6 +26,7 @@ final class ClienteApi
         ]);
     }
 
+    //Hace un GET, con los parámetros en el query string
     public function get(string $ruta, array $consulta = [], array $headers = []): Respuesta
     {
         return $this->enviar('GET', $ruta, ['query' => $consulta, 'headers' => $headers]);
@@ -43,6 +45,7 @@ final class ClienteApi
         return $this->enviar('POST', $ruta, $opciones);
     }
 
+    //Hace un OPTIONS (la consulta previa de CORS que hace el navegador)
     public function options(string $ruta, array $headers = []): Respuesta
     {
         return $this->enviar('OPTIONS', $ruta, ['headers' => $headers]);
@@ -59,6 +62,7 @@ final class ClienteApi
         return null;
     }
 
+    //Manda la petición y devuelve la respuesta (sin lanzar excepciones por los códigos 4xx y 5xx)
     private function enviar(string $metodo, string $ruta, array $opciones): Respuesta
     {
         $respuesta = $this->http->request($metodo, $ruta, $opciones);
