@@ -7,6 +7,7 @@ namespace Tests\Integracion;
 final class UnidadesTest extends CasoDeIntegracion
 {
     private const FALTA_PRECIO = 'Cargá el precio de al menos una noche, de hoy en adelante';
+    private const FALTA_FOTO = 'Subí al menos una foto';
     private const FOTO = 'https://res.cloudinary.com/ynclnyuh/image/upload/v1/unidades/';
 
     //Datos válidos para crear o editar una unidad, con los cambios que pida cada test
@@ -29,8 +30,9 @@ final class UnidadesTest extends CasoDeIntegracion
         return $consulta->fetch();
     }
 
-    //Una foto de la unidad directo en la base
-    private function agregarFotoEnBase(int $unidadId, int $orden): void
+    //Una foto de la unidad directo en la base, con una URL distinta por orden (foto-0.jpg, foto-1.jpg...).
+    //No usa agregarFotoEnBase de CasoDeIntegracion porque esa repite la URL, y acá hay que distinguir cuál es la principal.
+    private function agregarFotoConUrlPropia(int $unidadId, int $orden): void
     {
         $this->pdo()->prepare('INSERT INTO fotos_unidad (unidad_id, url, orden) VALUES (?, ?, ?)')
             ->execute([$unidadId, self::FOTO . "foto-$orden.jpg", $orden]);
@@ -211,8 +213,8 @@ final class UnidadesTest extends CasoDeIntegracion
         ]);
         $this->asignarAdministradorEnBase($administrada, $administrador['id'], 15);
         $this->cargarPreciosEnBase($administrada, $this->fecha(), $this->fecha('+5 days'), 70000, $propietario['id']);
-        $this->agregarFotoEnBase($administrada, 0);
-        $this->agregarFotoEnBase($administrada, 1);
+        $this->agregarFotoConUrlPropia($administrada, 0);
+        $this->agregarFotoConUrlPropia($administrada, 1);
 
         $respuesta = $this->iniciarSesion($propietario['mail'])->get('/unidades/mias');
 
@@ -240,7 +242,7 @@ final class UnidadesTest extends CasoDeIntegracion
                 'foto_principal'     => null,
                 'administrador'      => null,
                 'deposito_garantia'  => '15000.00',
-                'faltantes'          => [self::FALTA_PRECIO],
+                'faltantes'          => [self::FALTA_PRECIO, self::FALTA_FOTO],
             ],
         ], $respuesta->json()['unidades']);
     }
@@ -280,8 +282,8 @@ final class UnidadesTest extends CasoDeIntegracion
             'caracteristicas'   => 'Con parrilla',
             'deposito_garantia' => 15000,
         ]);
-        $this->agregarFotoEnBase($unidadId, 1);
-        $this->agregarFotoEnBase($unidadId, 0);
+        $this->agregarFotoConUrlPropia($unidadId, 1);
+        $this->agregarFotoConUrlPropia($unidadId, 0);
 
         $respuesta = $this->iniciarSesion($propietario['mail'])->get('/unidades/datos', ['id' => $unidadId]);
 
