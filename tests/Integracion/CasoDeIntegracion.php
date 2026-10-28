@@ -145,6 +145,14 @@ abstract class CasoDeIntegracion extends TestCase
         }
     }
 
+    //Una foto de la unidad con ese orden (0 = la principal). Devuelve su id.
+    protected function agregarFotoEnBase(int $unidadId, int $orden = 0): int
+    {
+        $this->pdo()->prepare('INSERT INTO fotos_unidad (unidad_id, url, orden) VALUES (?, ?, ?)')
+            ->execute([$unidadId, 'https://res.cloudinary.com/ynclnyuh/image/upload/unidades/prueba.jpg', $orden]);
+        return (int) $this->pdo()->lastInsertId();
+    }
+
     //Una temporada de la unidad (alta, media o baja) con su mínimo de noches. Devuelve su id.
     protected function crearTemporadaEnBase(int $unidadId, string $nombre, string $inicio, string $fin, int $minimoNoches = 1): int
     {

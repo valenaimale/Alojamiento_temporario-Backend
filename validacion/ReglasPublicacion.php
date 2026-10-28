@@ -9,7 +9,8 @@ use App\Database\Conexion;
 //y la acción de publicar: así la regla está escrita una sola vez.
 class ReglasPublicacion
 {
-    //Devuelve la lista de lo que falta, con un mensaje para el propietario por cada cosa.
+    //Devuelve la lista de lo que falta, con un mensaje para el propietario por cada cosa:
+    //al menos una noche con precio de hoy en adelante (RN-01) y al menos una foto.
     //Vacía = se puede publicar.
     public static function faltantes(int $unidadId): array
     {
@@ -25,6 +26,13 @@ class ReglasPublicacion
         $consulta->execute([$unidadId, ValidadorFechas::hoy()->format('Y-m-d')]);//la fecha de hoy de Argentina, no la de MySQL
         if (!$consulta->fetchColumn()) {
             $faltantes[] = 'Cargá el precio de al menos una noche, de hoy en adelante';
+        }
+
+        //al menos una foto (decidido el 28/10): en la búsqueda, una unidad sin foto genera desconfianza
+        $consulta = Conexion::obtener()->prepare('SELECT 1 FROM fotos_unidad WHERE unidad_id = ? LIMIT 1');
+        $consulta->execute([$unidadId]);
+        if (!$consulta->fetchColumn()) {
+            $faltantes[] = 'Subí al menos una foto';
         }
 
         return $faltantes;
