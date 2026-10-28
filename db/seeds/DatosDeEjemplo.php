@@ -76,6 +76,9 @@ final class DatosDeEjemplo extends AbstractSeed
         $this->table('administraciones')->insert([
             'unidad_id' => $casa, 'administrador_id' => $cacho, 'porcentaje_comision' => 15,
         ])->saveData();
+        $this->table('fotos_unidad')->insert([   //para publicarse necesita al menos una foto
+            'unidad_id' => $casa, 'url' => 'https://res.cloudinary.com/ynclnyuh/image/upload/samples/landscapes/landscape-panorama.jpg', 'orden' => 0,
+        ])->saveData();
 
         $this->getOutput()->writeln('Datos de ejemplo cargados: marisa, cacho, nadia y juan @ejemplo.local (contraseña: ' . self::CONTRASENIA . ').');
     }

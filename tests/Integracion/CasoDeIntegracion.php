@@ -132,15 +132,25 @@ abstract class CasoDeIntegracion extends TestCase
             ->execute([$unidadId, $administradorId, $porcentajeComision]);
     }
 
-    //El mismo precio para cada noche del rango (las dos fechas incluidas), vigente desde ahora
+    //El mismo precio para cada noche del rango (las dos fechas incluidas), vigente desde ayer (en UTC, como el backend).
+    //Desde ayer y no desde ahora: si un test lo cambia por la API en el mismo segundo, chocaría con la clave primaria.
     protected function cargarPreciosEnBase(int $unidadId, string $desde, string $hasta, float $precio, int $usuarioId): void
     {
         $consulta = $this->pdo()->prepare(
-            'INSERT INTO precio_noche (unidad_id, fecha, vigente_desde, precio, creado_por) VALUES (?, ?, NOW(), ?, ?)'
+            'INSERT INTO precio_noche (unidad_id, fecha, vigente_desde, precio, creado_por)
+             VALUES (?, ?, UTC_TIMESTAMP() - INTERVAL 1 DAY, ?, ?)'
         );
         for ($noche = new \DateTimeImmutable($desde); $noche <= new \DateTimeImmutable($hasta); $noche = $noche->modify('+1 day')) {
             $consulta->execute([$unidadId, $noche->format('Y-m-d'), $precio, $usuarioId]);
         }
+    }
+
+    //Una foto de la unidad con ese orden (0 = la principal). Devuelve su id.
+    protected function agregarFotoEnBase(int $unidadId, int $orden = 0): int
+    {
+        $this->pdo()->prepare('INSERT INTO fotos_unidad (unidad_id, url, orden) VALUES (?, ?, ?)')
+            ->execute([$unidadId, 'https://res.cloudinary.com/ynclnyuh/image/upload/unidades/prueba.jpg', $orden]);
+        return (int) $this->pdo()->lastInsertId();
     }
 
     //Una temporada de la unidad (alta, media o baja) con su mínimo de noches. Devuelve su id.

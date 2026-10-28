@@ -113,9 +113,22 @@ class Router {
         // ---------- fin PR 2 ----------
 
         // ---------- PR 3: condiciones comerciales (US2.7, US2.8, US2.9) ----------
+        $this->register('GET@/unidades/temporadas', 'TemporadasController@listar');
+        $this->register('POST@/unidades/temporadas/crear', 'TemporadasController@crear');
+        $this->register('POST@/unidades/temporadas/editar', 'TemporadasController@editar');
+        $this->register('POST@/unidades/temporadas/borrar', 'TemporadasController@borrar');
+        $this->register('GET@/unidades/precios', 'PreciosController@ver');
+        $this->register('POST@/unidades/precios/cargar', 'PreciosController@cargar');
+        $this->register('GET@/unidades/politica', 'PoliticaController@ver');
+        $this->register('POST@/unidades/politica', 'PoliticaController@guardar');
         // ---------- fin PR 3 ----------
 
         // ---------- PR 4: publicación y bloqueos (US3.1, US3.3) ----------
+        $this->register('POST@/unidades/publicar', 'PublicacionController@publicar');
+        $this->register('POST@/unidades/pausar', 'PublicacionController@pausar');
+        $this->register('GET@/unidades/bloqueos', 'BloqueosController@listar');
+        $this->register('POST@/unidades/bloqueos/crear', 'BloqueosController@crear');
+        $this->register('POST@/unidades/bloqueos/liberar', 'BloqueosController@liberar');
         // ---------- fin PR 4 ----------
 
         // ---------- PR 5: búsqueda y detalle (US3.2) ----------
