@@ -14,10 +14,10 @@ final class PublicacionTest extends CasoDeIntegracion
         return [$this->iniciarSesion($propietario['mail']), $unidadId, $propietario['id']];
     }
 
-    //Le da a la unidad lo que necesita para publicarse: precio de hoy en adelante y una foto
+    //Le da a la unidad lo que necesita para publicarse: precios para los próximos meses y una foto
     private function completarParaPublicar(int $unidadId, int $propietarioId): void
     {
-        $this->cargarPreciosEnBase($unidadId, $this->fecha(), $this->fecha('+30 days'), 70000, $propietarioId);
+        $this->cargarPreciosParaPublicarEnBase($unidadId, $propietarioId);
         $this->agregarFotoEnBase($unidadId);
     }
 
@@ -50,7 +50,7 @@ final class PublicacionTest extends CasoDeIntegracion
         $this->assertSame(422, $respuesta->codigo, $respuesta->cuerpo);
         $this->assertSame([
             'error'     => 'Para publicarla te falta completar algunas cosas',
-            'faltantes' => ['Cargá el precio de al menos una noche, de hoy en adelante', 'Subí al menos una foto'],
+            'faltantes' => [$this->faltaPrecio($this->nochesExigidasParaPublicar()), 'Subí al menos una foto'],
         ], $respuesta->json());
         $this->assertSame('borrador', $this->estado($unidadId));
     }
@@ -59,7 +59,7 @@ final class PublicacionTest extends CasoDeIntegracion
     public function testSinFotoNoSePublica(): void
     {
         [$cliente, $unidadId, $propietarioId] = $this->propietarioConUnidad();
-        $this->cargarPreciosEnBase($unidadId, $this->fecha(), $this->fecha('+30 days'), 70000, $propietarioId);
+        $this->cargarPreciosParaPublicarEnBase($unidadId, $propietarioId);
 
         $respuesta = $cliente->post('/unidades/publicar', ['unidad_id' => $unidadId]);
 
