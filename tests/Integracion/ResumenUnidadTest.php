@@ -7,6 +7,7 @@ namespace Tests\Integracion;
 final class ResumenUnidadTest extends CasoDeIntegracion
 {
     private const FALTA_PRECIO = 'Cargá el precio de al menos una noche, de hoy en adelante';
+    private const FALTA_FOTO = 'Subí al menos una foto';
 
     //El propietario ve el resumen completo de su unidad
     public function testElPropietarioVeElResumenDeSuUnidad(): void
@@ -26,7 +27,7 @@ final class ResumenUnidadTest extends CasoDeIntegracion
             'disponible'           => true,
             'motivo_no_disponible' => null,
             'es_propietario'       => true,
-            'faltantes'            => [self::FALTA_PRECIO],
+            'faltantes'            => [self::FALTA_PRECIO, self::FALTA_FOTO],
         ], $respuesta->json()['unidad']);
     }
 
@@ -82,26 +83,46 @@ final class ResumenUnidadTest extends CasoDeIntegracion
     }
 
     //RN-01: para publicarse necesita al menos una noche con precio vigente, de hoy en adelante
+    //(todas las unidades de este test tienen foto, así solo se mira el precio)
     public function testLaReglaDePublicacionMiraLosPreciosVigentesDeHoyEnAdelante(): void
     {
         $propietario = $this->crearPropietarioEnBase();
         $cliente = $this->iniciarSesion($propietario['mail']);
         $faltantes = fn (int $id) => $cliente->get('/unidades/resumen', ['id' => $id])->json()['unidad']['faltantes'];
+        $unidadConFoto = function () use ($propietario) {
+            $id = $this->crearUnidadEnBase($propietario['id']);
+            $this->agregarFotoEnBase($id);
+            return $id;
+        };
 
         //solo noches pasadas: le falta
-        $conPreciosPasados = $this->crearUnidadEnBase($propietario['id']);
+        $conPreciosPasados = $unidadConFoto();
         $this->cargarPreciosEnBase($conPreciosPasados, $this->fecha('-10 days'), $this->fecha('-1 day'), 70000, $propietario['id']);
         $this->assertSame([self::FALTA_PRECIO], $faltantes($conPreciosPasados));
 
         //una noche de hoy: no le falta nada
-        $conPrecioHoy = $this->crearUnidadEnBase($propietario['id']);
+        $conPrecioHoy = $unidadConFoto();
         $this->cargarPreciosEnBase($conPrecioHoy, $this->fecha(), $this->fecha(), 70000, $propietario['id']);
         $this->assertSame([], $faltantes($conPrecioHoy));
 
         //un precio que ya no está vigente (se reemplazó y no hay otro): le falta
-        $conPrecioCerrado = $this->crearUnidadEnBase($propietario['id']);
+        $conPrecioCerrado = $unidadConFoto();
         $this->cargarPreciosEnBase($conPrecioCerrado, $this->fecha('+5 days'), $this->fecha('+5 days'), 70000, $propietario['id']);
         $this->pdo()->prepare('UPDATE precio_noche SET vigente_hasta = NOW() WHERE unidad_id = ?')->execute([$conPrecioCerrado]);
         $this->assertSame([self::FALTA_PRECIO], $faltantes($conPrecioCerrado));
+    }
+
+    //Para publicarse también necesita al menos una foto (decidido el 28/10)
+    public function testLaReglaDePublicacionPideAlMenosUnaFoto(): void
+    {
+        $propietario = $this->crearPropietarioEnBase();
+        $unidadId = $this->crearUnidadEnBase($propietario['id']);
+        $this->cargarPreciosEnBase($unidadId, $this->fecha(), $this->fecha('+5 days'), 70000, $propietario['id']);
+        $cliente = $this->iniciarSesion($propietario['mail']);
+
+        $this->assertSame([self::FALTA_FOTO], $cliente->get('/unidades/resumen', ['id' => $unidadId])->json()['unidad']['faltantes']);
+
+        $this->agregarFotoEnBase($unidadId);
+        $this->assertSame([], $cliente->get('/unidades/resumen', ['id' => $unidadId])->json()['unidad']['faltantes']);
     }
 }

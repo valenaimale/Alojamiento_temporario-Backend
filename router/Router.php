@@ -116,6 +116,11 @@ class Router {
         // ---------- fin PR 3 ----------
 
         // ---------- PR 4: publicación y bloqueos (US3.1, US3.3) ----------
+        $this->register('POST@/unidades/publicar', 'PublicacionController@publicar');
+        $this->register('POST@/unidades/pausar', 'PublicacionController@pausar');
+        $this->register('GET@/unidades/bloqueos', 'BloqueosController@listar');
+        $this->register('POST@/unidades/bloqueos/crear', 'BloqueosController@crear');
+        $this->register('POST@/unidades/bloqueos/liberar', 'BloqueosController@liberar');
         // ---------- fin PR 4 ----------
 
         // ---------- PR 5: búsqueda y detalle (US3.2) ----------
