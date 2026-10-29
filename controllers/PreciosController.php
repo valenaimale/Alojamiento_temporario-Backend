@@ -11,7 +11,8 @@ use App\Validacion\ValidadorFechas;
 //Un precio guardado nunca se modifica ni se borra: para cambiarlo se cierra la fila vigente
 //(vigente_hasta = ahora) y se crea otra. Así se puede reconstruir a qué precio se reservó cada noche.
 //Los precios no se quitan: una noche que ya tiene precio siempre tiene uno vigente. Para que no se reserve,
-//el propietario la bloquea (US3.3). Todo es solo del propietario de la unidad.
+//el propietario la bloquea (US3.3). Cargar precios es solo del propietario; verlos, también del administrador
+//asignado (gestiona la unidad: necesita ver el calendario completo).
 class PreciosController
 {
     private const MAXIMO_NOCHES = 366;   //un rango (para ver o para cargar) cubre como mucho un año
@@ -19,9 +20,10 @@ class PreciosController
     //GET /unidades/precios?id=5&desde=2026-12-01&hasta=2026-12-31: cada noche del rango con su precio vigente
     //(o null), su temporada (o null) y el mínimo de noches que se le exige (1 si no tiene temporada).
     //Se pueden pedir noches pasadas: el calendario del mes en curso las muestra.
+    //Lo ven el propietario y el administrador asignado.
     public function ver()
     {
-        $unidad = PermisosUnidad::delPropietario($_GET['id'] ?? '');//si no puede, responde y corta acá
+        $unidad = PermisosUnidad::delPropietarioOAdministrador($_GET['id'] ?? '');//si no puede, responde y corta acá
 
         $rango = $this->validarRango((string) ($_GET['desde'] ?? ''), (string) ($_GET['hasta'] ?? ''));
         if (isset($rango['error'])) {

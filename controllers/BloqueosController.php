@@ -75,9 +75,24 @@ class BloqueosController
                 ), 409);
             }
 
-            //Épica 4: acá va el control de las reservas de la plataforma. Si alguna noche del rango tiene una reserva
-            //(confirmada o pendiente sin vencer), responder 409: bloquearla sería una cancelación del propietario,
-            //que tiene su propio trato.
+            //Tampoco puede pisar una reserva (pendiente o confirmada): bloquear esas noches sería una cancelación
+            //del propietario, que tiene su propio trato. La noche del egreso no es de la reserva.
+            $consulta = $pdo->prepare(
+                "SELECT fecha_ingreso, fecha_egreso FROM reservas
+                 WHERE unidad_id = ? AND estado IN ('pendiente', 'confirmada') AND fecha_ingreso <= ? AND fecha_egreso > ?
+                 ORDER BY fecha_ingreso
+                 LIMIT 1"
+            );
+            $consulta->execute([$unidad['id'], $bloqueo['fecha_hasta'], $bloqueo['fecha_desde']]);
+            $reserva = $consulta->fetch();
+            if ($reserva !== false) {
+                $pdo->rollBack();
+                return $this->error(sprintf(
+                    'Esas fechas tienen una reserva, con ingreso el %s y egreso el %s: no se pueden bloquear',
+                    ValidadorFechas::fecha($reserva['fecha_ingreso'])->format('d/m/Y'),
+                    ValidadorFechas::fecha($reserva['fecha_egreso'])->format('d/m/Y')
+                ), 409);
+            }
 
             $consulta = $pdo->prepare(
                 'INSERT INTO bloqueos_calendario (unidad_id, fecha_desde, fecha_hasta, motivo, detalle, creado_por)

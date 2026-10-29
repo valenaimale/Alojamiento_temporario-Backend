@@ -2,7 +2,7 @@
 
 Bajo qué condiciones se alquila una unidad: sus **temporadas** (con el mínimo de noches), el **precio de cada noche** y la **política de cancelación** con el **% de seña**. Las convenciones generales (URL base, formato de los errores, sesiones) están en el `Readme.md`, sección "API: rutas y contratos".
 
-**Todas las rutas son solo del propietario de la unidad** y necesitan sesión iniciada (el `fetch` lleva `credentials: 'include'`). Para cualquier ruta de esta página:
+**Las rutas que cambian algo son solo del propietario de la unidad.** Las dos de lectura (`GET /unidades/temporadas` y `GET /unidades/precios`) también las puede usar el **administrador asignado**, que gestiona la unidad y necesita ver el calendario completo; para él no hay `403` en esas dos. Todas necesitan sesión iniciada (el `fetch` lleva `credentials: 'include'`). Para cualquier ruta de esta página:
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|

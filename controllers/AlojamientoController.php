@@ -160,8 +160,7 @@ class AlojamientoController
 
         $estadia = Estadia::calcular((int) $unidad['id'], $fechas['ingreso'], $fechas['egreso']);
         if ($estadia['disponible']) {
-            //la seña es el % de seña de la unidad sobre el total, con 2 decimales, como texto igual que los demás montos
-            $estadia['sena'] = number_format(round((float) $estadia['precio_total'] * (float) $unidad['porcentaje_sena'] / 100, 2), 2, '.', '');
+            $estadia['sena'] = Estadia::sena($estadia['precio_total'], $unidad['porcentaje_sena']);
         }
         return $estadia;
     }

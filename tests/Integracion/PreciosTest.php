@@ -182,7 +182,8 @@ final class PreciosTest extends CasoDeIntegracion
 
     // ---------- permisos ----------
 
-    //Solo el propietario de la unidad: otro propietario 404, el administrador asignado 403, sin sesión 401
+    //Ver: el propietario y el administrador asignado. Cargar: solo el propietario (el administrador recibe 403).
+    //Otro propietario 404, sin sesión 401.
     public function testSoloElPropietarioDeLaUnidad(): void
     {
         $propietario = $this->crearPropietarioEnBase();
@@ -190,15 +191,15 @@ final class PreciosTest extends CasoDeIntegracion
         $administrador = $this->crearAdministradorEnBase();
         $this->asignarAdministradorEnBase($unidadId, $administrador['id']);
 
-        $quienes = [
-            'otro propietario'          => [$this->iniciarSesion($this->crearPropietarioEnBase()['mail']), 404],
-            'el administrador asignado' => [$this->iniciarSesion($administrador['mail']), 403],
-            'sin sesión'                => [$this->cliente(), 401],
+        $quienes = [//[cliente, código al ver, código al cargar]
+            'otro propietario'          => [$this->iniciarSesion($this->crearPropietarioEnBase()['mail']), 404, 404],
+            'el administrador asignado' => [$this->iniciarSesion($administrador['mail']), 200, 403],
+            'sin sesión'                => [$this->cliente(), 401, 401],
         ];
-        foreach ($quienes as $quien => [$cliente, $codigo]) {
+        foreach ($quienes as $quien => [$cliente, $codigoVer, $codigoCargar]) {
             $ver = $cliente->get('/unidades/precios', ['id' => $unidadId, 'desde' => $this->fecha(), 'hasta' => $this->fecha('+5 days')]);
-            $this->assertSame($codigo, $ver->codigo, "$quien: ver");
-            $this->assertSame($codigo, $this->cargar($cliente, $unidadId, '+1 day', '+5 days', 70000)->codigo, "$quien: cargar");
+            $this->assertSame($codigoVer, $ver->codigo, "$quien: ver");
+            $this->assertSame($codigoCargar, $this->cargar($cliente, $unidadId, '+1 day', '+5 days', 70000)->codigo, "$quien: cargar");
         }
         $this->assertSame(0, (int) $this->pdo()->query("SELECT COUNT(*) FROM precio_noche WHERE unidad_id = $unidadId")->fetchColumn());
     }

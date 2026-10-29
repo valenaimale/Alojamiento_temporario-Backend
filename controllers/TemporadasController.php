@@ -10,7 +10,7 @@ use App\Validacion\ValidadorFechas;
 //Las temporadas de una unidad (US2.7, US2.9): alta, media o baja, con sus fechas y su mínimo de noches.
 //No tienen precio: el precio se carga por noche (PreciosController). Son opcionales: las noches sin
 //temporada tienen mínimo 1. Dos temporadas de la misma unidad no se pueden superponer.
-//Todo es solo del propietario de la unidad.
+//Crear, editar y borrar es solo del propietario; verlas, también del administrador asignado.
 class TemporadasController
 {
     private const NOMBRES = ['alta', 'media', 'baja'];
@@ -19,9 +19,10 @@ class TemporadasController
 
     //GET /unidades/temporadas?id=5: las temporadas que todavía no terminaron, ordenadas por fecha.
     //Las que ya terminaron no se muestran: no se pueden editar y ya no afectan a ninguna estadía nueva.
+    //Las ven el propietario y el administrador asignado.
     public function listar()
     {
-        $unidad = PermisosUnidad::delPropietario($_GET['id'] ?? '');//si no puede, responde y corta acá
+        $unidad = PermisosUnidad::delPropietarioOAdministrador($_GET['id'] ?? '');//si no puede, responde y corta acá
 
         $consulta = Conexion::obtener()->prepare(
             'SELECT id, nombre, fecha_inicio, fecha_fin, minimo_noches
