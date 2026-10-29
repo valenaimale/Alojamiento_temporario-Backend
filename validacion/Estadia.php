@@ -80,22 +80,34 @@ class Estadia
         return ['disponible' => true, 'noches' => $noches, 'precio_total' => $precios['total']];//SUM de un decimal: texto con 2 decimales
     }
 
+    //La seña de una estadía: el % de seña de la unidad sobre el total, con 2 decimales, como texto ("105000.00")
+    //igual que los demás montos. La usan el detalle (para mostrarla) y la reserva (para guardarla).
+    public static function sena(string $precioTotal, string $porcentajeSena): string
+    {
+        return number_format(round((float) $precioTotal * (float) $porcentajeSena / 100, 2), 2, '.', '');
+    }
+
     //Las noches ocupadas del rango (las dos fechas incluidas), como ["AAAA-MM-DD" => true, ...].
-    //Hoy, una noche está ocupada solo si tiene un bloqueo.
-    //Épica 4: sumar acá las reservas confirmadas y las pendientes sin vencer (así la búsqueda, el detalle
-    //y el calendario las tienen en cuenta sin cambiar nada más).
+    //Una noche está ocupada si tiene un bloqueo o una reserva pendiente o confirmada (así la búsqueda, el detalle,
+    //el calendario y la reserva las tienen en cuenta). La noche del egreso de una reserva queda libre:
+    //ese día puede entrar otro huésped (RN-08).
+    //Cuando lleguen los pagos, las pendientes vencidas (bloqueo_expira_en) van a dejar de ocupar.
     public static function nochesOcupadas(int $unidadId, string $primera, string $ultima): array
     {
         $consulta = Conexion::obtener()->prepare(
-            'SELECT fecha_desde, fecha_hasta FROM bloqueos_calendario WHERE unidad_id = ? AND fecha_desde <= ? AND fecha_hasta >= ?'
+            "SELECT fecha_desde AS desde, fecha_hasta AS hasta FROM bloqueos_calendario
+             WHERE unidad_id = ? AND fecha_desde <= ? AND fecha_hasta >= ?
+             UNION ALL
+             SELECT fecha_ingreso, DATE_SUB(fecha_egreso, INTERVAL 1 DAY) FROM reservas
+             WHERE unidad_id = ? AND estado IN ('pendiente', 'confirmada') AND fecha_ingreso <= ? AND fecha_egreso > ?"
         );
-        $consulta->execute([$unidadId, $ultima, $primera]);
+        $consulta->execute([$unidadId, $ultima, $primera, $unidadId, $ultima, $primera]);
 
         $ocupadas = [];
-        foreach ($consulta->fetchAll() as $bloqueo) {
-            //solo las noches del bloqueo que caen dentro del rango pedido (AAAA-MM-DD se compara como texto)
-            $noche = ValidadorFechas::fecha(max($bloqueo['fecha_desde'], $primera));
-            $fin = ValidadorFechas::fecha(min($bloqueo['fecha_hasta'], $ultima));
+        foreach ($consulta->fetchAll() as $ocupacion) {
+            //solo las noches que caen dentro del rango pedido (AAAA-MM-DD se compara como texto)
+            $noche = ValidadorFechas::fecha(max($ocupacion['desde'], $primera));
+            $fin = ValidadorFechas::fecha(min($ocupacion['hasta'], $ultima));
             for (; $noche <= $fin; $noche = $noche->modify('+1 day')) {
                 $ocupadas[$noche->format('Y-m-d')] = true;
             }

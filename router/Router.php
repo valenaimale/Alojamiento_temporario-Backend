@@ -146,6 +146,13 @@ class Router {
         $this->register('POST@/unidades/operador/quitar', 'GestionUnidadController@quitarOperador');
         $this->register('GET@/administrador/unidades', 'CarteraAdministradorController@listar');
         // ---------- fin PR 6 ----------
+
+        // ---------- Épica 4: reservas (entrega 4, sin pagos) ----------
+        $this->register('POST@/reservas/crear', 'ReservasController@crear');
+        $this->register('GET@/reservas/mias', 'ReservasController@mias');
+        $this->register('POST@/reservas/cancelar', 'ReservasController@cancelar');
+        $this->register('GET@/unidades/reservas', 'ReservasController@deLaUnidad');
+        // ---------- fin Épica 4 ----------
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){
