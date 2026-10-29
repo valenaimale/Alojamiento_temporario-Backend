@@ -145,6 +145,26 @@ abstract class CasoDeIntegracion extends TestCase
         }
     }
 
+    //Precios para todo lo que exige la regla de publicación (desde mañana hasta dentro de 6 meses), con margen: 7 meses
+    protected function cargarPreciosParaPublicarEnBase(int $unidadId, int $usuarioId, float $precio = 70000): void
+    {
+        $this->cargarPreciosEnBase($unidadId, $this->fecha('+1 day'), $this->fecha('+7 months'), $precio, $usuarioId);
+    }
+
+    //El faltante de precios que da la regla de publicación cuando faltan $noches noches (6 meses desde mañana)
+    protected function faltaPrecio(int $noches): string
+    {
+        $hasta = implode('/', array_reverse(explode('-', $this->fecha('+6 months'))));
+        return "Cargá el precio de todas las noches hasta el $hasta (" . ($noches === 1 ? 'te falta 1' : "te faltan $noches") . ')';
+    }
+
+    //Cuántas noches exige la regla de publicación: desde mañana hasta dentro de 6 meses, las dos incluidas
+    protected function nochesExigidasParaPublicar(): int
+    {
+        $manana = new \DateTimeImmutable($this->fecha('+1 day'));
+        return (int) $manana->diff(new \DateTimeImmutable($this->fecha('+6 months')))->days + 1;
+    }
+
     //Una foto de la unidad con ese orden (0 = la principal). Devuelve su id.
     protected function agregarFotoEnBase(int $unidadId, int $orden = 0): int
     {

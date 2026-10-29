@@ -48,9 +48,9 @@ final class DatosDeEjemplo extends AbstractSeed
             'deposito_garantia' => 50000, 'estado_publicacion' => 'publicada', 'operador_id' => $nadia,
         ]);
         $this->crearTemporada($cabania, 'baja', 0, 59, 2);
-        $this->crearTemporada($cabania, 'alta', 60, 179, 7);
+        $this->crearTemporada($cabania, 'alta', 60, 239, 7);
         $this->cargarPrecios($cabania, 0, 59, 60000, $marisa);
-        $this->cargarPrecios($cabania, 60, 179, 90000, $marisa);
+        $this->cargarPrecios($cabania, 60, 239, 90000, $marisa);   //8 meses: para publicar hacen falta 6
         $this->table('bloqueos_calendario')->insert([
             'unidad_id' => $cabania, 'fecha_desde' => $this->fecha(20), 'fecha_hasta' => $this->fecha(26),
             'motivo' => 'reserva_externa', 'detalle' => 'Reservada por Airbnb', 'creado_por' => $marisa,
@@ -71,8 +71,8 @@ final class DatosDeEjemplo extends AbstractSeed
             'caracteristicas' => 'Entre los pinos, a 400 metros del mar. Tres dormitorios.',
             'deposito_garantia' => 80000, 'estado_publicacion' => 'publicada',
         ]);
-        $this->crearTemporada($casa, 'media', 0, 179, 3);
-        $this->cargarPrecios($casa, 0, 179, 80000, $marisa);
+        $this->crearTemporada($casa, 'media', 0, 239, 3);
+        $this->cargarPrecios($casa, 0, 239, 80000, $marisa);
         $this->table('administraciones')->insert([
             'unidad_id' => $casa, 'administrador_id' => $cacho, 'porcentaje_comision' => 15,
         ])->saveData();
