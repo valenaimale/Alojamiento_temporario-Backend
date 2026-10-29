@@ -130,6 +130,13 @@ class Router {
         // ---------- fin PR 5 ----------
 
         // ---------- PR 6: gestión de la unidad (US2.2, US2.3, US2.4, US2.5) ----------
+        $this->register('GET@/unidades/gestion', 'GestionUnidadController@ver');
+        $this->register('POST@/unidades/administrador/asignar', 'GestionUnidadController@asignarAdministrador');
+        $this->register('POST@/unidades/administrador/comision', 'GestionUnidadController@cambiarComision');
+        $this->register('POST@/unidades/administrador/quitar', 'GestionUnidadController@quitarAdministrador');
+        $this->register('POST@/unidades/operador/asignar', 'GestionUnidadController@asignarOperador');
+        $this->register('POST@/unidades/operador/quitar', 'GestionUnidadController@quitarOperador');
+        $this->register('GET@/administrador/unidades', 'CarteraAdministradorController@listar');
         // ---------- fin PR 6 ----------
     }
     //Registra las rutas en el ROUTER
