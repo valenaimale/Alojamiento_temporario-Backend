@@ -6,7 +6,6 @@ namespace Tests\Integracion;
 //POST /unidades/crear, GET /unidades/mias, GET /unidades/datos, POST /unidades/editar y POST /unidades/deposito.
 final class UnidadesTest extends CasoDeIntegracion
 {
-    private const FALTA_PRECIO = 'Cargá el precio de al menos una noche, de hoy en adelante';
     private const FALTA_FOTO = 'Subí al menos una foto';
     private const FOTO = 'https://res.cloudinary.com/ynclnyuh/image/upload/v1/unidades/';
 
@@ -212,7 +211,7 @@ final class UnidadesTest extends CasoDeIntegracion
             'disponible'         => 0,
         ]);
         $this->asignarAdministradorEnBase($administrada, $administrador['id'], 15);
-        $this->cargarPreciosEnBase($administrada, $this->fecha(), $this->fecha('+5 days'), 70000, $propietario['id']);
+        $this->cargarPreciosParaPublicarEnBase($administrada, $propietario['id']);
         $this->agregarFotoConUrlPropia($administrada, 0);
         $this->agregarFotoConUrlPropia($administrada, 1);
 
@@ -242,7 +241,7 @@ final class UnidadesTest extends CasoDeIntegracion
                 'foto_principal'     => null,
                 'administrador'      => null,
                 'deposito_garantia'  => '15000.00',
-                'faltantes'          => [self::FALTA_PRECIO, self::FALTA_FOTO],
+                'faltantes'          => [$this->faltaPrecio($this->nochesExigidasParaPublicar()), self::FALTA_FOTO],
             ],
         ], $respuesta->json()['unidades']);
     }
