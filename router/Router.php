@@ -102,6 +102,14 @@ class Router {
         // ---------- fin base de las unidades ----------
 
         // ---------- PR 2: alta y datos de la unidad (US2.1, US2.6) ----------
+        $this->register('POST@/unidades/crear', 'UnidadesController@crear');
+        $this->register('GET@/unidades/mias', 'UnidadesController@mias');
+        $this->register('GET@/unidades/datos', 'UnidadesController@datos');
+        $this->register('POST@/unidades/editar', 'UnidadesController@editar');
+        $this->register('POST@/unidades/deposito', 'UnidadesController@deposito');
+        $this->register('POST@/unidades/fotos/agregar', 'FotosUnidadController@agregar');
+        $this->register('POST@/unidades/fotos/quitar', 'FotosUnidadController@quitar');
+        $this->register('POST@/unidades/fotos/principal', 'FotosUnidadController@principal');
         // ---------- fin PR 2 ----------
 
         // ---------- PR 3: condiciones comerciales (US2.7, US2.8, US2.9) ----------
