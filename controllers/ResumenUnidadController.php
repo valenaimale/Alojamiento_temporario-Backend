@@ -30,6 +30,7 @@ class ResumenUnidadController
             'motivo_no_disponible' => $unidad['motivo_no_disponible'],
             'es_propietario'       => $unidad['es_propietario'],//false = es el administrador: el front oculta lo que es solo del propietario
             'faltantes'            => ReglasPublicacion::faltantes((int) $unidad['id']),
+            'precios_hasta'        => ReglasPublicacion::preciosHasta((int) $unidad['id']),//hasta qué noche tiene precio sin cortes desde mañana (o null)
         ]]);
     }
 }

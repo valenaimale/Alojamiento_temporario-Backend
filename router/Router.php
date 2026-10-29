@@ -124,6 +124,9 @@ class Router {
         // ---------- fin PR 4 ----------
 
         // ---------- PR 5: búsqueda y detalle (US3.2) ----------
+        $this->register('GET@/buscar', 'BusquedaController@buscar');
+        $this->register('GET@/alojamiento', 'AlojamientoController@detalle');
+        $this->register('GET@/alojamiento/calendario', 'AlojamientoController@calendario');
         // ---------- fin PR 5 ----------
 
         // ---------- PR 6: gestión de la unidad (US2.2, US2.3, US2.4, US2.5) ----------

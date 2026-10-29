@@ -121,14 +121,14 @@ final class PreciosTest extends CasoDeIntegracion
         $this->assertSame(0, (int) $this->pdo()->query("SELECT COUNT(*) FROM precio_noche WHERE unidad_id = $unidadId")->fetchColumn());
     }
 
-    //Cargar el precio hace que la unidad deje de tener "falta el precio" (RN-01). Tiene foto: así no le falta nada más.
+    //Cargar el precio de los próximos 6 meses hace que a la unidad no le falte nada para publicarse (tiene foto)
     public function testConPrecioYaNoLeFaltaNadaParaPublicarse(): void
     {
         [$cliente, $unidadId] = $this->propietarioConUnidad();
         $this->agregarFotoEnBase($unidadId);
         $this->assertNotEmpty($cliente->get('/unidades/resumen', ['id' => $unidadId])->json()['unidad']['faltantes']);
 
-        $this->cargar($cliente, $unidadId, '+1 day', '+1 day', 70000);
+        $this->cargar($cliente, $unidadId, '+1 day', '+6 months', 70000);
 
         $this->assertSame([], $cliente->get('/unidades/resumen', ['id' => $unidadId])->json()['unidad']['faltantes']);
     }

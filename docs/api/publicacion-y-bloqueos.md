@@ -18,8 +18,10 @@ Todas las rutas necesitan sesión iniciada (el `fetch` lleva `credentials: 'incl
 Una unidad nace en **borrador** (no aparece en la búsqueda). El propietario la **publica** cuando cumple las reglas de publicación, y la puede **pausar** (sale de la búsqueda pero conserva sus reservas) y volver a publicar.
 
 Las reglas de publicación son las mismas que muestra el resumen de la unidad (`faltantes` en `GET /unidades/resumen`):
-- al menos una noche con precio vigente, de hoy en adelante (RN-01);
+- cada noche **desde mañana hasta dentro de 6 meses** (parámetro `meses_precios_para_publicar`) tiene precio vigente o está bloqueada (una noche bloqueada no necesita precio);
 - al menos una foto.
+
+Se exigen **al publicar**: una unidad publicada no se despublica sola si con el tiempo le quedan menos meses con precio. El resumen de la unidad dice hasta cuándo tiene precios (`precios_hasta`).
 
 ### Publicar
 
@@ -35,7 +37,7 @@ Solo el propietario.
 | `200` | `{"ok": "Publicaste la unidad: ya aparece en la búsqueda", "estado_publicacion": "publicada"}` | Estaba en borrador o pausada y cumple las reglas. |
 | `200` | `{"ok": "La unidad ya está publicada", "estado_publicacion": "publicada"}` | Ya estaba publicada: no cambia nada. |
 | `409` | `{"error": "No se puede publicar: la unidad está fuera de servicio"}` | La unidad no está disponible por un daño (Épica 8). |
-| `422` | `{"error": "Para publicarla te falta completar algunas cosas", "faltantes": ["Cargá el precio de al menos una noche, de hoy en adelante", "Subí al menos una foto"]}` | No cumple alguna regla. `faltantes` dice cuáles. |
+| `422` | `{"error": "Para publicarla te falta completar algunas cosas", "faltantes": ["Cargá el precio de todas las noches hasta el 29/04/2027 (te faltan 23)", "Subí al menos una foto"]}` | No cumple alguna regla. `faltantes` dice cuáles. |
 
 ### Pausar
 

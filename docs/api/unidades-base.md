@@ -32,7 +32,7 @@ Los datos de la página central de una unidad: su nombre, su estado y qué le fa
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `200` | `{"unidad": {"id": 5, "nombre": "Cabaña del Mar", "localidad": "Las Grutas", "provincia": "Río Negro", "estado_publicacion": "borrador", "disponible": true, "motivo_no_disponible": null, "es_propietario": true, "faltantes": ["Cargá el precio de al menos una noche, de hoy en adelante"]}}` | El usuario es el propietario o el administrador de la unidad. |
+| `200` | `{"unidad": {"id": 5, "nombre": "Cabaña del Mar", "localidad": "Las Grutas", "provincia": "Río Negro", "estado_publicacion": "borrador", "disponible": true, "motivo_no_disponible": null, "es_propietario": true, "faltantes": ["Cargá el precio de todas las noches hasta el 29/04/2027 (te faltan 182)", "Subí al menos una foto"], "precios_hasta": null}}` | El usuario es el propietario o el administrador de la unidad. |
 | `401` | `{"error": "No hay sesión iniciada"}` | No hay sesión, o expiró. |
 | `404` | `{"error": "No encontramos esa unidad"}` | La unidad no existe, o el usuario no es su propietario ni su administrador. |
 | `422` | `{"error": "Unidad inválida"}` | Falta el `id`, o no es un entero positivo. |
@@ -42,6 +42,7 @@ Los datos de la página central de una unidad: su nombre, su estado y qué le fa
 | `estado_publicacion` | `borrador` (recién creada, no aparece en la búsqueda), `publicada` o `pausada` (el propietario la sacó de la búsqueda). |
 | `disponible` | `false` si la unidad está fuera de servicio por un daño (RN-30); el motivo, en `motivo_no_disponible`. |
 | `es_propietario` | `true` si quien la ve es el propietario; `false` si es el administrador. El front oculta lo que solo puede hacer el propietario. |
-| `faltantes` | Lo que le falta para poder publicarse, con un mensaje para el propietario por cada cosa. Vacía = se puede publicar. Hoy: al menos una noche con precio vigente, de hoy en adelante (RN-01). |
+| `faltantes` | Lo que le falta para poder publicarse, con un mensaje para el propietario por cada cosa. Vacía = se puede publicar. Hoy: que cada noche desde mañana hasta dentro de 6 meses (parámetro `meses_precios_para_publicar`) tenga precio o esté bloqueada, y al menos una foto. |
+| `precios_hasta` | La última noche (`AAAA-MM-DD`) con precio o bloqueada **sin cortes desde mañana**, o `null` si mañana no tiene. Las reglas se exigen al publicar: una unidad publicada no se despublica sola, así que la página le avisa al propietario hasta cuándo tiene precios. |
 
 "Hoy" es la fecha de Argentina, no la del servidor (que trabaja en UTC).
