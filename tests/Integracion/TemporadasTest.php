@@ -255,7 +255,8 @@ final class TemporadasTest extends CasoDeIntegracion
 
     // ---------- permisos ----------
 
-    //Solo el propietario de la unidad: otro propietario y el administrador asignado reciben 404 o 403, y sin sesión 401
+    //Crear, editar y borrar es solo del propietario de la unidad: otro propietario y el administrador asignado
+    //reciben 404 o 403, y sin sesión 401
     public function testSoloElPropietarioDeLaUnidad(): void
     {
         $propietario = $this->crearPropietarioEnBase();
@@ -265,7 +266,6 @@ final class TemporadasTest extends CasoDeIntegracion
         $temporadaId = $this->crearTemporadaEnBase($unidadId, 'alta', $this->fecha('+1 day'), $this->fecha('+5 days'));
 
         $pedidos = [
-            fn (ClienteApi $c) => $c->get('/unidades/temporadas', ['id' => $unidadId]),
             fn (ClienteApi $c) => $c->post('/unidades/temporadas/crear', $this->temporada($unidadId)),
             fn (ClienteApi $c) => $c->post('/unidades/temporadas/editar', $this->temporada($unidadId, ['temporada_id' => $temporadaId])),
             fn (ClienteApi $c) => $c->post('/unidades/temporadas/borrar', ['unidad_id' => $unidadId, 'temporada_id' => $temporadaId]),
@@ -282,5 +282,30 @@ final class TemporadasTest extends CasoDeIntegracion
             }
         }
         $this->assertSame(1, $this->pdo()->query("SELECT COUNT(*) FROM temporadas WHERE unidad_id = $unidadId")->fetchColumn());
+    }
+
+    //Verlas: el propietario y el administrador asignado (necesita el calendario completo); otro propietario 404, sin sesión 401
+    public function testVerlasPuedeElAdministradorAsignado(): void
+    {
+        $propietario = $this->crearPropietarioEnBase();
+        $unidadId = $this->crearUnidadEnBase($propietario['id']);
+        $administrador = $this->crearAdministradorEnBase();
+        $this->asignarAdministradorEnBase($unidadId, $administrador['id']);
+        $this->crearTemporadaEnBase($unidadId, 'alta', $this->fecha('+1 day'), $this->fecha('+5 days'));
+
+        $quienes = [
+            'el propietario'            => [$this->iniciarSesion($propietario['mail']), 200],
+            'el administrador asignado' => [$this->iniciarSesion($administrador['mail']), 200],
+            'otro propietario'          => [$this->iniciarSesion($this->crearPropietarioEnBase()['mail']), 404],
+            'otro administrador'        => [$this->iniciarSesion($this->crearAdministradorEnBase()['mail']), 404],
+            'sin sesión'                => [$this->cliente(), 401],
+        ];
+        foreach ($quienes as $quien => [$cliente, $codigo]) {
+            $respuesta = $cliente->get('/unidades/temporadas', ['id' => $unidadId]);
+            $this->assertSame($codigo, $respuesta->codigo, $quien);
+            if ($codigo === 200) {
+                $this->assertCount(1, $respuesta->json()['temporadas'], $quien);
+            }
+        }
     }
 }

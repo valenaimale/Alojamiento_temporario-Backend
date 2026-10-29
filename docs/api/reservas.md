@@ -68,6 +68,18 @@ Las reservas **en curso y próximas** de la unidad (pendientes y confirmadas con
 |---|---|
 | `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "huesped": "Juan"}]}` (o `[]`) |
 
+## Agenda del operador (RF-10)
+
+```
+GET /operador/agenda
+```
+
+Las reservas **en curso y próximas** (pendientes y confirmadas con egreso de hoy en adelante) de las unidades que tiene asignadas el operador logueado, de la más cercana a la más lejana. Con ellas el front arma los ingresos y egresos de cada día. Va la **dirección** de la unidad (el operador recibe a los huéspedes ahí) y el nombre del huésped, pero **nunca los montos** (RN-19). Solo para operadores: `403` para cualquier otro rol.
+
+| Código | Cuerpo |
+|---|---|
+| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "huesped": "Juan", "unidad": {"id": 5, "nombre": "Casa del Bosque", "direccion": "Los Alerces 450", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires"}}]}` (o `[]`) |
+
 ## Bloqueos sobre noches reservadas
 
 `POST /unidades/bloqueos/crear` responde `409` si el rango pisa una reserva pendiente o confirmada: bloquear esas noches sería una cancelación del propietario, que tiene su propio trato.

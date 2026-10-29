@@ -152,6 +152,7 @@ class Router {
         $this->register('GET@/reservas/mias', 'ReservasController@mias');
         $this->register('POST@/reservas/cancelar', 'ReservasController@cancelar');
         $this->register('GET@/unidades/reservas', 'ReservasController@deLaUnidad');
+        $this->register('GET@/operador/agenda', 'AgendaOperadorController@ver');
         // ---------- fin Épica 4 ----------
     }
     //Registra las rutas en el ROUTER
