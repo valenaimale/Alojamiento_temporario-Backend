@@ -116,6 +116,9 @@ final class EntornoDePrueba
             'SESIONES_DRIVER'        => 'archivos',
             'SESIONES_COOKIE_SEGURA' => '0',
             'APP_URL_FRONT'          => self::URL_FRONT,
+            //los tests mandan los mails siempre a Mailpit, aunque el configuracion.php de quien los corre diga 'brevo':
+            //si no, cada registro de prueba saldría de verdad por Brevo
+            'MAIL_TRANSPORTE'        => 'smtp',
             'GOOGLE_CLIENT_ID'       => self::GOOGLE_CLIENT_ID,
             'GOOGLE_CLIENT_SECRET'   => 'secreto-de-prueba',
             'GOOGLE_REDIRECT_URI'    => self::urlApi($puerto) . '/oauth/google/callback',

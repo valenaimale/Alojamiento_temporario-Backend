@@ -30,19 +30,22 @@ class Autorizacion
     //Para rutas que puede usar cualquier usuario logueado, sin importar el rol.
     //Sin sesion responde 401. Si la cuenta fue deshabilitada mientras tenia la sesion abierta,
     //cierra la sesion y tambien responde 401 (se consulta la base en cada peticion protegida).
+    //En la misma consulta actualiza si el mail esta verificado: el enlace del mail se puede abrir en otro
+    //navegador (o en la app de mail), y sin esto la sesion seguiria diciendo "sin verificar" hasta volver a entrar.
     public static function requiereSesion(): void
     {
         if (!isset($_SESSION['usuario'])) {
             self::cortar(401, 'No hay sesión iniciada');
         }
 
-        $consulta = Conexion::obtener()->prepare('SELECT activo FROM usuarios WHERE id = ?');
+        $consulta = Conexion::obtener()->prepare('SELECT activo, mail_verificado_en FROM usuarios WHERE id = ?');
         $consulta->execute([$_SESSION['usuario']['id']]);
-        $activo = $consulta->fetchColumn();
-        if ($activo === false || (int) $activo === 0) {
+        $usuario = $consulta->fetch();
+        if ($usuario === false || (int) $usuario['activo'] === 0) {
             SesionUsuario::cerrar();
             self::cortar(401, 'Tu cuenta está deshabilitada');
         }
+        $_SESSION['usuario']['mail_verificado'] = $usuario['mail_verificado_en'] !== null;
     }
 
     //Para rutas de un rol puntual.

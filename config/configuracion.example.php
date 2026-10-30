@@ -16,7 +16,13 @@ return [
             'duracion_segundos' => 7200,
         ],
     ],
-    'smtp' => [                                   //Tarea 2. Valores para Mailpit en desarrollo
+    'mail' => [
+        'transporte' => 'smtp',                   //'smtp' (Mailpit en desarrollo) o 'brevo' (producción: Railway bloquea el SMTP)
+    ],
+    'brevo' => [
+        'api_key' => '',                          //solo con transporte 'brevo'; en producción va en la variable BREVO_API_KEY
+    ],
+    'smtp' => [                                   //Tarea 2. Valores para Mailpit en desarrollo. remitente y nombre_remitente valen también para Brevo
         'host'             => '127.0.0.1',
         'port'             => 1025,
         'usuario'          => '',
