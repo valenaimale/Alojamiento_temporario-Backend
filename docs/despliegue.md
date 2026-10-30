@@ -103,6 +103,10 @@ El orden importa: cada pieza necesita la dirección de la anterior.
    | `DB_SSL_CA` | `certificados/aiven-ca.pem` |
    | `SESIONES_COOKIE_SEGURA` | `1` |
    | `APP_URL_FRONT` | La URL de Vercel (se completa en el paso 4). La usan CORS y el enlace del mail de verificación |
+   | `MAIL_TRANSPORTE` | `brevo` (ver "Mails" más abajo) |
+   | `BREVO_API_KEY` | La clave de la API de Brevo |
+   | `SMTP_REMITENTE` | El mail remitente, **verificado en Brevo** |
+   | `SMTP_NOMBRE_REMITENTE` | `Alojamiento temporario` |
 
    `PORT` **no** se carga: la define Railway sola.
 3. En **Settings → Networking → Generate Domain**, generar la URL pública (algo como `alojamiento-backend.up.railway.app`).
@@ -164,9 +168,23 @@ El frontend (Vercel) se despliega en cada push sin esperar a un CI: son archivos
 
 ---
 
+## Mails
+
+**Railway bloquea el SMTP saliente en los planes Free, Trial y Hobby** (puertos 25, 465, 587 y 2525): por SMTP no sale ningún mail. Por eso en producción los mails (verificación y avisos al administrador) se mandan por la **API HTTPS de Brevo**, que Railway sí deja salir. En desarrollo y en el CI se siguen mandando por SMTP a Mailpit. Lo elige `MAIL_TRANSPORTE` (`smtp` o `brevo`); el código está en `mail/EnviadorMail.php`.
+
+En Brevo (plan gratis, 300 mails por día):
+
+1. **Remitente:** ⚙️ → *Remitentes, dominios e IP dedicadas* → *Remitentes* → agregarlo y confirmarlo desde el mail que llega. Sin verificar, Brevo rechaza los envíos.
+2. **Clave de la API:** ⚙️ → *SMTP y API* → *Claves API* → nueva clave **restringida**, con permiso **Todos** solo en *Emails transaccionales*. Caduca tras 90 días sin uso: si pasa, se crea otra y se reemplaza en Railway.
+3. **Bloqueo por IP:** ⚙️ → *Seguridad* → *IP autorizadas* → **desactivado para las claves API**. Railway (Hobby) no tiene IP fija, y con el bloqueo Brevo rechazaría los envíos con el mismo error que una clave mala.
+4. En Railway, cargar `MAIL_TRANSPORTE`, `BREVO_API_KEY`, `SMTP_REMITENTE` y `SMTP_NOMBRE_REMITENTE` (tabla del paso 2).
+
+Si un mail no sale, el registro funciona igual: el motivo queda en los logs de Railway (por ejemplo, `Brevo rechazó el mail (HTTP 401)`). Sin dominio propio, algunos mails pueden caer en **spam**.
+
+---
+
 ## Limitaciones conocidas
 
-- **Mails de verificación:** en desarrollo los atrapa Mailpit, pero desplegado no hay servidor de mails, así que no se envían. El registro funciona igual: el error queda en los logs de Railway. Para enviarlos de verdad, hay que cargar en Railway las variables `SMTP_HOST`, `SMTP_PORT`, `SMTP_USUARIO`, `SMTP_CONTRASENIA`, `SMTP_CIFRADO` y `SMTP_REMITENTE` de un proveedor (Brevo, Mailgun, o Gmail con una contraseña de aplicación). No hace falta tocar código.
 - **Sesiones:** se guardan en archivos dentro del contenedor (una sola réplica). Cada vez que Railway vuelve a desplegar, los usuarios tienen que iniciar sesión de nuevo. Para que sobrevivan, o para usar varias réplicas, se puede agregar un Redis en Railway y cargar `SESIONES_DRIVER=redis`, `REDIS_HOST` y `REDIS_PORT` (ver `escalado-horizontal.md`).
 - **`php -S`** es un servidor de desarrollo, que atiende de a una petición por vez. Alcanza para la entrega; para tráfico real se usaría Nginx con PHP-FPM.
 - **El plan gratis de Aiven** se apaga por inactividad, no tiene alta disponibilidad, y está pensado para pruebas.

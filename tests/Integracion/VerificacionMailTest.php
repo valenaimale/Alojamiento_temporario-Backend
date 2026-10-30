@@ -24,6 +24,24 @@ final class VerificacionMailTest extends CasoDeIntegracion
         $this->assertTrue($cliente->get('/sesion')->json()['usuario']['mail_verificado']);
     }
 
+    //El enlace abierto en otro navegador (o en la app de mail, sin la sesión): la sesión que ya estaba abierta
+    //se entera en su próximo pedido, sin tener que volver a iniciar sesión, y ya puede reservar
+    public function testVerificarEnOtroNavegadorActualizaLaSesionAbierta(): void
+    {
+        [$cliente, , $usuario] = $this->registrar();
+        $this->assertFalse($cliente->get('/sesion')->json()['usuario']['mail_verificado']);
+
+        $otroNavegador = $this->cliente();//sin la cookie de sesión
+        $this->assertSame(200, $otroNavegador->post('/verificar-mail', ['token' => $this->crearToken($usuario['id'])])->codigo);
+
+        $this->assertTrue($cliente->get('/sesion')->json()['usuario']['mail_verificado']);
+        //reservar ya no responde "Tenés que verificar tu mail" (403): sin unidad válida, responde 404
+        $this->assertSame(404, $cliente->post('/reservas/crear', [
+            'unidad_id' => 999999, 'ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+12 days'),
+            'personas' => 2, 'acepta_politica' => true,
+        ])->codigo);
+    }
+
     //Un enlace ya usado no sirve de nuevo
     public function testElEnlaceSeUsaUnaSolaVez(): void
     {
