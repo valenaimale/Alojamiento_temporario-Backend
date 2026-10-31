@@ -32,7 +32,7 @@ Backend busca el hash, controla que no esté usado ni vencido → usuarios.mail_
 - El token es de **un solo uso** (`usado_en`) y **vence a las 24 horas** (`expira_en`).
 - Cada vez que se manda un mail nuevo, se borran los tokens anteriores de ese usuario que no se hayan usado: **vale solo el último enlace**.
 - Si el mail no se puede enviar (Mailpit apagado, SMTP mal configurado), el registro **igual responde `201`**: `VerificacionMail::enviar()` nunca lanza excepciones, y el error queda en la terminal de `php -S`.
-- **Política:** un usuario sin verificar **puede iniciar sesión** y usar la plataforma, pero ve un aviso en su home. Para las acciones que a futuro exijan el mail confirmado (reservar, publicar) está `Autorizacion::requiereMailVerificado()`.
+- **Política actual:** un usuario sin verificar **puede iniciar sesión** y usar las funciones permitidas para su rol, pero ve un aviso en su home. Reservar ya exige el mail confirmado mediante `Autorizacion::requiereMailVerificado()`; no es una validación futura. Crear la cuenta únicamente después de verificar el mail es un cambio de flujo pendiente, distinto de esta restricción.
 
 ### `POST /verificar-mail`
 

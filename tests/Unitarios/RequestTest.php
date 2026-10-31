@@ -27,6 +27,13 @@ final class RequestTest extends TestCase
         $this->assertSame([], Request::decodificarJson('{}'));
     }
 
+    public function testListaSoloEnCampoHabilitado(): void
+    {
+        $this->assertSame(['huespedes' => [['nombre' => 'Ana']]], Request::decodificarJson('{"huespedes":[{"nombre":"Ana"}]}', ['huespedes']));
+        $this->expectException(DatosInvalidosException::class);
+        Request::decodificarJson('{"huespedes":[],"nombre":["Ana"]}', ['huespedes']);
+    }
+
     //Cada cuerpo inválido lanza DatosInvalidosException (el router responde 422)
     #[DataProvider('cuerposInvalidos')]
     public function testCuerposInvalidosLanzanDatosInvalidos(string $cuerpo): void

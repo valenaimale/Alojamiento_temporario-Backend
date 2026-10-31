@@ -179,17 +179,21 @@ final class AlojamientoTest extends CasoDeIntegracion
     public function testElMesTieneQueSerValido(): void
     {
         $unidadId = $this->unidadPublicada();
+        // Restar un mes desde el día 31 puede desbordar al mismo mes (31/10 - 1 mes = 01/10).
+        // El contrato compara meses completos: usar siempre su primer día.
+        $esteMes = (new \DateTimeImmutable($this->fecha(), new \DateTimeZone('America/Argentina/Buenos_Aires')))
+            ->modify('first day of this month');
         $mesesInvalidos = [
             '2026-13'  => 'El mes tiene que tener el formato AAAA-MM',
             'diciembre' => 'El mes tiene que tener el formato AAAA-MM',
-            substr($this->fecha('-1 month'), 0, 7) => 'Podés ver desde este mes hasta dentro de dos años',
-            substr($this->fecha('+25 months'), 0, 7) => 'Podés ver desde este mes hasta dentro de dos años',
+            $esteMes->modify('-1 month')->format('Y-m') => 'Podés ver desde este mes hasta dentro de dos años',
+            $esteMes->modify('+25 months')->format('Y-m') => 'Podés ver desde este mes hasta dentro de dos años',
         ];
         foreach ($mesesInvalidos as $mes => $mensaje) {
             $respuesta = $this->cliente()->get('/alojamiento/calendario', ['id' => $unidadId, 'mes' => $mes]);
             $this->assertSame(422, $respuesta->codigo, (string) $mes);
             $this->assertSame($mensaje, $respuesta->json()['error'], (string) $mes);
         }
-        $this->assertSame(200, $this->cliente()->get('/alojamiento/calendario', ['id' => $unidadId, 'mes' => substr($this->fecha('+24 months'), 0, 7)])->codigo);
+        $this->assertSame(200, $this->cliente()->get('/alojamiento/calendario', ['id' => $unidadId, 'mes' => $esteMes->modify('+24 months')->format('Y-m')])->codigo);
     }
 }

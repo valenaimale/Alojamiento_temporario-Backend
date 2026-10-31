@@ -50,6 +50,7 @@ final class AgendaOperadorTest extends CasoDeIntegracion
         $this->assertSame([
             'id' => $proxima, 'estado' => 'confirmada', 'ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+13 days'),
             'noches' => 3, 'personas' => 3, 'huesped' => 'Juan',
+            'estadia' => null, 'puede_registrar_ingreso' => false, 'puede_registrar_egreso' => false,
             'unidad' => ['id' => $suya, 'nombre' => 'Casa del Bosque', 'direccion' => 'Los Alerces 450', 'localidad' => 'Las Grutas', 'provincia' => 'Río Negro'],
         ], $reservas[1]);
         $this->assertStringNotContainsString('importe', $respuesta->cuerpo);//RN-19: el operador nunca ve montos

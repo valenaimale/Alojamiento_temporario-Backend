@@ -180,7 +180,7 @@ Reglas:
 - Se pueden mandar varias fotos a la vez: los pedidos de una misma unidad se atienden de a uno, así ninguna toma el `orden` de otra.
 - **Quitar una foto no la borra de Cloudinary**: con el preset sin firma no se puede. Queda pendiente para cuando las subidas sean firmadas.
 
-Las tres rutas son **solo del propietario** y devuelven la lista actualizada de fotos (`fotos`, ordenada por `orden`, igual que en `GET /unidades/datos`), así el front la vuelve a dibujar sin pedirla de nuevo.
+Las cuatro rutas son **solo del propietario** y devuelven la lista actualizada de fotos (`fotos`, ordenada por `orden`, igual que en `GET /unidades/datos`), así el front la vuelve a dibujar sin pedirla de nuevo.
 
 ### Agregar una foto
 
@@ -227,3 +227,22 @@ La elegida pasa a `orden` 0; las que estaban antes que ella bajan un lugar en la
 | `200` | `{"ok": "Elegiste la foto principal", "fotos": [...]}` | Se eligió. |
 | `404` | `{"error": "No encontramos esa foto"}` | La foto no existe, no es de esa unidad o `foto_id` no es un entero positivo. |
 | `401`, `403`, `404` | | Ver los errores comunes. |
+
+### Elegir posición y foto principal
+
+```http
+POST /unidades/fotos/mover
+{"unidad_id": 5, "foto_id": 9, "posicion": 3}
+```
+
+`posicion` es un entero desde **1** hasta la cantidad actual de fotos. Elegir **1** convierte la foto en principal. La foto se inserta directamente en ese lugar y las demás conservan su orden relativo: `[A, B, C, D]`, mover D a 2, queda `[A, D, B, C]`. Enviar la posición actual no modifica nada. La API devuelve `orden` desde 0, como las rutas existentes.
+
+| Código | Respuesta | Motivo |
+| --- | --- | --- |
+| `200` | `{"ok": "Guardamos el orden de las fotos", "fotos": [...]}` | Posición guardada o sin cambios. |
+| `422` | `{"error": "Elegí una posición válida para la foto"}` | Posición ausente, no entera o fuera de la lista actual. |
+| `404` | `{"error": "No encontramos esa foto"}` | Foto inexistente, ajena a la unidad o ID inválido. |
+
+Requiere propietario autenticado: sin sesión responde `401`; administrador u otro rol sin permiso, `403`; unidad de otro propietario, `404`. Comparte el bloqueo de unidad con agregar, quitar y elegir principal; desplazamiento y lectura de respuesta ocurren dentro de la misma transacción. No requiere migración. La ruta anterior `/principal` continúa disponible para clientes existentes; la interfaz usa un único selector de posición.
+
+El frontend valida el cupo de 10 fotos antes de iniciar una subida externa. El backend sigue validándolo para solicitudes directas y concurrencia. La firma de subidas y el borrado del archivo remoto continúan pendientes.
