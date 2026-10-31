@@ -20,6 +20,9 @@ class ReservasController
     {
         Autorizacion::requiere('huesped');
         Autorizacion::requiereMailVerificado();
+        if (trim((string) ($_SESSION['usuario']['dni'] ?? '')) === '') {
+            return $this->error('Completá tu DNI para reservar');
+        }
         $datos = Request::datosJson();
 
         $unidadId = filter_var($datos['unidad_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -204,7 +207,7 @@ class ReservasController
                     h.nombre AS huesped
              FROM reservas r
              JOIN usuarios h ON h.id = r.huesped_id
-             WHERE r.unidad_id = ? AND r.estado IN ('pendiente', 'confirmada') AND r.fecha_egreso >= ?
+             WHERE r.unidad_id = ? AND r.estado IN ('pendiente', 'confirmada', 'finalizada') AND r.fecha_egreso >= ?
              ORDER BY r.fecha_ingreso, r.id"
         );
         $consulta->execute([$unidad['id'], ValidadorFechas::hoy()->format('Y-m-d')]);

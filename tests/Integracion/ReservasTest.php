@@ -2,6 +2,8 @@
 
 namespace Tests\Integracion;
 
+use Tests\Soporte\Datos;
+
 //Crear una reserva (Épica 4, entrega 4 sin pagos): POST /reservas/crear.
 //La reserva se crea pendiente, guarda la foto de las condiciones y ocupa sus noches (también para los bloqueos).
 final class ReservasTest extends CasoDeIntegracion
@@ -172,6 +174,37 @@ final class ReservasTest extends CasoDeIntegracion
     }
 
     // ---------- validaciones ----------
+
+    //Saltear completar-datos no permite reservar ni guardar un DNI enviado en la reserva.
+    public function testExigeDniAntesDeReservar(): void
+    {
+        $unidadId = $this->unidadPublicada();
+        $huesped = $this->conMailVerificado($this->crearUsuarioEnBase('huesped', ['dni' => null]));
+        $cliente = $this->iniciarSesion($huesped['mail']);
+        $datos = $this->datosReserva($unidadId, ['dni' => Datos::dni()]);
+
+        $respuesta = $cliente->post('/reservas/crear', $datos);
+
+        $this->assertSame(422, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame('Completá tu DNI para reservar', $respuesta->json()['error']);
+        $this->assertSame(0, (int) $this->pdo()->query("SELECT COUNT(*) FROM reservas WHERE unidad_id = $unidadId")->fetchColumn());
+        $this->assertNull($this->filaUsuario($huesped['mail'])['dni']);
+
+        $this->assertSame(200, $cliente->post('/completar-datos', ['dni' => Datos::dni()])->codigo);
+        $this->assertSame(201, $cliente->post('/reservas/crear', $datos)->codigo);
+    }
+
+    //Completar el DNI desde otra sesión también habilita la reserva sin volver a iniciar sesión.
+    public function testReconoceElDniCompletadoEnOtraSesion(): void
+    {
+        $huesped = $this->conMailVerificado($this->crearUsuarioEnBase('huesped', ['dni' => null]));
+        $cliente = $this->iniciarSesion($huesped['mail']);
+        $otraSesion = $this->iniciarSesion($huesped['mail']);
+        $this->assertSame(200, $otraSesion->post('/completar-datos', ['dni' => Datos::dni()])->codigo);
+
+        $respuesta = $cliente->post('/reservas/crear', $this->datosReserva($this->unidadPublicada()));
+        $this->assertSame(201, $respuesta->codigo, $respuesta->cuerpo);
+    }
 
     //Fechas, personas y la política se validan con mensajes claros; nada queda guardado
     public function testValidaLosDatos(): void

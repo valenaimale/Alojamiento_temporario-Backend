@@ -38,14 +38,22 @@ class Autorizacion
             self::cortar(401, 'No hay sesión iniciada');
         }
 
-        $consulta = Conexion::obtener()->prepare('SELECT activo, mail_verificado_en FROM usuarios WHERE id = ?');
+        $consulta = Conexion::obtener()->prepare('SELECT activo, mail_verificado_en, dni, version_sesion FROM usuarios WHERE id = ?');
         $consulta->execute([$_SESSION['usuario']['id']]);
         $usuario = $consulta->fetch();
         if ($usuario === false || (int) $usuario['activo'] === 0) {
             SesionUsuario::cerrar();
             self::cortar(401, 'Tu cuenta está deshabilitada');
         }
+        // Las sesiones previas a la migración equivalen a versión 0. Un reset revoca todas,
+        // tanto en archivos como en Redis, sin enumerar ni borrar el almacenamiento de sesiones.
+        if ((int) ($_SESSION['version_sesion'] ?? 0) !== (int) $usuario['version_sesion']) {
+            SesionUsuario::cerrar();
+            self::cortar(401, 'Tu contraseña cambió. Volvé a iniciar sesión.');
+        }
         $_SESSION['usuario']['mail_verificado'] = $usuario['mail_verificado_en'] !== null;
+        //El DNI se puede completar desde otra sesión, igual que la verificación del mail.
+        $_SESSION['usuario']['dni'] = $usuario['dni'];
     }
 
     //Para rutas de un rol puntual.

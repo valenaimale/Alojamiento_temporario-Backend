@@ -73,6 +73,11 @@ class Router {
         $this->register('GET@/sesion', 'InicioSesionController@dameSesion');
         // ---------- fin Base ----------
 
+        // ---------- Recuperación de contraseña ----------
+        $this->register('POST@/recuperar-contrasenia', 'RecuperacionContraseniaController@solicitar');
+        $this->register('POST@/restablecer-contrasenia', 'RecuperacionContraseniaController@restablecer');
+        // ---------- fin Recuperación de contraseña ----------
+
         // ---------- Tarea 1: cuentas y roles ----------
         $this->register('POST@/hacerse-propietario', 'PropietarioController@hacerse');
         $this->register('GET@/datos-fiscales', 'PropietarioController@datosFiscales');
@@ -110,6 +115,7 @@ class Router {
         $this->register('POST@/unidades/fotos/agregar', 'FotosUnidadController@agregar');
         $this->register('POST@/unidades/fotos/quitar', 'FotosUnidadController@quitar');
         $this->register('POST@/unidades/fotos/principal', 'FotosUnidadController@principal');
+        $this->register('POST@/unidades/fotos/mover', 'FotosUnidadController@mover');
         // ---------- fin PR 2 ----------
 
         // ---------- PR 3: condiciones comerciales (US2.7, US2.8, US2.9) ----------
@@ -153,10 +159,15 @@ class Router {
         $this->register('POST@/reservas/cancelar', 'ReservasController@cancelar');
         $this->register('GET@/unidades/reservas', 'ReservasController@deLaUnidad');
         $this->register('GET@/operador/agenda', 'AgendaOperadorController@ver');
+        $this->register('POST@/operador/estadias/registrar', 'EstadiasController@registrar');
+        $this->register('GET@/reservas/huespedes', 'HuespedesReservaController@ver');
+        $this->register('POST@/reservas/huespedes', 'HuespedesReservaController@guardar');
+        $this->register('GET@/reservas/huespedes/exportar', 'HuespedesReservaController@exportar');
+        $this->register('GET@/unidades/libro', 'HuespedesReservaController@deLaUnidad');
         // ---------- fin Épica 4 ----------
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){
         $this->routes[$method_http_y_path] = $controller_y_action;
     }
-}    
+}

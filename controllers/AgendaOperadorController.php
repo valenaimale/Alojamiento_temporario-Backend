@@ -11,23 +11,29 @@ use App\Validacion\ValidadorFechas;
 class AgendaOperadorController
 {
     //GET /operador/agenda: las reservas en curso y próximas (pendientes y confirmadas) de sus unidades,
-    //de la más cercana a la más lejana. El front arma con ellas los ingresos y egresos de cada día.
+    //También incluye estadías abiertas atrasadas y egresos de hoy. El front agrupa los hechos por día.
     public function ver()
     {
         Autorizacion::requiere('operador');
 
-        //"en curso y próximas": el egreso es de hoy en adelante (hoy en Argentina, calculado en PHP)
+        //Las estadías sin egreso real siguen visibles aunque pase su egreso previsto.
         $consulta = Conexion::obtener()->prepare(
             "SELECT r.id, r.estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, h.nombre AS huesped,
-                    u.id AS unidad_id, u.nombre AS unidad_nombre, u.direccion, l.nombre AS localidad, l.provincia
+                    u.id AS unidad_id, u.nombre AS unidad_nombre, u.direccion, l.nombre AS localidad, l.provincia,
+                    e.ingreso_en, e.egreso_en, e.estado_ingreso, e.notas_ingreso, e.estado_egreso, e.notas_egreso
              FROM reservas r
              JOIN unidades u ON u.id = r.unidad_id
              JOIN localidades l ON l.id = u.localidad_id
              JOIN usuarios h ON h.id = r.huesped_id
-             WHERE u.operador_id = ? AND r.estado IN ('pendiente', 'confirmada') AND r.fecha_egreso >= ?
+             LEFT JOIN estadias e ON e.reserva_id = r.id
+             WHERE u.operador_id = ? AND (
+                 (r.estado IN ('pendiente', 'confirmada') AND (r.fecha_egreso >= ? OR (e.ingreso_en IS NOT NULL AND e.egreso_en IS NULL)))
+                 OR (r.estado = 'finalizada' AND e.egreso_en >= ?)
+             )
              ORDER BY r.fecha_ingreso, r.id"
         );
-        $consulta->execute([$_SESSION['usuario']['id'], ValidadorFechas::hoy()->format('Y-m-d')]);
+        $hoy = ValidadorFechas::hoy();
+        $consulta->execute([$_SESSION['usuario']['id'], $hoy->format('Y-m-d'), $hoy->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s')]);
 
         $reservas = [];
         foreach ($consulta->fetchAll() as $fila) {
@@ -39,6 +45,9 @@ class AgendaOperadorController
                 'noches'   => ValidadorFechas::noches(ValidadorFechas::fecha($fila['fecha_ingreso']), ValidadorFechas::fecha($fila['fecha_egreso'])),
                 'personas' => (int) $fila['cantidad_personas'],
                 'huesped'  => $fila['huesped'],
+                'estadia'  => EstadiasController::datos($fila),
+                'puede_registrar_ingreso' => $fila['estado'] === 'confirmada' && !$fila['ingreso_en'] && $fila['fecha_ingreso'] <= $hoy->format('Y-m-d') && $fila['fecha_egreso'] > $hoy->format('Y-m-d'),
+                'puede_registrar_egreso' => $fila['estado'] === 'confirmada' && $fila['ingreso_en'] !== null && $fila['egreso_en'] === null,
                 'unidad'   => [
                     'id'        => (int) $fila['unidad_id'],
                     'nombre'    => $fila['unidad_nombre'],

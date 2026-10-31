@@ -21,16 +21,17 @@ class Request{
     }
 
     //Lee el cuerpo JSON de la petición. Los controladores lo usan en lugar de json_decode(file_get_contents(...)).
-    public static function datosJson(): array{
-        return self::decodificarJson(file_get_contents('php://input'));
+    public static function datosJson(array $listasPermitidas = []): array{
+        return self::decodificarJson(file_get_contents('php://input'), $listasPermitidas);
     }
 
     //Pasa el cuerpo de la petición a un array asociativo, controlando que tenga la forma esperada:
     //  - sin cuerpo: devuelve [] (cada controlador responde que faltan los campos obligatorios);
     //  - si no es un objeto JSON, o un campo trae una lista u objeto donde se espera un valor simple
     //    (texto, número, true/false), lanza DatosInvalidosException y el router responde 422.
+    //Las listas se habilitan por nombre explícito; su controlador valida la estructura interna.
     //Sin este control, un campo como "nombre": ["Ana"] llegaba a trim() y terminaba en un error 500.
-    public static function decodificarJson(string $cuerpo): array{
+    public static function decodificarJson(string $cuerpo, array $listasPermitidas = []): array{
         if(trim($cuerpo) === ''){
             return [];
         }
@@ -40,7 +41,7 @@ class Request{
             throw new DatosInvalidosException('El cuerpo de la petición no es un objeto JSON');
         }
         foreach($datos as $campo => $valor){
-            if(is_array($valor)){
+            if(is_array($valor) && !in_array($campo, $listasPermitidas, true)){
                 throw new DatosInvalidosException("El campo '$campo' no es un valor simple");
             }
         }
