@@ -45,6 +45,8 @@ GitHub Actions las define en `.github/workflows/ci.yml`.
 
 ### El test del mail real
 
+`RecuperacionContraseniaTest` también usa Mailpit para comprobar el enlace de recuperación y el aviso posterior al cambio. Sus otros casos no necesitan consultar Mailpit; cubren tokens, validación, límites y revocación de sesiones.
+
 `VerificacionMailTest::testRecorridoCompletoConElMailReal` se registra, busca el mail de verificación en **Mailpit** y abre el enlace. Si Mailpit no está corriendo, ese test se **saltea** (aparece como `S`); el resto de la verificación de mail se prueba igual. En GitHub Actions, Mailpit corre siempre.
 
 ### En Windows tardan más

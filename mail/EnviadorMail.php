@@ -79,6 +79,8 @@ class EnviadorMail
         $mailer = new PHPMailer(true);   //true: lanza excepciones en lugar de devolver false
 
         $mailer->isSMTP();
+        $mailer->Timeout = self::SEGUNDOS_DE_ESPERA;
+        $mailer->Timelimit = self::SEGUNDOS_DE_ESPERA;
         $mailer->Host    = Config::obtener('smtp.host');
         $mailer->Port    = (int) Config::obtener('smtp.port');
         $mailer->CharSet = 'UTF-8';     //para que las tildes y la ñ lleguen bien

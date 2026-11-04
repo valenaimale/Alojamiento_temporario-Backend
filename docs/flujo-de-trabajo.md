@@ -154,7 +154,7 @@ No es obligatorio, porque GitHub los corre igual, pero ahorra tiempo: te enterá
 El CI corre cuando subís la rama (`push`) y cuando abrís o actualizás el PR (`pull_request`). Es redundante, pero inofensivo.
 
 **¿Y el frontend?**
-El frontend (Vercel) no tiene CI: son archivos estáticos sin lógica de servidor para testear. Vercel despliega cada cambio que entra a `main`, y arma una vista previa de cada PR para probarlo antes de mergear.
+El frontend incorpora un workflow de sintaxis JavaScript y tests de interfaz con Node.js 24. Vercel despliega los cambios integrados en `main` y puede generar una preview del PR. La preview apunta a la API de producción: si cambia el contrato, revisar las ramas de ambos repositorios en local y coordinar las migraciones e integración del backend antes del frontend.
 
 **¿Dónde está documentado el despliegue?**
 En `docs/despliegue.md` (los servicios, las variables de entorno y el pipeline) y en `tests/README.md` (los tests).

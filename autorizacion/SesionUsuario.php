@@ -31,13 +31,19 @@ class SesionUsuario
     }
 
     //Inicia la sesión del usuario (login, registro, OAuth). Regenera el ID para evitar session fixation.
-    public static function iniciar(int $usuarioId): array
+    public static function iniciar(int $usuarioId, ?int $versionSesion = null): array
     {
         $usuario = self::cargar($usuarioId);
         if ($usuario === null) {
             throw new \RuntimeException("No existe el usuario $usuarioId");
         }
+        if ($versionSesion === null) {
+            $consulta = Conexion::obtener()->prepare('SELECT version_sesion FROM usuarios WHERE id = ?');
+            $consulta->execute([$usuarioId]);
+            $versionSesion = (int) $consulta->fetchColumn();
+        }
         session_regenerate_id(true);
+        $_SESSION['version_sesion'] = $versionSesion;
         $_SESSION['usuario'] = $usuario;
         return $usuario;
     }

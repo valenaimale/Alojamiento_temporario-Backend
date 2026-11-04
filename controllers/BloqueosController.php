@@ -75,11 +75,11 @@ class BloqueosController
                 ), 409);
             }
 
-            //Tampoco puede pisar una reserva (pendiente o confirmada): bloquear esas noches sería una cancelación
+            //Tampoco puede pisar una reserva (pendiente, confirmada o finalizada): bloquear esas noches sería una cancelación
             //del propietario, que tiene su propio trato. La noche del egreso no es de la reserva.
             $consulta = $pdo->prepare(
                 "SELECT fecha_ingreso, fecha_egreso FROM reservas
-                 WHERE unidad_id = ? AND estado IN ('pendiente', 'confirmada') AND fecha_ingreso <= ? AND fecha_egreso > ?
+                 WHERE unidad_id = ? AND estado IN ('pendiente', 'confirmada', 'finalizada') AND fecha_ingreso <= ? AND fecha_egreso > ?
                  ORDER BY fecha_ingreso
                  LIMIT 1"
             );

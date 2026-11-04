@@ -152,6 +152,8 @@ git diff --stat HEAD@{1} HEAD
 
 Estos son los **contratos** entre el frontend y el backend: qué ruta llamar, qué datos enviar y qué responde el backend en cada caso. Cualquier cambio en una ruta o en el formato de una respuesta hay que actualizarlo acá, y avisar a quien trabaje en el frontend.
 
+Recuperación por correo: [rutas, migración, límites e invalidación de sesiones](docs/api/recuperacion-contrasenia.md).
+
 ### Convenciones generales
 
 - **URL base (desarrollo):** `http://localhost:8000`
@@ -530,3 +532,8 @@ El error aparece solo en el navegador. Si se prueba el backend con `curl` o Post
 
 - **Si el frontend corre en otro puerto u otra dirección**, hay que agregar ese origen a `$origenesPermitidos`. Si no, el navegador lo bloquea.
 - **CORS no protege al backend.** Solo controla qué páginas pueden leer las respuestas **desde un navegador**. Cualquiera puede hacer peticiones al backend con `curl` o Postman. La seguridad (validar datos, verificar la sesión y los permisos) se hace siempre en el backend.
+
+
+### Estadías y libro de huéspedes (RF-10 y RF-20)
+
+Registro de ingreso/egreso del operador y libro por reserva con consulta y exportación: [contrato y reglas](docs/api/estadias-y-huespedes.md). Ejecutar la migración `20261031190000_agregar_estadias_y_libro.php` antes de desplegar estos controladores. La confirmación por pago sigue pendiente.

@@ -141,6 +141,60 @@ class FotosUnidadController
         echo json_encode(['ok' => 'Elegiste la foto principal', 'fotos' => self::fotosDe((int) $unidad['id'])]);
     }
 
+    //POST /unidades/fotos/mover: inserta una foto en la posición elegida (desde 1).
+    //La posición 1 es la portada. El resto conserva su orden relativo.
+    public function mover()
+    {
+        $datos = Request::datosJson();
+        $unidad = PermisosUnidad::delPropietario($datos['unidad_id'] ?? '');
+        $valor = $datos['posicion'] ?? null;
+        $posicion = is_bool($valor) ? false : filter_var($valor, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 10]]);
+        if ($posicion === false) {
+            return $this->error('Elegí una posición válida para la foto', 422);
+        }
+
+        $pdo = Conexion::obtener();
+        $pdo->beginTransaction();
+        try {
+            $this->trabarUnidad($pdo, $unidad['id']);
+            $foto = $this->buscarFoto($pdo, $datos['foto_id'] ?? '', $unidad['id']);
+            if ($foto === null) {
+                $pdo->rollBack();
+                return $this->error('No encontramos esa foto', 404);
+            }
+            $cantidad = $pdo->prepare('SELECT COUNT(*) FROM fotos_unidad WHERE unidad_id = ?');
+            $cantidad->execute([$unidad['id']]);
+            if ($posicion > (int) $cantidad->fetchColumn()) {
+                $pdo->rollBack();
+                return $this->error('Elegí una posición válida para la foto', 422);
+            }
+            $destino = $posicion - 1;
+            if ($destino !== $foto['orden']) {
+                // Apartar deja un hueco. Desplazar en este orden evita colisiones del índice único.
+                $actualizar = $pdo->prepare('UPDATE fotos_unidad SET orden = ? WHERE id = ?');
+                $actualizar->execute([self::ORDEN_APARTADA, $foto['id']]);
+                if ($destino < $foto['orden']) {
+                    $pdo->prepare('UPDATE fotos_unidad SET orden = orden + 1 WHERE unidad_id = ? AND orden >= ? AND orden < ? ORDER BY orden DESC')
+                        ->execute([$unidad['id'], $destino, $foto['orden']]);
+                } else {
+                    $pdo->prepare('UPDATE fotos_unidad SET orden = orden - 1 WHERE unidad_id = ? AND orden > ? AND orden <= ? ORDER BY orden ASC')
+                        ->execute([$unidad['id'], $foto['orden'], $destino]);
+                }
+                $actualizar->execute([$destino, $foto['id']]);
+            }
+            $fotos = self::fotosDe((int) $unidad['id']);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        http_response_code(200);
+        echo json_encode(['ok' => 'Guardamos el orden de las fotos', 'fotos' => $fotos]);
+    }
+
     //Las fotos de la unidad ordenadas (la principal primero), como las devuelve la API: [{id, url, orden}].
     //La usan GET /unidades/datos y las rutas de fotos (que devuelven la lista actualizada).
     public static function fotosDe(int $unidadId): array

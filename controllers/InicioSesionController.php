@@ -18,7 +18,7 @@ class InicioSesionController{
         $contrasenia = $datos_inicio_sesion['contrasenia'] ?? '';
         $pdo = Conexion::obtener();
         $consulta = $pdo->prepare(
-            'SELECT id, contrasenia, activo FROM usuarios WHERE mail = ? LIMIT 1'
+            'SELECT id, contrasenia, activo, version_sesion FROM usuarios WHERE mail = ? LIMIT 1'
         );
         $consulta->execute([$mail]);
         $fila=$consulta->fetch();//devuelve false si no encontro ninguna fila
@@ -31,7 +31,9 @@ class InicioSesionController{
             return $this->error('Tu cuenta está deshabilitada', 403);
         }
         //SesionUsuario arma $_SESSION['usuario'] (id, nombre, mail, dni, rol, mail_verificado) y regenera el ID de sesión
-        $usuario = SesionUsuario::iniciar((int) $fila['id']);
+        // Capturar la versión de la misma lectura que verificó la contraseña evita que un
+        // login simultáneo a un reset conserve acceso con la contraseña anterior.
+        $usuario = SesionUsuario::iniciar((int) $fila['id'], (int) $fila['version_sesion']);
         return $this->respuestaInicioSesion('Sesión iniciada', $usuario);
     }
     //POST /cerrar-sesion: cierra la sesión del usuario

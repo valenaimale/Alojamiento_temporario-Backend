@@ -4,7 +4,7 @@ Las reservas de la plataforma. Las convenciones generales (URL base, formato de 
 
 **Entrega 4, sin pagos:** la reserva se crea **pendiente** y ocupa sus noches hasta que se cancele. Los pagos (seña y saldo) llegan en la entrega final, con la pasarela de pago por blockchain. Ahí la reserva va a pasar a **confirmada** al pagarse la seña, y las pendientes sin pagar van a vencer (**expirada**).
 
-**Noches:** una reserva del 5 al 10 ocupa las noches 5, 6, 7, 8 y 9. La fecha de egreso no es una noche: ese día puede entrar otro huésped (RN-08). Las reservas **pendientes y confirmadas** ocupan sus noches en la búsqueda, el detalle, el calendario y los bloqueos; las canceladas y expiradas, no.
+**Noches:** una reserva del 5 al 10 ocupa las noches 5, 6, 7, 8 y 9. La fecha de egreso no es una noche: ese día puede entrar otro huésped (RN-08). Las reservas **pendientes, confirmadas y finalizadas** ocupan sus noches contratadas en la búsqueda, el detalle, el calendario y los bloqueos; las canceladas y expiradas, no.
 
 ## Crear una reserva
 
@@ -13,7 +13,7 @@ POST /reservas/crear
 {"unidad_id": 5, "ingreso": "2026-12-05", "egreso": "2026-12-10", "personas": 2, "acepta_politica": true}
 ```
 
-Reserva un **huésped** (o un **propietario**, que también es huésped) con el **mail verificado**. El propietario no puede reservar su propia unidad.
+Reserva un **huésped** (o un **propietario**, que también es huésped) con el **mail verificado y el DNI cargado en su cuenta**. El propietario no puede reservar su propia unidad. Las cuentas de Google sin DNI deben completar `POST /completar-datos` antes: enviar un DNI en el cuerpo de la reserva no reemplaza ese paso. El DNI se consulta desde la base en cada petición protegida, incluso si se completó desde otra sesión.
 
 Las reglas son las mismas que muestra el detalle (`GET /alojamiento`): ingreso de mañana en adelante, hasta 60 noches, todas las noches con precio y libres, y el mínimo de noches de la temporada (RN-09). Dos huéspedes que reservan las mismas fechas a la vez nunca quedan superpuestos: el segundo recibe el `409`.
 
@@ -25,6 +25,7 @@ Se guarda la **foto de las condiciones** que el huésped acepta: el total (la su
 | `401` | `{"error": "No hay sesión iniciada"}` | |
 | `403` | `{"error": "Tenés que verificar tu mail para hacer esto"}` o `{"error": "No tenés permiso para hacer esto"}` | Sin el mail verificado, o es administrador, operador o backoffice. |
 | `404` | `{"error": "No encontramos ese alojamiento"}` | No existe o no está publicada. |
+| `422` | `{"error": "Completá tu DNI para reservar"}` | La cuenta todavía no tiene DNI; no se crea la reserva ni se ocupan noches. |
 | `409` | `{"error": "Hay noches ocupadas en esas fechas"}`, `{"error": "Hay noches sin precio en esas fechas"}`, `{"error": "Mínimo 7 noches en temporada alta"}` o `{"error": "Este alojamiento no se puede reservar por ahora"}` | Las fechas no se pueden reservar, o la unidad no está disponible. |
 | `422` | `{"error": "Para reservar tenés que aceptar la política de cancelación"}`, `{"error": "Tiene lugar para 4 personas"}`, `{"error": "No podés reservar tu propia unidad"}` y los de las fechas y las personas (los mismos que `GET /alojamiento`) | |
 
@@ -62,7 +63,7 @@ El huésped cancela **su reserva pendiente** y las noches quedan libres. Como to
 GET /unidades/reservas?id=5
 ```
 
-Las reservas **en curso y próximas** de la unidad (pendientes y confirmadas con egreso de hoy en adelante), de la más cercana a la más lejana. Las ven el propietario y el administrador asignado; para cualquier otro la unidad "no existe" (`404`). Del huésped va **solo el nombre**.
+Las reservas **en curso y próximas** de la unidad (pendientes, confirmadas y finalizadas con egreso contratado de hoy en adelante), de la más cercana a la más lejana. Las ven el propietario y el administrador asignado; para cualquier otro la unidad "no existe" (`404`). Del huésped va **solo el nombre**.
 
 | Código | Cuerpo |
 |---|---|
@@ -87,3 +88,10 @@ Las reservas **en curso y próximas** (pendientes y confirmadas con egreso de ho
 ```
 {"error": "Esas fechas tienen una reserva, con ingreso el 05/12/2026 y egreso el 10/12/2026: no se pueden bloquear"}
 ```
+
+
+## Ampliación: estadías y libro de huéspedes
+
+La agenda ahora incluye hechos de ingreso/egreso, permisos de acción, estadías abiertas atrasadas y egresos registrados hoy. El contrato completo y la carga/consulta/exportación del libro están en [estadias-y-huespedes.md](estadias-y-huespedes.md). Los ejemplos de agenda anteriores muestran sus campos básicos; se agregan `estadia`, `puede_registrar_ingreso` y `puede_registrar_egreso`.
+
+Las reservas finalizadas conservan sus noches contratadas también ante un egreso anticipado: búsqueda, calendario y creación de bloqueos mantienen esa ocupación. No se alteran precios ni se ejecutan devoluciones.

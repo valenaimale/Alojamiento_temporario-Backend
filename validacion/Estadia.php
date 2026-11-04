@@ -88,7 +88,7 @@ class Estadia
     }
 
     //Las noches ocupadas del rango (las dos fechas incluidas), como ["AAAA-MM-DD" => true, ...].
-    //Una noche está ocupada si tiene un bloqueo o una reserva pendiente o confirmada (así la búsqueda, el detalle,
+    //Una noche está ocupada si tiene un bloqueo o una reserva pendiente, confirmada o finalizada (así la búsqueda, el detalle,
     //el calendario y la reserva las tienen en cuenta). La noche del egreso de una reserva queda libre:
     //ese día puede entrar otro huésped (RN-08).
     //Cuando lleguen los pagos, las pendientes vencidas (bloqueo_expira_en) van a dejar de ocupar.
@@ -99,7 +99,7 @@ class Estadia
              WHERE unidad_id = ? AND fecha_desde <= ? AND fecha_hasta >= ?
              UNION ALL
              SELECT fecha_ingreso, DATE_SUB(fecha_egreso, INTERVAL 1 DAY) FROM reservas
-             WHERE unidad_id = ? AND estado IN ('pendiente', 'confirmada') AND fecha_ingreso <= ? AND fecha_egreso > ?"
+             WHERE unidad_id = ? AND estado IN ('pendiente', 'confirmada', 'finalizada') AND fecha_ingreso <= ? AND fecha_egreso > ?"
         );
         $consulta->execute([$unidadId, $ultima, $primera, $unidadId, $ultima, $primera]);
 

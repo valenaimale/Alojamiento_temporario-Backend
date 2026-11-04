@@ -195,6 +195,62 @@ final class FotosUnidadTest extends CasoDeIntegracion
 
     // ---------- Permisos ----------
 
+    public function testMoverFotosInsertaEnLaPosicionYPersisteLaPortada(): void
+    {
+        [$cliente, $unidadId] = $this->propietarioConUnidad();
+        [$a, $b, $c, $d] = $this->agregarFotos($cliente, $unidadId, ['a', 'b', 'c', 'd']);
+        $respuesta = $cliente->post('/unidades/fotos/mover', ['unidad_id' => $unidadId, 'foto_id' => $c, 'posicion' => 2]);
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame([$a, $c, $b, $d], array_column($respuesta->json()['fotos'], 'id'));
+        $this->assertSame([0, 1, 2, 3], array_column($respuesta->json()['fotos'], 'orden'));
+        $this->assertSame(['a', 'c', 'b', 'd'], $this->ordenEnBase($unidadId));
+
+        $respuesta = $cliente->post('/unidades/fotos/mover', ['unidad_id' => $unidadId, 'foto_id' => $a, 'posicion' => 2]);
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame(['c', 'a', 'b', 'd'], $this->ordenEnBase($unidadId));
+        $fotos = $cliente->get('/unidades/datos', ['id' => $unidadId])->json()['unidad']['fotos'];
+        $this->assertSame($c, $fotos[0]['id']);
+        $this->pdo()->prepare("UPDATE unidades SET estado_publicacion = 'publicada' WHERE id = ?")->execute([$unidadId]);
+        $publico = $this->cliente()->get('/alojamiento', ['id' => $unidadId]);
+        $this->assertSame([$this->url('c'), $this->url('a'), $this->url('b'), $this->url('d')], $publico->json()['alojamiento']['fotos']);
+    }
+
+    public function testMoverFotosValidaPosicionYNoModificaSiYaEstaEnSuLugar(): void
+    {
+        [$cliente, $unidadId] = $this->propietarioConUnidad();
+        [$a, $b] = $this->agregarFotos($cliente, $unidadId, ['a', 'b']);
+        foreach ([[$a, 1], [$b, 2]] as [$id, $posicion]) {
+            $respuesta = $cliente->post('/unidades/fotos/mover', ['unidad_id' => $unidadId, 'foto_id' => $id, 'posicion' => $posicion]);
+            $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+            $this->assertSame([$a, $b], array_column($respuesta->json()['fotos'], 'id'));
+        }
+        foreach (['', 'segunda', 0, -1, 3, 11, 1.5, true, null, [1]] as $posicion) {
+            $respuesta = $cliente->post('/unidades/fotos/mover', ['unidad_id' => $unidadId, 'foto_id' => $a, 'posicion' => $posicion]);
+            $this->assertSame(422, $respuesta->codigo, $respuesta->cuerpo);
+        }
+        $this->assertSame(['a', 'b'], $this->ordenEnBase($unidadId));
+    }
+
+    public function testMoverDirectamenteEntreTodasLasPosicionesConservaLasDemasFotos(): void
+    {
+        [$cliente, $unidadId] = $this->propietarioConUnidad();
+        $ids = $this->agregarFotos($cliente, $unidadId, ['a', 'b', 'c', 'd', 'e']);
+        $esperado = $ids;
+        foreach ($ids as $id) {
+            foreach ([5, 1, 4, 2, 3] as $posicion) {
+                $origen = array_search($id, $esperado, true);
+                array_splice($esperado, $origen, 1);
+                array_splice($esperado, $posicion - 1, 0, [$id]);
+                $respuesta = $cliente->post('/unidades/fotos/mover', ['unidad_id' => $unidadId, 'foto_id' => $id, 'posicion' => $posicion]);
+                $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+                $this->assertSame($esperado, array_column($respuesta->json()['fotos'], 'id'));
+                $this->assertSame([0, 1, 2, 3, 4], array_column($respuesta->json()['fotos'], 'orden'));
+            }
+        }
+        $fotos = $cliente->get('/unidades/datos', ['id' => $unidadId])->json()['unidad']['fotos'];
+        $this->assertSame($esperado, array_column($fotos, 'id'));
+    }
+
     //Una foto de otra unidad (aunque sea del mismo propietario) o un foto_id inválido: 404 y no cambia nada
     public function testUnaFotoDeOtraUnidad(): void
     {
@@ -205,9 +261,9 @@ final class FotosUnidadTest extends CasoDeIntegracion
         $this->agregarFotos($cliente, $unidadId, ['a', 'b']);
         [$deLaOtra] = $this->agregarFotos($cliente, $otraUnidad, ['x', 'y']);
 
-        foreach (['/unidades/fotos/quitar', '/unidades/fotos/principal'] as $ruta) {
+        foreach (['/unidades/fotos/quitar', '/unidades/fotos/principal', '/unidades/fotos/mover'] as $ruta) {
             foreach ([$deLaOtra, 999999, 'abc', null] as $fotoId) {
-                $respuesta = $cliente->post($ruta, ['unidad_id' => $unidadId, 'foto_id' => $fotoId]);
+                $respuesta = $cliente->post($ruta, ['unidad_id' => $unidadId, 'foto_id' => $fotoId, 'posicion' => 1]);
                 $this->assertSame(404, $respuesta->codigo, "$ruta con foto_id " . var_export($fotoId, true));
                 $this->assertSame('No encontramos esa foto', $respuesta->json()['error']);
             }
@@ -229,6 +285,7 @@ final class FotosUnidadTest extends CasoDeIntegracion
             '/unidades/fotos/agregar'   => ['unidad_id' => $unidadId, 'url' => $this->url('ajena')],
             '/unidades/fotos/quitar'    => ['unidad_id' => $unidadId, 'foto_id' => $a],
             '/unidades/fotos/principal' => ['unidad_id' => $unidadId, 'foto_id' => $a],
+            '/unidades/fotos/mover'     => ['unidad_id' => $unidadId, 'foto_id' => $a, 'posicion' => 2],
         ];
         $quienes = [
             'el administrador' => [$this->iniciarSesion($administrador['mail']), 403],
