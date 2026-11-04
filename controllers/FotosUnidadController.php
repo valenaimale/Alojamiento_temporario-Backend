@@ -8,6 +8,7 @@ use App\Request\Request;
 use PDO;
 
 //Las fotos de una unidad (US2.1). Las imágenes las sube el navegador directo a Cloudinary: acá solo se guarda su URL y su orden.
+//Las manejan el propietario y el administrador asignado a la unidad (corrección del profesor en la entrega 4).
 //orden 0 = la foto principal (la de la tarjeta). Los orden quedan siempre seguidos: 0, 1, 2...
 //La base lo exige con el índice único (unidad_id, orden), así que cada acción:
 //  - va en una transacción que empieza trabando la fila de la unidad (SELECT ... FOR UPDATE): si llegan dos pedidos
@@ -24,11 +25,11 @@ class FotosUnidadController
     //Como hay como mucho 10 fotos (orden 0 a 9), 999 nunca está ocupado.
     private const ORDEN_APARTADA = 999;
 
-    //POST /unidades/fotos/agregar: el propietario agrega una foto al final. La primera queda como principal.
+    //POST /unidades/fotos/agregar: el propietario o su administrador agrega una foto al final. La primera queda como principal.
     public function agregar()
     {
         $datos = Request::datosJson();
-        $unidad = PermisosUnidad::delPropietario($datos['unidad_id'] ?? '');//el administrador recibe 403, otro propietario 404
+        $unidad = PermisosUnidad::delPropietarioOAdministrador($datos['unidad_id'] ?? '');//otro propietario recibe 404
 
         $url = is_string($datos['url'] ?? null) ? trim($datos['url']) : '';
         if (!str_starts_with($url, self::PREFIJO_URL) || strlen($url) === strlen(self::PREFIJO_URL)
@@ -69,12 +70,12 @@ class FotosUnidadController
         ]);
     }
 
-    //POST /unidades/fotos/quitar: el propietario quita una foto y las que estaban después bajan un lugar.
+    //POST /unidades/fotos/quitar: el propietario o su administrador quita una foto y las que estaban después bajan un lugar.
     //Si quita la principal, la siguiente pasa a ser la principal.
     public function quitar()
     {
         $datos = Request::datosJson();
-        $unidad = PermisosUnidad::delPropietario($datos['unidad_id'] ?? '');
+        $unidad = PermisosUnidad::delPropietarioOAdministrador($datos['unidad_id'] ?? '');
 
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
@@ -103,12 +104,12 @@ class FotosUnidadController
         echo json_encode(['ok' => 'Quitamos la foto', 'fotos' => self::fotosDe((int) $unidad['id'])]);
     }
 
-    //POST /unidades/fotos/principal: el propietario elige la foto principal (pasa a orden 0).
+    //POST /unidades/fotos/principal: el propietario o su administrador elige la foto principal (pasa a orden 0).
     //Las que estaban antes que ella suben un lugar; las de después no se mueven.
     public function principal()
     {
         $datos = Request::datosJson();
-        $unidad = PermisosUnidad::delPropietario($datos['unidad_id'] ?? '');
+        $unidad = PermisosUnidad::delPropietarioOAdministrador($datos['unidad_id'] ?? '');
 
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
@@ -146,7 +147,7 @@ class FotosUnidadController
     public function mover()
     {
         $datos = Request::datosJson();
-        $unidad = PermisosUnidad::delPropietario($datos['unidad_id'] ?? '');
+        $unidad = PermisosUnidad::delPropietarioOAdministrador($datos['unidad_id'] ?? '');
         $valor = $datos['posicion'] ?? null;
         $posicion = is_bool($valor) ? false : filter_var($valor, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 10]]);
         if ($posicion === false) {

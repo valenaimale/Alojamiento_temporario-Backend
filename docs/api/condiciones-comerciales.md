@@ -129,8 +129,9 @@ El mismo precio para todas las noches del rango (las dos incluidas, hasta 366, *
 Una sola por unidad: **no cambia por temporada**. Al crear la unidad se copian los valores por defecto de la plataforma (seña 20 %, retenciones 30 %, 50 % y 70 %).
 
 - **Seña:** el % del total que paga el huésped al reservar.
-- **Retenciones:** el % del total que se queda el propietario si el huésped cancela, según **cuántos días antes del cobro del saldo** cancela: más de 30, de 15 a 30, o menos de 15. El saldo se cobra `dias_cobro_saldo` días antes del ingreso.
-- **Regla:** seña ≤ retención de más de 30 ≤ de 15 a 30 ≤ de menos de 15. Retener más al cancelar con más anticipación no tendría sentido; y como la seña nunca supera la retención más baja, al cancelar el huésped nunca recibe una devolución mayor que lo que pagó.
+- **Retenciones:** el % **de la seña** que se queda el propietario si el huésped cancela, según **cuántos días antes del cobro del saldo** cancela: más de 30, de 15 a 30, o menos de 15. El saldo se cobra `dias_cobro_saldo` días antes del ingreso. Como se cancela antes del cobro del saldo, lo único que pagó el huésped es la seña: se le devuelve el resto de la seña y nunca pierde más de lo que pagó. *(Corrección del profesor en la entrega 4: antes era un % del total.)*
+- **Ejemplo:** una reserva de $ 100.000 con seña del 20 % paga $ 20.000 al reservar. Si la retención del tramo es 50 %, el propietario se queda con $ 10.000 y al huésped se le devuelven $ 10.000.
+- **Regla:** retención de más de 30 ≤ de 15 a 30 ≤ de menos de 15: retener más al cancelar con más anticipación no tendría sentido. La seña no tiene relación de orden con las retenciones.
 - Los cambios valen **para las reservas futuras**: cada reserva guarda su propia copia.
 
 ### Ver
@@ -156,4 +157,4 @@ Los 4 porcentajes son obligatorios: cada uno de 0 a 100, con hasta 2 decimales.
 |---|---|---|
 | `200` | `{"ok": "Guardamos la política de cancelación y la seña", "politica": {"porcentaje_sena": "25.00", ...}}` | Se guardó. |
 | `422` | `{"error": "La seña tiene que ser un porcentaje de 0 a 100, con hasta 2 decimales"}` (uno por cada campo) | Un porcentaje falta o es inválido. |
-| `422` | `{"error": "La seña no puede ser mayor que la retención de más de 30 días"}` (uno por cada desigualdad) | No se cumple la regla. |
+| `422` | `{"error": "La retención de más de 30 días no puede ser mayor que la retención de 15 a 30 días"}` (uno por cada desigualdad) | No se cumple la regla. |

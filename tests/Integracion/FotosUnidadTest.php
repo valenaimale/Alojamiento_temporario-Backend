@@ -272,9 +272,28 @@ final class FotosUnidadTest extends CasoDeIntegracion
         $this->assertSame(['x', 'y'], $this->ordenEnBase($otraUnidad));
     }
 
-    //Las fotos son solo del propietario: el administrador asignado recibe 403 (no es propietario)
-    //y otro propietario 404 (la unidad no es suya). Sin sesión, 401.
-    public function testSoloElPropietarioManejaLasFotos(): void
+    //El administrador asignado maneja las fotos igual que el propietario (corrección del profesor):
+    //agrega, cambia la principal, mueve y quita
+    public function testElAdministradorAsignadoManejaLasFotos(): void
+    {
+        $propietario = $this->crearPropietarioEnBase();
+        $administrador = $this->crearAdministradorEnBase();
+        $unidadId = $this->crearUnidadEnBase($propietario['id']);
+        $this->asignarAdministradorEnBase($unidadId, $administrador['id']);
+        $cliente = $this->iniciarSesion($administrador['mail']);
+
+        [$a, , $c] = $this->agregarFotos($cliente, $unidadId, ['a', 'b', 'c']);
+        $this->assertSame(200, $cliente->post('/unidades/fotos/principal', ['unidad_id' => $unidadId, 'foto_id' => $c])->codigo);
+        $this->assertSame(200, $cliente->post('/unidades/fotos/mover', ['unidad_id' => $unidadId, 'foto_id' => $a, 'posicion' => 3])->codigo);
+        $this->assertSame(['c', 'b', 'a'], $this->ordenEnBase($unidadId));
+
+        $this->assertSame(200, $cliente->post('/unidades/fotos/quitar', ['unidad_id' => $unidadId, 'foto_id' => $c])->codigo);
+        $this->assertSame(['b', 'a'], $this->ordenEnBase($unidadId));
+    }
+
+    //Las fotos son del propietario y de su administrador: otro propietario u otro administrador reciben 404
+    //(la unidad no es suya) y un huésped también. Sin sesión, 401.
+    public function testSoloElPropietarioYSuAdministradorManejanLasFotos(): void
     {
         $propietario = $this->crearPropietarioEnBase();
         $administrador = $this->crearAdministradorEnBase();
@@ -288,9 +307,10 @@ final class FotosUnidadTest extends CasoDeIntegracion
             '/unidades/fotos/mover'     => ['unidad_id' => $unidadId, 'foto_id' => $a, 'posicion' => 2],
         ];
         $quienes = [
-            'el administrador' => [$this->iniciarSesion($administrador['mail']), 403],
-            'otro propietario' => [$this->iniciarSesion($this->crearPropietarioEnBase()['mail']), 404],
-            'sin sesión'       => [$this->cliente(), 401],
+            'otro administrador' => [$this->iniciarSesion($this->crearAdministradorEnBase()['mail']), 404],
+            'otro propietario'   => [$this->iniciarSesion($this->crearPropietarioEnBase()['mail']), 404],
+            'un huésped'         => [$this->iniciarSesion($this->crearUsuarioEnBase('huesped')['mail']), 404],
+            'sin sesión'         => [$this->cliente(), 401],
         ];
 
         foreach ($quienes as $quien => [$cliente, $codigo]) {

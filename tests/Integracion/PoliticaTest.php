@@ -51,7 +51,7 @@ final class PoliticaTest extends CasoDeIntegracion
         ]], $respuesta->json());
     }
 
-    //Guardar: acepta números y texto, iguales entre sí (seña igual a la retención más baja) y los extremos 0 y 100
+    //Guardar: acepta números y texto, retenciones iguales entre sí y los extremos 0 y 100
     public function testGuardaLaPolitica(): void
     {
         [$cliente, $unidadId] = $this->propietarioConUnidad();
@@ -74,12 +74,30 @@ final class PoliticaTest extends CasoDeIntegracion
         $this->assertSame(200, $todoCero->codigo, $todoCero->cuerpo);
     }
 
-    //Cada desigualdad que no se cumple tiene su propio mensaje, y no se guarda nada
+    //Las retenciones son un % de la seña (corrección del profesor): la seña puede ser mayor que cualquier retención,
+    //y la base lo acepta (el CHECK viejo exigía seña <= retención de más de 30 días)
+    public function testLaSenaPuedeSerMayorQueLasRetenciones(): void
+    {
+        [$cliente, $unidadId] = $this->propietarioConUnidad();
+
+        $respuesta = $cliente->post('/unidades/politica', $this->politica($unidadId, [
+            'porcentaje_sena' => 50, 'retencion_mas_de_30' => 0, 'retencion_de_15_a_30' => 20, 'retencion_menos_de_15' => 40,
+        ]));
+
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame([
+            'porcentaje_sena'       => '50.00',
+            'retencion_mas_de_30'   => '0.00',
+            'retencion_de_15_a_30'  => '20.00',
+            'retencion_menos_de_15' => '40.00',
+        ], $this->guardada($unidadId));
+    }
+
+    //Cada desigualdad entre retenciones que no se cumple tiene su propio mensaje, y no se guarda nada
     public function testCadaReglaTieneSuMensaje(): void
     {
         [$cliente, $unidadId] = $this->propietarioConUnidad();
         $casos = [
-            [['porcentaje_sena' => 30, 'retencion_mas_de_30' => 25], 'La seña no puede ser mayor que la retención de más de 30 días'],
             [['retencion_mas_de_30' => 50, 'retencion_de_15_a_30' => 40], 'La retención de más de 30 días no puede ser mayor que la retención de 15 a 30 días'],
             [['retencion_de_15_a_30' => 90, 'retencion_menos_de_15' => 80], 'La retención de 15 a 30 días no puede ser mayor que la retención de menos de 15 días'],
         ];

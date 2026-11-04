@@ -70,7 +70,7 @@ Los datos de una unidad para el huésped. **Las fechas y las personas son opcion
 |---|---|
 | `fotos` | Las URLs en orden: la primera es la principal. |
 | `deposito_garantia` | Informativo (o `null`): se cobra y se devuelve **por fuera de la aplicación** (US2.6). |
-| `politica` | Qué % del total retiene el propietario si el huésped cancela, según los días que falten para el **cobro del saldo**, que es `dias_cobro_saldo` días antes del ingreso. |
+| `politica` | Qué % de la seña retiene el propietario si el huésped cancela, según los días que falten para el **cobro del saldo**, que es `dias_cobro_saldo` días antes del ingreso. |
 | `estadia` | `null` si no vinieron fechas. Si se puede reservar: `noches`, `precio_total` y `sena` (el `porcentaje_sena` del total). Si no: `{"disponible": false, "motivo": "..."}`, con el motivo para el huésped: `"Hay noches ocupadas en esas fechas"`, `"Hay noches sin precio en esas fechas"`, `"Mínimo 7 noches en temporada alta"` o `"Tiene lugar para 4 personas"`. |
 
 ## Calendario de un alojamiento
