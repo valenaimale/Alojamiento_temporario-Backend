@@ -7,6 +7,7 @@
 // (busca en la base y responde 401). Ninguna de las dos peticiones escribe en la base.
 //
 // Objetivo del RNF-13 (los "thresholds" de abajo): con 10 usuarios, p95 < 800 ms y menos de 0,1 % de errores.
+// También se mide con 1 usuario contra los mismos 800 ms, como referencia sin carga.
 // Si no se cumple, k6 lo marca con ✗ y termina con error.
 //
 // Cómo correrlo (con Docker, sin instalar k6), desde la raíz del backend:
@@ -36,11 +37,12 @@ export const options = {
         },
     },
     thresholds: {
-        // el objetivo del RNF-13
+        // el objetivo del RNF-13: con 10 usuarios a la vez
         'http_req_duration{scenario:diez_usuarios}': ['p(95)<800'],
         'http_req_failed{scenario:diez_usuarios}': ['rate<0.001'],
-        // estos no tienen objetivo: están para que el resumen muestre sus números por separado
-        'http_req_duration{scenario:un_usuario}': ['p(95)>=0'],
+        // el mismo objetivo con 1 usuario: si no se cumple ni sin carga, el problema no es solo la concurrencia
+        'http_req_duration{scenario:un_usuario}': ['p(95)<800'],
+        // estos no tienen objetivo (siempre dan ✓): están para que el resumen muestre sus números por separado
         'http_req_duration{endpoint:estado}': ['p(95)>=0'],
         'http_req_duration{endpoint:iniciar_sesion}': ['p(95)>=0'],
     },

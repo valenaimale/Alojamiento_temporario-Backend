@@ -19,13 +19,27 @@ class OAuthController{
     //GET /oauth/google: arma la URL de Google, guarda el state en la sesión y redirige
     public function iniciarGoogle(){
         $proveedor = $this->proveedor();
-        $url = $proveedor->getAuthorizationUrl([
+        $url = $proveedor->getAuthorizationUrl([//proveedor es el cliente de 
+        //Google que sabe hablar con Google
             'scope'  => ['openid', 'email', 'profile'],
-            'prompt' => 'select_account',          //siempre deja elegir la cuenta de Google
+            //scope son los datos que le pedimos a Google del usuario
+            //en este caso seria el openid (identificado unico de la cuenta
+            //de Google del usuario), el mail y si el mismo esta verificado
+            //y el nombre del usuario (profile).
+            'prompt' => 'select_account',
+            //'prompt' => 'select_account' hace que Google le muestre
+            //al usuario la lista de mails disponibles que tiene para
+            //iniciar sesion/registrarse.
         ]);
         //el state es un valor aleatorio: Google lo devuelve en el callback y se compara con este (protección contra CSRF)
-        $_SESSION['oauth_state'] = $proveedor->getState();
+        $_SESSION['oauth_state'] = $proveedor->getState();//guarda en la sesion del
+        //usuario el state de la sesion del mismo. Este "state" lo va a volver
+        //a mandar el navegador una vez que el usuario elija el mail y se haga
+        //el callback. Cuando le llega el "state" back los compara y si coincide 
+        //con alguna de los state de las sesiones, el usuario ya tiene la sesion activa (o valida).
         $this->redirigir($url);
+        //redirige a Url de Google
+        //con un codigo 302 (ver metodo).
     }
 
     //GET /oauth/google/callback: Google vuelve acá con ?code=...&state=...
@@ -201,7 +215,9 @@ class OAuthController{
     }
 
     //Arma el cliente de Google con los datos de la configuración (google.*)
-    private function proveedor(): Google{
+    private function proveedor(): Google{//crea el cliente de Google
+    //con la libreria league/oauth2-google, Google es el objetoque sabe
+    //hablar con Google, asi como hay un pdo que sabe hablar con la bd
         return new Google([
             'clientId'     => Config::obtener('google.client_id'),
             'clientSecret' => Config::obtener('google.client_secret'),

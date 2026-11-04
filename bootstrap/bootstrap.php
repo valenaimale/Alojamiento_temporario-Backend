@@ -41,9 +41,24 @@ header('X-Request-Id: ' . Log::idPeticion());//el mismo identificador que va en 
 //(Con el rewrite de Vercel, el navegador ve front y back como el mismo sitio y CORS ni se usa,
 //pero queda habilitado por si se llama al back directamente.)
 $origenesPermitidos = ['http://localhost:5500', 'http://127.0.0.1:5500', rtrim(Config::obtener('app.url_front'), '/')];
-$origen = $_SERVER['HTTP_ORIGIN'] ?? '';
+$origen = $_SERVER['HTTP_ORIGIN'] ?? '';//se obtiene desde que pagina se hizo la peticion, 
+//este es un dato que agrega el navegador
 
-if (in_array($origen, $origenesPermitidos, true)) {
+//se le esta diciendo al navegador (en desarrollo): "estos son los origenes 
+//desde los cuales podes leer la response con JS", esto es necesario ya que
+//el navegador bloquea por defecto la lectura de una peticion con JS desde otro 
+//origen
+//Origen-> protocolo+dominio+puerto 
+//Sitio-> protocolo+dominio (sin puerto), esto es lo que se usa 
+//para las cookies (samesite==lax, desde el mismo sitio se pueden enviar nomas).
+
+//en produccion, el navegador ignora el header de ""Access-Control-Allow-Origin:"
+//ya que para él, la peticion se envio al mismo sitio desde donde esta parado 
+//(Página:    https://tu-app.vercel.app
+//Petición:  https://tu-app.vercel.app/api/iniciar-sesion
+//           → mismo origen. Este fetch no necesita CORS.)
+if (in_array($origen, $origenesPermitidos, true)) {//compara si el origen obtenido arriba
+//tiene permitido leer las respuestas que envia el back.
     header("Access-Control-Allow-Origin: $origen");//origen autorizado a leer las respuestas
     header('Vary: Origin');//la respuesta depende del origen que la pidio
 }
@@ -53,7 +68,14 @@ header('Access-Control-Allow-Credentials: true');//para que la cookie pueda viaj
 
 //Antes de un POST con JSON, el navegador manda una peticion OPTIONS (preflight)
 //para preguntar si tiene permiso. Se responde con los headers de arriba y se corta aca.
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {//esto en produccion nunca ocurre 
+//ya que el navegador no envia nada directo al back, antes pasa por Vercel. Por lo
+//que para el navegador siempre va a estar enviando una peticion desde el mismo 
+//origen al que esta enviando la peticion: 
+//(Página:    https://tu-app.vercel.app
+//Petición:  https://tu-app.vercel.app/api/iniciar-sesion
+//           → mismo origen. Este fetch no necesita CORS y no manda ningun OPTIONS.)
+
     http_response_code(204);
     exit;
 }
@@ -83,6 +105,7 @@ if ($driverSesiones === 'redis') {
     ini_set('session.gc_maxlifetime', (string) $duracionSesion);
 }
 ini_set('session.use_strict_mode', '1');//no acepta IDs de sesión inventados por el cliente
+//crea uno nuevo
 
 session_set_cookie_params([
     'httponly' => true,    //el JavaScript del front no puede leer la cookie (protege ante XSS)
@@ -94,6 +117,12 @@ session_set_cookie_params([
 //se responde un error JSON prolijo y el detalle queda en la terminal del servidor.
 try {
     session_start();//recupera la sesión del usuario si trae la cookie, o crea una nueva
+    //internamente lo que hace session_start() es buscar la cookie en los archivos
+    //del servidor y una vez que obtiene los datos de sesion del usuario 
+    //llena $_SESSION['usuario']=['id' => 7, 'rol' => 'huesped',
+    // 'nombre' => 'Juan', 'mail_verificado' => true];
+    //Que ocurre si el usuario no envio ninguna Cookie?
+    //se crea una nueva Cookie (un nuevo id) y $_SESSION queda vacio
 } catch (\Throwable $e) {
     Log::error('No se pudo iniciar la sesión', $e);
     http_response_code(503);

@@ -12,15 +12,15 @@
 # Ver tests/README.md (cómo correr los tests localmente) y docs/despliegue.md (el pipeline completo).
 name: CI/CD
 
-on:
-  push:
-  pull_request:
+on:   #GitHub Actions ejecuta este archivo cuando:
+  push: #hay un push a cualquier rama
+  pull_request: #cuando hay un pull request a main
     branches: [main]
 
 # Si se sube otro commit a la misma rama mientras corre, se cancela la ejecución vieja.
 # En main no se cancela: un despliegue a medias tiene que terminar.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }} #las ejecuciones de la misma rama forman un grupo.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:

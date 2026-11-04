@@ -13,7 +13,9 @@ No es parte de PHPUnit ni del CI: se corre a mano, cuando se quiere medir (por e
 
 Cada usuario repite, sin pausa: `GET /estado` (consulta la base) y `POST /iniciar-sesion` con un usuario que no existe (busca en la base y responde `401`). **Ninguna petición escribe en la base**, así que se puede correr contra producción.
 
-El objetivo está escrito en el script (`thresholds`): **con 10 usuarios, p95 < 800 ms y menos de 0,1 % de errores**. Al final, k6 muestra ✓ o ✗ para cada uno.
+El objetivo está escrito en el script (`thresholds`): **con 10 usuarios, p95 < 800 ms y menos de 0,1 % de errores**. El escenario de 1 usuario se mide contra los mismos 800 ms, como referencia: si ni siquiera sin carga se cumple, el problema no es solo la concurrencia. Al final, k6 muestra ✓ o ✗ para cada uno.
+
+Las líneas con la condición `p(95)>=0` (por endpoint) **no son objetivos**: siempre dan ✓ y están solo para que el resumen muestre esos números por separado.
 
 ## Cómo correrlo
 
@@ -63,5 +65,8 @@ http_reqs.......................: 128   1.83/s     ← peticiones totales y por 
 |---|---|---|---|---|---|
 | 17/10/2026 | Producción (`php -S`, 1 réplica) | 725 ms | 4,4 s | 0 % | ✗ |
 | 17/10/2026 (repetición) | Producción (`php -S`, 1 réplica) | 710 ms | 4,41 s | 0 % | ✗ |
+| 17/10/2026 (tercera) | Producción (`php -S`, 1 réplica) | **918 ms** | 4,44 s | 0 % | ✗ (también con 1 usuario) |
+
+**Con 1 usuario, el p95 varía entre corridas (710 a 920 ms) y queda en el límite de los 800 ms:** cada petición viaja hasta Estados Unidos (Railway) y abre una conexión cifrada nueva con la base (Aiven), y cualquier demora en ese camino se nota.
 
 **Por qué no cumple:** `php -S` atiende **una petición por vez**, así que con 10 usuarios cada uno espera en la cola a los demás (unas 2,7 peticiones por segundo, se mida con 1 o con 10 usuarios). Además, unos 440 ms de cada petición son abrir la conexión cifrada con la base. El plan es reemplazar `php -S` por Nginx + PHP-FPM, que atiende en paralelo, y repetir esta medición (ver el RNF-13).
