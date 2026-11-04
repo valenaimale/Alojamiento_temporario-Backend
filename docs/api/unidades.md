@@ -9,8 +9,8 @@ Todas necesitan sesión iniciada (el `fetch` lleva `credentials: 'include'`). El
 | Ruta | Propietario de la unidad | Administrador asignado | Otro propietario o administrador | Huésped, operador, backoffice |
 |---|---|---|---|---|
 | `POST /unidades/crear`, `GET /unidades/mias` | sí | `403` | — | `403` |
-| `GET /unidades/datos`, `POST /unidades/deposito` | sí | sí | `404` | `404` |
-| `POST /unidades/editar` y las de fotos | sí | `403` | `404` | `403` |
+| `GET /unidades/datos`, `POST /unidades/deposito` y las de fotos | sí | sí | `404` | `404` |
+| `POST /unidades/editar` | sí | `403` | `404` | `403` |
 
 Una unidad ajena responde 404 y no 403: así nadie puede averiguar qué unidades existen probando números. El 403 de la última fila sale de que esas rutas son solo de propietarios: se controla el rol antes de buscar la unidad.
 
@@ -180,7 +180,7 @@ Reglas:
 - Se pueden mandar varias fotos a la vez: los pedidos de una misma unidad se atienden de a uno, así ninguna toma el `orden` de otra.
 - **Quitar una foto no la borra de Cloudinary**: con el preset sin firma no se puede. Queda pendiente para cuando las subidas sean firmadas.
 
-Las cuatro rutas son **solo del propietario** y devuelven la lista actualizada de fotos (`fotos`, ordenada por `orden`, igual que en `GET /unidades/datos`), así el front la vuelve a dibujar sin pedirla de nuevo.
+Las cuatro rutas las usan **el propietario y el administrador asignado** (corrección del profesor en la entrega 4) y devuelven la lista actualizada de fotos (`fotos`, ordenada por `orden`, igual que en `GET /unidades/datos`), así el front la vuelve a dibujar sin pedirla de nuevo.
 
 ### Agregar una foto
 

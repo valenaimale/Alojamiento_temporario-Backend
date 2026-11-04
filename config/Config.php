@@ -25,7 +25,8 @@ class Config
             return trim($deEntorno);//sin los espacios que se cuelan al cargar variables en un panel web
         }
 
-        if (self::$valores === null) {
+        if (self::$valores === null) {//self es la palabra reservada 
+        //que se usa para acceder a algo estatico de la clase (atributo o metodo)
             $archivo = __DIR__ . '/configuracion.php';
             if (!file_exists($archivo)) {
                 $archivo = __DIR__ . '/configuracion.example.php';
