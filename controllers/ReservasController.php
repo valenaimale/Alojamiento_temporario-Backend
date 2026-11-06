@@ -145,7 +145,7 @@ class ReservasController
 
         $consulta = Conexion::obtener()->prepare(
             'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
-                    r.monto_faltante, r.fecha_cobro, u.id AS unidad_id, u.nombre AS unidad_nombre, l.nombre AS localidad, l.provincia, f.url AS foto_principal
+                    r.monto_faltante, r.fecha_cobro, r.retencion_menos_de_15, u.id AS unidad_id, u.nombre AS unidad_nombre, l.nombre AS localidad, l.provincia, f.url AS foto_principal
              FROM reservas r
              JOIN unidades u ON u.id = r.unidad_id
              JOIN localidades l ON l.id = u.localidad_id
@@ -168,6 +168,7 @@ class ReservasController
                 //el saldo (L2-6): lo que falta pagar y hasta cuándo (null en las reservas anteriores al cobro)
                 'saldo'             => $fila['monto_faltante'],
                 'fecha_cobro'       => $fila['fecha_cobro'],
+                'retencion_menos_de_15' => $fila['retencion_menos_de_15'],
                 'puede_pagar_saldo' => $estado === 'confirmada' && $fila['monto_faltante'] !== null && bccomp($fila['monto_faltante'], '0', 2) > 0,
                 'alojamiento'    => [
                     'id'             => (int) $fila['unidad_id'],

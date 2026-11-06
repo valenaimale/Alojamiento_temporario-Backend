@@ -78,7 +78,7 @@ final class AlojamientoTest extends CasoDeIntegracion
         $respuesta = $this->detalle($unidadId, ['ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+15 days'), 'personas' => 4]);
 
         $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
-        $this->assertSame(['disponible' => true, 'noches' => 5, 'precio_total' => '350000.00', 'sena' => '70000.00'], $respuesta->json()['estadia']);
+        $this->assertSame(['disponible' => true, 'noches' => 5, 'precio_total' => '350000.00', 'sena' => '70000.00', 'fecha_cobro' => $this->fecha('+5 days')], $respuesta->json()['estadia']);
     }
 
     //Con fechas que no se pueden reservar, dice por qué (el mismo cálculo que la búsqueda); el motivo de un bloqueo no se ve

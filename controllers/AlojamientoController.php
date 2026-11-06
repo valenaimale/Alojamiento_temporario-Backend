@@ -161,6 +161,7 @@ class AlojamientoController
         $estadia = Estadia::calcular((int) $unidad['id'], $fechas['ingreso'], $fechas['egreso']);
         if ($estadia['disponible']) {
             $estadia['sena'] = Estadia::sena($estadia['precio_total'], $unidad['porcentaje_sena']);
+            $estadia['fecha_cobro'] = Estadia::fechaCobro($fechas['ingreso'])->format('Y-m-d');
         }
         return $estadia;
     }

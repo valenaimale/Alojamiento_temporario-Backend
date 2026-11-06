@@ -11,7 +11,7 @@ final class EstadiasYLibroTest extends CasoDeIntegracion
         $admin = $this->crearAdministradorEnBase();
         $unidad = $this->crearUnidadEnBase($propietario['id'], ['operador_id' => $operador['id']]);
         $this->asignarAdministradorEnBase($unidad, $admin['id']);
-        $this->pdo()->prepare("INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado, importe_total, porcentaje_sena, importe_sena, retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15, politica_aceptada_en) VALUES (?, ?, ?, ?, 2, ?, 240000, 20, 48000, 30, 50, 70, UTC_TIMESTAMP())")
+        $this->pdo()->prepare("INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado, importe_total, porcentaje_sena, importe_sena, monto_faltante, retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15, politica_aceptada_en) VALUES (?, ?, ?, ?, 2, ?, 240000, 20, 48000, 0, 30, 50, 70, UTC_TIMESTAMP())")
             ->execute([$unidad, $titular['id'], $this->fecha($ingreso), $this->fecha('+10 days'), $estado]);
         $reserva = (int) $this->pdo()->lastInsertId();
         return compact('operador', 'titular', 'propietario', 'admin', 'unidad', 'reserva');
@@ -56,6 +56,25 @@ final class EstadiasYLibroTest extends CasoDeIntegracion
         $bloqueo = $owner->post('/unidades/bloqueos/crear', ['unidad_id' => $s['unidad'], 'fecha_desde' => $this->fecha('+1 day'), 'fecha_hasta' => $this->fecha('+2 days'), 'motivo' => 'uso_personal']);
         $this->assertSame(409, $bloqueo->codigo, $bloqueo->cuerpo);
         $this->assertStringContainsString('reserva', $bloqueo->cuerpo);
+    }
+
+    public function testIngresoExigeSaldoPagoYPermiteReintentarDespues(): void
+    {
+        $s = $this->escenario(); $c = $this->iniciarSesion($s['operador']['mail']);
+        $in = $this->movimiento($s['reserva']);
+        foreach (['192000.00', '0.01', null] as $saldo) {
+            $this->pdo()->prepare('UPDATE reservas SET monto_faltante = ? WHERE id = ?')->execute([$saldo, $s['reserva']]);
+            $r = $c->post('/operador/estadias/registrar', $in);
+            $this->assertSame(409, $r->codigo, $r->cuerpo);
+            $this->assertSame($saldo === null ? 'SALDO_NO_INFORMADO' : 'SALDO_PENDIENTE', $r->json()['codigo']);
+            $this->assertSame(0, (int) $this->pdo()->query('SELECT COUNT(*) FROM estadias WHERE reserva_id = ' . $s['reserva'])->fetchColumn());
+        }
+        $this->pdo()->prepare('UPDATE reservas SET monto_faltante = 0 WHERE id = ?')->execute([$s['reserva']]);
+        $this->assertSame(200, $c->post('/operador/estadias/registrar', $in)->codigo);
+        // Un saldo modificado luego no transforma un reintento en otro ingreso ni impide el egreso.
+        $this->pdo()->prepare('UPDATE reservas SET monto_faltante = 1 WHERE id = ?')->execute([$s['reserva']]);
+        $this->assertSame(200, $c->post('/operador/estadias/registrar', $in)->codigo);
+        $this->assertSame(200, $c->post('/operador/estadias/registrar', $this->movimiento($s['reserva'], 'egreso'))->codigo);
     }
 
     public function testPermisosYTransicionesInvalidasNoCreanEstadias(): void

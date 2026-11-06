@@ -130,3 +130,16 @@ Hoy "Cancelar" manda `POST /reservas/cancelar` directamente. Con una reserva **c
 
 - **Verificador real (`Blockchain.php`):** cambia `pago` (con `contrato` y `simulado: false`) y `red` (84532). El resto de las respuestas queda igual.
 - **Firmador real:** la devolución va a salir a Base Sepolia y puede quedar `"pendiente"` unos segundos más seguido. El front no tiene que hacer nada distinto.
+
+
+## Adaptación de Justi para decisiones 23 y 25
+
+Rama `feature/rol3-ingreso-saldo`, 06/11/2026:
+
+- `GET /alojamiento` agrega `estadia.fecha_cobro` cuando la cotización está disponible, usando la misma regla del alta de reserva (como mínimo hoy).
+- `GET /reservas/mias` agrega `retencion_menos_de_15`, string decimal tomado de la política congelada en la reserva. No usar la política actual de la unidad para avisar al huésped.
+- El frontend puede mostrar el menor entre fecha_cobro + 3 días y el ingreso, inclusive, y la retención sobre la seña. El proceso de cancelación automática de la decisión #23 sigue pendiente del Rol 2.
+- `POST /operador/estadias/registrar`: un ingreso con monto_faltante positivo devuelve 409 `{ "error": "Falta pagar el saldo", "codigo": "SALDO_PENDIENTE" }`. Un saldo legacy NULL devuelve 409 `SALDO_NO_INFORMADO` y pide consultar al administrador. No se registra el ingreso ni se revelan importes al operador. El mismo evento ya registrado sigue devolviendo éxito; el egreso no recibe esta restricción.
+- La agenda conserva las notas y ofrece copiar el enlace `/vistas/reservas/pagar.html?reserva_id={id}&tipo=saldo` para el huésped. Después de pagar desde su sesión, el operador reintenta el evento original.
+
+Dependencia detectada en Contratos c2d90d9: `pagarSaldo` requiere una seña previa y `pagarSena` exige valor positivo. Las reservas con seña del 0 % necesitan una solución coordinada entre Roles 1 y 2 antes del modo real; el frontend no debe inventar una seña mínima.

@@ -57,6 +57,15 @@ class EstadiasController
             if ($reserva['estado'] !== 'confirmada') {
                 $pdo->rollBack(); $this->error('Solo se puede registrar una reserva confirmada', 409); return;
             }
+            // Decisión #25: no registrar un ingreso mientras falte pagar el saldo.
+            // Se verifica bajo el mismo bloqueo que usa el pago; un reintento ya registrado sigue siendo idempotente.
+            if ($tipo === 'ingreso' && ($reserva['monto_faltante'] === null || bccomp($reserva['monto_faltante'], '0', 2) > 0)) {
+                $pdo->rollBack();
+                $sinDato = $reserva['monto_faltante'] === null;
+                $this->error($sinDato ? 'No se pudo verificar el saldo de esta reserva. Consultá al administrador.' : 'Falta pagar el saldo', 409,
+                    ['codigo' => $sinDato ? 'SALDO_NO_INFORMADO' : 'SALDO_PENDIENTE']);
+                return;
+            }
             $dia = $fecha->setTimezone(new \DateTimeZone('America/Argentina/Buenos_Aires'))->format('Y-m-d');
             if ($tipo === 'ingreso' && ($dia < $reserva['fecha_ingreso'] || $dia >= $reserva['fecha_egreso'])) {
                 $pdo->rollBack(); $this->error('El ingreso debe ocurrir dentro de las fechas de la reserva', 409); return;
@@ -103,8 +112,8 @@ class EstadiasController
         http_response_code(200);
         echo json_encode(['ok' => $tipo === 'ingreso' ? 'Ingreso registrado' : 'Egreso registrado', 'estadia' => self::datos($estadia)]);
     }
-    private function error(string $mensaje, int $codigo = 422): void
+    private function error(string $mensaje, int $codigo = 422, array $datos = []): void
     {
-        http_response_code($codigo); echo json_encode(['error' => $mensaje]);
+        http_response_code($codigo); echo json_encode(['error' => $mensaje] + $datos);
     }
 }
