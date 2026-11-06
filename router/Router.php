@@ -167,6 +167,14 @@ class Router {
         $this->register('GET@/unidades/libro', 'HuespedesReservaController@deLaUnidad');
         // ---------- fin Épica 4 ----------
 
+
+        // ---------- Liquidaciones (entrega del 80 %, Rol 4) ----------
+        $this->register('GET@/liquidaciones/mias', 'LiquidacionesController@mias');
+        $this->register('GET@/liquidaciones/comprobante', 'LiquidacionesController@comprobante');
+        $this->register('GET@/administrador/comisiones', 'LiquidacionesController@comisiones');
+        $this->register('POST@/liquidaciones/generar', 'LiquidacionesController@generar');
+        $this->register('POST@/liquidaciones/pagar', 'LiquidacionesController@pagar');
+        // ---------- fin Liquidaciones ----------
         // ---------- Pagos (L2-28, L2-30: seña; L2-6, RF-26: saldo) ----------
         $this->register('GET@/pagos/sena', 'PagosController@sena');
         $this->register('GET@/pagos/saldo', 'PagosController@saldo');
