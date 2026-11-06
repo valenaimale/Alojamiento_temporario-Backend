@@ -157,6 +157,7 @@ class Router {
         $this->register('POST@/reservas/crear', 'ReservasController@crear');
         $this->register('GET@/reservas/mias', 'ReservasController@mias');
         $this->register('POST@/reservas/cancelar', 'ReservasController@cancelar');
+        $this->register('GET@/reservas/cancelacion', 'ReservasController@cancelacion');//Rol 2: cuánto se devuelve si cancela
         $this->register('GET@/unidades/reservas', 'ReservasController@deLaUnidad');
         $this->register('GET@/operador/agenda', 'AgendaOperadorController@ver');
         $this->register('POST@/operador/estadias/registrar', 'EstadiasController@registrar');
@@ -166,8 +167,9 @@ class Router {
         $this->register('GET@/unidades/libro', 'HuespedesReservaController@deLaUnidad');
         // ---------- fin Épica 4 ----------
 
-        // ---------- Pagos (L2-28, L2-30: seña) ----------
+        // ---------- Pagos (L2-28, L2-30: seña; L2-6, RF-26: saldo) ----------
         $this->register('GET@/pagos/sena', 'PagosController@sena');
+        $this->register('GET@/pagos/saldo', 'PagosController@saldo');
         $this->register('POST@/pagos/confirmar', 'PagosController@confirmar');
         // ---------- fin Pagos ----------
     }

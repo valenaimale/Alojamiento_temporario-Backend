@@ -35,27 +35,55 @@ Se guarda la **foto de las condiciones** que el huésped acepta: el total (la su
 GET /reservas/mias
 ```
 
-Las reservas del usuario logueado (huésped o propietario), **todas** (también las canceladas y expiradas), de la más nueva a la más vieja según el ingreso. `puede_pagar` y `puede_cancelar` son `true` solo para las pendientes sin vencer, y `vence_en` dice hasta cuándo se paga la seña (`null` en las demás). Una pendiente vencida aparece con `"estado": "expirada"`. La dirección exacta no se muestra todavía: se le va a dar al huésped cuando la reserva esté confirmada (pagada).
+Las reservas del usuario logueado (huésped o propietario), **todas** (también las canceladas y expiradas), de la más nueva a la más vieja según el ingreso. `puede_pagar` es `true` solo para las pendientes sin vencer; `puede_cancelar`, para las pendientes sin vencer y las confirmadas antes del día del ingreso, y `vence_en` dice hasta cuándo se paga la seña (`null` en las demás). `saldo` es lo que falta pagar (`"0.00"` cuando ya está pago), `fecha_cobro` hasta cuándo se paga, y `puede_pagar_saldo` es `true` en las confirmadas con saldo (se paga con `GET /pagos/saldo`, ver `pagos.md`). Las reservas anteriores al cobro pueden tener `saldo` y `fecha_cobro` en `null`. Una pendiente vencida aparece con `"estado": "expirada"`. La dirección exacta no se muestra todavía: se le va a dar al huésped cuando la reserva esté confirmada (pagada).
 
 | Código | Cuerpo |
 |---|---|
-| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z", "puede_pagar": true, "puede_cancelar": true, "alojamiento": {"id": 5, "nombre": "Casa del Bosque", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires", "foto_principal": "https://res.cloudinary.com/..."}}]}` (o `[]`) |
+| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z", "puede_pagar": true, "puede_cancelar": true, "saldo": "280000.00", "fecha_cobro": "2026-11-30", "puede_pagar_saldo": false, "alojamiento": {"id": 5, "nombre": "Casa del Bosque", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires", "foto_principal": "https://res.cloudinary.com/..."}}]}` (o `[]`) |
 | `401` / `403` | Sin sesión / no es huésped ni propietario. |
 
-## Cancelar una reserva
+## Cancelar una reserva (L2-3, L2-18)
+
+Se cancela una reserva **pendiente** (sin vencer) o **confirmada**, antes del día del ingreso. Las noches quedan libres.
+
+- **Pendiente:** todavía no pagó nada, así que no hay devolución.
+- **Confirmada:** se aplica la política que el huésped aceptó al reservar. Se retiene el % **de la seña** del tramo, según cuántos días faltan hasta la `fecha_cobro`: más de 30, de 15 a 30, o menos de 15 (también si el cobro ya pasó). Se devuelve el resto de la seña, más **el saldo entero** si ya lo pagó: el huésped nunca pierde más que la seña. Las cuentas se hacen sobre los pagos confirmados, en wei (`validacion/Devolucion.php`).
+
+La plataforma manda la devolución al contrato con `devolver(reservaId, huesped, monto)` a la billetera que pagó la seña (`FirmadorPagos`: hoy `FirmadorSimulado`, que se elige con `pagos.firmador` o `PAGOS_FIRMADOR`). Queda en `pagos` con `tipo = devolucion`. El orden es este:
+
+1. Se cancela la reserva y se anota la devolución `pendiente`.
+2. Se le avisa por mail al propietario (L2-18).
+3. Se manda la transacción y la devolución pasa a `confirmado`, con su `tx_hash`.
+4. Se le avisa por mail al huésped.
+
+Si la red falla en el paso 3, la reserva queda cancelada igual y la devolución queda `pendiente` sin `tx_hash`. La reintenta `php scripts/reintentar-devoluciones.php` (a mano o con un cron de Railway), que solo toma las que tienen más de 5 minutos.
+
+### Ver cuánto le devuelven antes de confirmar
+
+```
+GET /reservas/cancelacion?reserva_id=12
+```
+
+No cambia nada.
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"reserva_id": 12, "estado": "confirmada", "tramo": "mas_de_30", "dias_hasta_cobro": 45, "porcentaje_retencion": "30.00", "pagado": {"sena": "42000.00", "saldo": "0.00"}, "retencion": "12600.00", "devolucion": "29400.00", "devolucion_wei": "294000000000000"}` | `tramo`: `mas_de_30`, `de_15_a_30` o `menos_de_15`. En una pendiente, todo en 0. |
+| `404` / `409` | Los mismos de cancelar. | |
+
+### Cancelar
 
 ```
 POST /reservas/cancelar
 {"reserva_id": 12}
 ```
 
-El huésped cancela **su reserva pendiente** (sin vencer) y las noches quedan libres. Como todavía no pagó nada, no hay devolución. Cancelar una reserva confirmada, con su política de cancelación, es la épica L2-12.
-
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `200` | `{"ok": "Cancelaste la reserva: esas noches quedaron libres"}` | |
+| `200` | `{"ok": "Cancelaste la reserva: esas noches quedaron libres"}` | Una pendiente. |
+| `200` | `{"ok": "Cancelaste la reserva: esas noches quedaron libres. Te devolvimos $29.400,00 a tu billetera", "devolucion": {…lo mismo que la vista previa…, "estado": "confirmado", "tx_hash": "0x…"}}` | Una confirmada. Si la red falló: "La devolución de $29.400,00 está en proceso: te avisamos por mail", con `"estado": "pendiente"` y `"tx_hash": null`. Sin nada pagado (por ejemplo, una seña del 0 %): "Según la política de cancelación, no corresponde devolución", con `"estado": null`. |
 | `404` | `{"error": "No encontramos esa reserva"}` | No existe, no es suya o el id no es válido. |
-| `409` | `{"error": "Esa reserva ya estaba cancelada"}`, `{"error": "Esa reserva ya venció sin pagar la seña: sus noches ya están libres"}`, `{"error": "Por ahora solo se puede cancelar una reserva pendiente de pago"}` o `{"error": "La reserva cambió mientras la cancelabas: actualizá la página"}` (se pagó la seña o venció al mismo tiempo) | |
+| `409` | `{"error": "Esa reserva ya estaba cancelada"}`, `{"error": "Esa reserva ya venció sin pagar la seña: sus noches ya están libres"}`, `{"error": "La estadía ya empezó: no se puede cancelar desde la app"}`, `{"error": "Esa estadía ya terminó"}` o `{"error": "La reserva cambió mientras la cancelabas: actualizá la página"}` (se pagó o canceló al mismo tiempo) | |
 
 ## Reservas de una unidad (propietario y administrador)
 

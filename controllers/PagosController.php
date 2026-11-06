@@ -8,56 +8,44 @@ use App\Mail\AvisoPagoMail;
 use App\Request\Request;
 use App\Validacion\ResultadoVerificacion;
 use App\Validacion\TipoDeCambio;
+use App\Validacion\ValidadorFechas;
 use App\Validacion\VencimientoReserva;
 use App\Validacion\Verificadores;
 
-//El pago de la seña (L2-28) y el aviso si falla (L2-30). Plan de la entrega del 80 %, Rol 2.
-//El huésped paga desde su billetera llamando a pagarSena(reservaId) del contrato (el ETH queda retenido ahí) y el front
-//le pasa al back el hash de la transacción. El back la verifica (VerificadorPagos: hoy simulado, después Blockchain.php),
-//la guarda en pagos (tabla de crear_tabla_pagos) y confirma la reserva.
-//El monto se cobra en wei: los pesos de la seña pasados con el tipo de cambio fijo pesos_por_eth (TipoDeCambio).
-//La reserva pendiente guarda sus noches solo hasta bloqueo_expira_en (VencimientoReserva): pasado ese plazo ya no se paga.
+//Los pagos de una reserva: la seña (L2-28) y el saldo (L2-6), con el aviso si fallan (L2-30, RF-26).
+//Plan de la entrega del 80 %, Rol 2.
+//El huésped paga desde su billetera llamando a pagarSena(reservaId) o pagarSaldo(reservaId) del contrato (el ETH queda
+//retenido ahí) y el front le pasa al back el hash de la transacción. El back la verifica (VerificadorPagos: hoy simulado,
+//después Blockchain.php) y la guarda en pagos (tabla de crear_tabla_pagos):
+//  - la seña confirma la reserva. Se paga solo mientras la reserva pendiente guarda sus noches (bloqueo_expira_en,
+//    VencimientoReserva): pasado ese plazo ya no.
+//  - el saldo (reservas.monto_faltante) se paga con la reserva confirmada, hasta su fecha_cobro. Al pagarlo,
+//    monto_faltante queda en 0.
+//Los montos se cobran en wei: los pesos pasados con el tipo de cambio fijo pesos_por_eth (TipoDeCambio).
 class PagosController
 {
-    private const TIPO_SENA = 'sena';
+    private const SENA = 'sena';
+    private const SALDO = 'saldo';
+    private const NOMBRES = [self::SENA => 'de la seña', self::SALDO => 'del saldo'];//"el pago de la seña", "el pago del saldo"
 
     //GET /pagos/sena?reserva_id=12: el monto de la seña (en pesos y en wei), hasta cuándo se puede pagar
     //y los datos que necesita el front para armar la transacción.
     public function sena()
     {
-        Autorizacion::requiere('huesped');
-
-        $reserva = $this->reservaDelHuesped(Request::parametroGet('reserva_id'));
-        if ($reserva === false) {
-            return $this->error('No encontramos esa reserva', 404);
-        }
-        $problema = $this->problemaParaPagarSena($reserva);
-        if ($problema !== null) {
-            return $this->error(...$problema);
-        }
-
-        $pesosPorEth = TipoDeCambio::pesosPorEth();
-        $montoWei = TipoDeCambio::aWei($reserva['importe_sena'], $pesosPorEth);
-        $verificador = Verificadores::configurado();
-
-        http_response_code(200);
-        echo json_encode([
-            'reserva_id'    => (int) $reserva['id'],
-            'tipo'          => self::TIPO_SENA,
-            'monto_pesos'   => $reserva['importe_sena'],
-            'monto_wei'     => $montoWei,//texto: no entra en un número de JavaScript sin perder precisión
-            'pesos_por_eth' => $pesosPorEth,
-            'red'           => $verificador->red(),//chain id
-            'vence_en'      => VencimientoReserva::venceEnIso($reserva['estado'], $reserva['bloqueo_expira_en']),
-            'pago'          => $verificador->datosParaPagar((int) $reserva['id'], self::TIPO_SENA, $montoWei),
-        ]);
+        $this->datosParaPagar(self::SENA);
     }
 
-    //POST /pagos/confirmar: {"reserva_id", "tx_hash"}. Verifica la transacción del pago de la seña:
-    //  - confirmada: guarda el pago y la reserva pasa a 'confirmada' (200)
+    //GET /pagos/saldo?reserva_id=12: lo mismo para el saldo, con su fecha de cobro
+    public function saldo()
+    {
+        $this->datosParaPagar(self::SALDO);
+    }
+
+    //POST /pagos/confirmar: {"reserva_id", "tx_hash", "tipo"?}. Verifica la transacción de un pago:
+    //  - confirmada: guarda el pago; la seña confirma la reserva y el saldo la deja sin nada que pagar (200)
     //  - todavía no está en un bloque: no guarda nada, el front vuelve a preguntar (202)
-    //  - fallida: guarda el intento, le avisa al huésped por mail y responde por qué (402). Puede volver a pagar
-    //    mientras no venza el plazo.
+    //  - fallida: guarda el intento, le avisa al huésped por mail y responde por qué (402). Puede volver a pagar.
+    //"tipo" (sena o saldo) es opcional: si no viene, una reserva pendiente paga la seña y una confirmada el saldo.
     public function confirmar()
     {
         Autorizacion::requiere('huesped');
@@ -68,19 +56,24 @@ class PagosController
             return $this->error('El hash de la transacción no es válido');
         }
         $txHash = strtolower($txHash);//el mismo hash en mayúsculas es la misma transacción
+        $tipoPedido = $datos['tipo'] ?? null;
+        if ($tipoPedido !== null && !isset(self::NOMBRES[$tipoPedido])) {
+            return $this->error('El tipo de pago tiene que ser sena o saldo');
+        }
 
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
         try {
             //Traba la reserva hasta el commit: si llegan dos confirmaciones juntas, la segunda espera y ve la reserva
-            //ya pagada (así nunca hay dos pagos de seña confirmados). Mientras tanto se consulta la red:
+            //ya pagada (así nunca hay dos pagos confirmados de lo mismo). Mientras tanto se consulta la red:
             //con el verificador real conviene que tarde poco, con un timeout.
             $reserva = $this->reservaDelHuesped($datos['reserva_id'] ?? null, true);
             if ($reserva === false) {
                 $pdo->rollBack();
                 return $this->error('No encontramos esa reserva', 404);
             }
-            $problema = $this->problemaParaPagarSena($reserva);
+            $tipo = $tipoPedido ?? ($reserva['estado'] === 'pendiente' ? self::SENA : self::SALDO);
+            $problema = $this->problemaParaPagar($tipo, $reserva);
             if ($problema !== null) {
                 if (VencimientoReserva::vencida($reserva['estado'], $reserva['bloqueo_expira_en'])) {
                     $pdo->prepare("UPDATE reservas SET estado = 'expirada' WHERE id = ? AND estado = 'pendiente'")->execute([$reserva['id']]);
@@ -102,10 +95,11 @@ class PagosController
                     : 'Esa transacción ya se usó para otro pago', 409);
             }
 
+            $montoPesos = $this->monto($tipo, $reserva);
             $pesosPorEth = TipoDeCambio::pesosPorEth();
-            $montoWei = TipoDeCambio::aWei($reserva['importe_sena'], $pesosPorEth);
+            $montoWei = TipoDeCambio::aWei($montoPesos, $pesosPorEth);
             $verificador = Verificadores::configurado();
-            $resultado = $verificador->verificar($txHash, (int) $reserva['id'], self::TIPO_SENA, $montoWei);
+            $resultado = $verificador->verificar($txHash, (int) $reserva['id'], $tipo, $montoWei);
 
             if ($resultado->estado === ResultadoVerificacion::PENDIENTE) {
                 $pdo->rollBack();
@@ -123,13 +117,16 @@ class PagosController
                     'INSERT INTO pagos (reserva_id, tipo, monto_pesos, monto_wei, pesos_por_eth, billetera, red, tx_hash, estado, creado_en, confirmado_en)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 )->execute([
-                    $reserva['id'], self::TIPO_SENA, $reserva['importe_sena'], $montoWei, $pesosPorEth,
+                    $reserva['id'], $tipo, $montoPesos, $montoWei, $pesosPorEth,
                     strtolower($resultado->billetera), $verificador->red(), $txHash, $resultado->estado,
                     $ahora, $confirmado ? $ahora : null,
                 ]);
             }
             if ($confirmado) {
-                $pdo->prepare("UPDATE reservas SET estado = 'confirmada' WHERE id = ?")->execute([$reserva['id']]);
+                $pdo->prepare($tipo === self::SENA
+                    ? "UPDATE reservas SET estado = 'confirmada' WHERE id = ?"
+                    : 'UPDATE reservas SET monto_faltante = 0 WHERE id = ?'
+                )->execute([$reserva['id']]);
             }
             $pdo->commit();
         } catch (\PDOException $e) {
@@ -149,27 +146,78 @@ class PagosController
         }
 
         $huesped = $_SESSION['usuario'];
+        $unidad = $reserva['unidad_nombre'];
         if ($confirmado) {
-            AvisoPagoMail::senaConfirmada($huesped, $reserva['unidad_nombre'], $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $reserva['importe_sena']);
+            if ($tipo === self::SENA) {
+                AvisoPagoMail::senaConfirmada($huesped, $unidad, $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $montoPesos);
+                $ok = "Pagaste la seña: tu reserva en $unidad está confirmada";
+            } else {
+                AvisoPagoMail::saldoConfirmado($huesped, $unidad, $reserva['fecha_ingreso'], $montoPesos);
+                $ok = "Pagaste el saldo: tu reserva en $unidad está paga";
+            }
             http_response_code(200);
             echo json_encode([
-                'ok'      => "Pagaste la seña: tu reserva en {$reserva['unidad_nombre']} está confirmada",
+                'ok'      => $ok,
+                'tipo'    => $tipo,
                 'reserva' => ['id' => (int) $reserva['id'], 'estado' => 'confirmada'],
-                'pago'    => ['monto_pesos' => $reserva['importe_sena'], 'monto_wei' => $montoWei, 'tx_hash' => $txHash, 'red' => $verificador->red()],
+                'pago'    => ['monto_pesos' => $montoPesos, 'monto_wei' => $montoWei, 'tx_hash' => $txHash, 'red' => $verificador->red()],
             ]);
             return;
         }
 
-        //L2-30: el motivo no se guarda (pagos no tiene dónde), va en la respuesta y en el mail
-        AvisoPagoMail::senaFallida($huesped, $reserva['unidad_nombre'], $resultado->motivo, $reserva['bloqueo_expira_en']);
-        $plazo = $reserva['bloqueo_expira_en'] === null
-            ? ''
-            : ' Podés pagar de nuevo hasta las ' . VencimientoReserva::horaArgentina($reserva['bloqueo_expira_en']);
+        //L2-30 / RF-26: el motivo no se guarda (pagos no tiene dónde), va en la respuesta y en el mail
+        if ($tipo === self::SENA) {
+            AvisoPagoMail::senaFallida($huesped, $unidad, $resultado->motivo, $reserva['bloqueo_expira_en']);
+            $plazo = $reserva['bloqueo_expira_en'] === null
+                ? ''
+                : ' Podés pagar de nuevo hasta las ' . VencimientoReserva::horaArgentina($reserva['bloqueo_expira_en']);
+            $extra = ['vence_en' => VencimientoReserva::venceEnIso($reserva['estado'], $reserva['bloqueo_expira_en'])];
+        } else {
+            AvisoPagoMail::saldoFallido($huesped, $unidad, $resultado->motivo, $reserva['fecha_cobro']);
+            $plazo = ' ' . $this->plazoDelSaldo($reserva['fecha_cobro']);
+            $extra = ['fecha_cobro' => $reserva['fecha_cobro']];
+        }
         http_response_code(402);
         echo json_encode([
-            'error'    => "No pudimos confirmar el pago de la seña: {$resultado->motivo}.$plazo",
-            'motivo'   => $resultado->motivo,
-            'vence_en' => VencimientoReserva::venceEnIso($reserva['estado'], $reserva['bloqueo_expira_en']),
+            'error'  => 'No pudimos confirmar el pago ' . self::NOMBRES[$tipo] . ": {$resultado->motivo}.$plazo",
+            'tipo'   => $tipo,
+            'motivo' => $resultado->motivo,
+        ] + $extra);
+    }
+
+    //Responde lo que necesita el front para pagar la seña o el saldo de una reserva del huésped logueado
+    private function datosParaPagar(string $tipo)
+    {
+        Autorizacion::requiere('huesped');
+
+        $reserva = $this->reservaDelHuesped(Request::parametroGet('reserva_id'));
+        if ($reserva === false) {
+            return $this->error('No encontramos esa reserva', 404);
+        }
+        $problema = $this->problemaParaPagar($tipo, $reserva);
+        if ($problema !== null) {
+            return $this->error(...$problema);
+        }
+
+        $montoPesos = $this->monto($tipo, $reserva);
+        $pesosPorEth = TipoDeCambio::pesosPorEth();
+        $montoWei = TipoDeCambio::aWei($montoPesos, $pesosPorEth);
+        $verificador = Verificadores::configurado();
+
+        $plazo = $tipo === self::SENA
+            ? ['vence_en' => VencimientoReserva::venceEnIso($reserva['estado'], $reserva['bloqueo_expira_en'])]
+            : ['fecha_cobro' => $reserva['fecha_cobro'], 'vencido' => $this->saldoVencido($reserva['fecha_cobro'])];
+
+        http_response_code(200);
+        echo json_encode([
+            'reserva_id'    => (int) $reserva['id'],
+            'tipo'          => $tipo,
+            'monto_pesos'   => $montoPesos,
+            'monto_wei'     => $montoWei,//texto: no entra en un número de JavaScript sin perder precisión
+            'pesos_por_eth' => $pesosPorEth,
+            'red'           => $verificador->red(),//chain id
+        ] + $plazo + [
+            'pago'          => $verificador->datosParaPagar((int) $reserva['id'], $tipo, $montoWei),
         ]);
     }
 
@@ -183,7 +231,8 @@ class PagosController
             return false;
         }
         $consulta = Conexion::obtener()->prepare(
-            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.importe_sena, r.fecha_ingreso, r.fecha_egreso, u.nombre AS unidad_nombre
+            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.importe_sena, r.monto_faltante, r.fecha_cobro,
+                    r.fecha_ingreso, r.fecha_egreso, u.nombre AS unidad_nombre
              FROM reservas r JOIN unidades u ON u.id = r.unidad_id
              WHERE r.id = ? AND r.huesped_id = ?' . ($bloquear ? ' FOR UPDATE' : '')
         );
@@ -191,17 +240,55 @@ class PagosController
         return $consulta->fetch();
     }
 
-    //Por qué no se puede pagar la seña de esa reserva, como [mensaje, código HTTP], o null si se puede
-    private function problemaParaPagarSena(array $reserva): ?array
+    //Cuánto se paga, en pesos con 2 decimales: la seña o lo que falta del total
+    private function monto(string $tipo, array $reserva): string
+    {
+        return $tipo === self::SENA ? $reserva['importe_sena'] : $reserva['monto_faltante'];
+    }
+
+    //Por qué no se puede pagar la seña o el saldo de esa reserva, como [mensaje, código HTTP], o null si se puede
+    private function problemaParaPagar(string $tipo, array $reserva): ?array
     {
         $estado = VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']);
-        return match ($estado) {
-            'pendiente'  => null,
-            'expirada'   => ['Se venció el plazo para pagar la seña y las fechas se liberaron. Si siguen libres, podés volver a reservar', 409],
-            'confirmada', 'finalizada' => ['La seña de esa reserva ya está pagada', 409],
-            'cancelada'  => ['Esa reserva está cancelada', 409],
-            default      => ['Esa reserva no se puede pagar', 409],
+        if ($estado === 'expirada') {
+            return ['Se venció el plazo para pagar la seña y las fechas se liberaron. Si siguen libres, podés volver a reservar', 409];
+        }
+        if ($estado === 'cancelada') {
+            return ['Esa reserva está cancelada', 409];
+        }
+        if ($tipo === self::SENA) {
+            return match ($estado) {
+                'pendiente'                => null,
+                'confirmada', 'finalizada' => ['La seña de esa reserva ya está pagada', 409],
+                default                    => ['Esa reserva no se puede pagar', 409],
+            };
+        }
+        return match (true) {
+            $estado === 'pendiente'  => ['Primero tenés que pagar la seña', 409],
+            $estado === 'finalizada' => ['Esa estadía ya terminó', 409],
+            $estado !== 'confirmada' => ['Esa reserva no se puede pagar', 409],
+            $reserva['monto_faltante'] === null || bccomp($reserva['monto_faltante'], '0', 2) <= 0
+                                     => ['El saldo de esa reserva ya está pagado', 409],
+            default                  => null,
         };
+    }
+
+    //Si ya pasó el día de cobro del saldo sin pagarlo (RF-26). Se cuenta en días de Argentina, como las fechas de la reserva.
+    private function saldoVencido(?string $fechaCobro): bool
+    {
+        return $fechaCobro !== null && $fechaCobro < ValidadorFechas::hoy()->format('Y-m-d');
+    }
+
+    //"Tenés tiempo hasta el 05/12/2026." o "El plazo venció el 05/12/2026: pagalo antes de ingresar."
+    private function plazoDelSaldo(?string $fechaCobro): string
+    {
+        if ($fechaCobro === null) {
+            return 'Podés volver a intentarlo desde tus reservas.';
+        }
+        $dia = ValidadorFechas::fecha($fechaCobro)->format('d/m/Y');
+        return $this->saldoVencido($fechaCobro)
+            ? "El plazo venció el $dia: pagalo antes de ingresar."
+            : "Tenés tiempo hasta el $dia.";
     }
 
     //Responde un error en JSON con su código HTTP
