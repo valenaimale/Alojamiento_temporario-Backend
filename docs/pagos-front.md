@@ -22,7 +22,7 @@ Cada reserva trae campos nuevos:
 | `estado` | Ahora puede venir **`expirada`**: una pendiente que no pagó a tiempo. El back la muestra así aunque en la base siga pendiente. | Ya está en `ESTADOS_DE_RESERVA` ("Vencida sin pagar"). |
 | `vence_en` | Hasta cuándo se paga la seña (UTC). Solo en las pendientes; si no, `null`. | Mostrar "Pagá la seña antes de las HH:MM" (en hora local), o una cuenta regresiva. |
 | `puede_pagar` | `true` en las pendientes sin vencer. | Botón **"Pagar la seña"** → `pagar.html?reserva_id={id}&tipo=sena`. |
-| `puede_cancelar` | `true` en las pendientes sin vencer (igual que antes). | Sin cambios. |
+| `puede_cancelar` | **Cambió:** ahora es `true` en las pendientes sin vencer **y en las confirmadas antes del día del ingreso**. | Una confirmada tiene devolución: ver la sección 3. |
 | `saldo` | Lo que falta pagar, como texto (`"168000.00"`). `"0.00"` si ya está pago. `null` en reservas viejas. | Mostrarlo como "Saldo", o "Saldo pagado" si es 0. |
 | `fecha_cobro` | Hasta cuándo se paga el saldo (`AAAA-MM-DD`, día de Argentina). | Mostrar "Pagá el saldo antes del dd/mm/aaaa". Si ya pasó, "Saldo vencido: pagalo antes de ingresar". |
 | `puede_pagar_saldo` | `true` en las confirmadas con saldo. | Botón **"Pagar el saldo"** → `pagar.html?reserva_id={id}&tipo=saldo`. |
@@ -92,14 +92,41 @@ Mandar siempre el `tipo` de la URL: así, si la reserva cambió, el back lo rech
 
 **Doble clic:** deshabilitar el botón mientras se paga y se confirma. Si el huésped recarga la página después de firmar, se pierde el hash. Conviene guardarlo en `sessionStorage` (por reserva) hasta que el back responda 200 o 402.
 
-## 3. Tests de Node sugeridos (como los de Justino)
+## 3. Cancelar con devolución (`mis-reservas.js`)
+
+Hoy "Cancelar" manda `POST /reservas/cancelar` directamente. Con una reserva **confirmada**, antes de cancelar hay que mostrarle al huésped cuánto le devuelven (L2-3):
+
+1. Al tocar "Cancelar", pedir **`GET /reservas/cancelacion?reserva_id={id}`**:
+
+   ```json
+   {"reserva_id": 12, "estado": "confirmada", "tramo": "mas_de_30", "dias_hasta_cobro": 45,
+    "porcentaje_retencion": "30.00", "pagado": {"sena": "42000.00", "saldo": "0.00"},
+    "retencion": "12600.00", "devolucion": "29400.00", "devolucion_wei": "294000000000000"}
+   ```
+
+2. Mostrar un diálogo con la cuenta. Por ejemplo: "Pagaste $42.000 de seña. Como faltan 45 días para el cobro del saldo, se retiene el 30 % de la seña ($12.600) y te devolvemos $29.400 a la billetera con la que pagaste." Si pagó el saldo, aclarar que el saldo se le devuelve entero. Los tramos: `mas_de_30` (más de 30 días), `de_15_a_30` y `menos_de_15`. En una pendiente todo viene en 0: alcanza con el diálogo de siempre.
+3. Si confirma, `POST /reservas/cancelar` y mostrar el `ok` tal cual:
+
+   | `devolucion.estado` | `ok` |
+   |---|---|
+   | `"confirmado"` | "… Te devolvimos $29.400,00 a tu billetera". Trae `tx_hash`, para mostrar un enlace al explorador cuando sea la red real. |
+   | `"pendiente"` | "… La devolución de $29.400,00 está en proceso: te avisamos por mail" (la red falló: se reintenta sola). |
+   | `null` | "… no corresponde devolución" (no había nada pagado). |
+
+   Una pendiente sigue respondiendo solo `{"ok": "Cancelaste la reserva: esas noches quedaron libres"}`, sin `devolucion`.
+4. Errores (409): "La estadía ya empezó: no se puede cancelar desde la app", "Esa estadía ya terminó", "Esa reserva ya estaba cancelada", "La reserva cambió mientras la cancelabas: actualizá la página".
+
+`devolucion_wei` es texto, como `monto_wei`: con `BigInt`.
+
+## 4. Tests de Node sugeridos (como los de Justino)
 
 - Pesos y wei: `"420000000000000"` wei se muestra como 0,00042 ETH; con `BigInt`, sin perder decimales.
 - Qué botón mostrar en "Mis reservas" según `puede_pagar`, `puede_pagar_saldo` y `estado`.
 - El texto del plazo: a partir de `vence_en` (UTC a hora local) y de `fecha_cobro` (vigente o vencido).
 - Qué hacer con cada código de `/pagos/confirmar` (200, 202 reintenta, 402 permite pagar de nuevo, 409).
+- El texto del diálogo de cancelación según el `tramo` y si hay saldo pagado.
 
-## 4. Lo que viene y va a cambiar
+## 5. Lo que viene y va a cambiar
 
 - **Verificador real (`Blockchain.php`):** cambia `pago` (con `contrato` y `simulado: false`) y `red` (84532). El resto de las respuestas queda igual.
-- **Cancelar una reserva confirmada con devolución:** hoy `POST /reservas/cancelar` solo cancela las pendientes. Va a sumar las confirmadas, con lo que se retiene y lo que se devuelve según el tramo, y probablemente un paso previo para mostrarle al huésped el monto antes de confirmar (L2-3). Cuando esté, lo agregamos a esta guía.
+- **Firmador real:** la devolución va a salir a Base Sepolia y puede quedar `"pendiente"` unos segundos más seguido. El front no tiene que hacer nada distinto.

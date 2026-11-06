@@ -306,7 +306,7 @@ final class ReservasTest extends CasoDeIntegracion
         $this->assertSame(201, $this->reservar($unidadId)->codigo);//las mismas fechas, otro huésped
     }
 
-    //No se cancela dos veces, ni una reserva confirmada (eso llega con los pagos, 409),
+    //No se cancela dos veces, ni una estadía terminada (409; la confirmada con devolución está en CancelacionTest),
     //ni la de otro huésped o una que no existe (404)
     public function testQueNoSePuedeCancelar(): void
     {
@@ -315,7 +315,7 @@ final class ReservasTest extends CasoDeIntegracion
         $cliente = $this->iniciarSesion($huesped['mail']);
         $casos = [
             'Esa reserva ya estaba cancelada'                                => [409, $this->reservaEnBase($unidadId, $huesped['id'], $this->fecha('+10 days'), $this->fecha('+12 days'), 'cancelada')],
-            'Por ahora solo se puede cancelar una reserva pendiente de pago' => [409, $this->reservaEnBase($unidadId, $huesped['id'], $this->fecha('+20 days'), $this->fecha('+22 days'), 'confirmada')],
+            'Esa estadía ya terminó'                                         => [409, $this->reservaEnBase($unidadId, $huesped['id'], $this->fecha('+20 days'), $this->fecha('+22 days'), 'finalizada')],
             'No encontramos esa reserva'                                     => [404, $this->reservaEnBase($unidadId, $this->crearUsuarioEnBase('huesped')['id'], $this->fecha('+30 days'), $this->fecha('+32 days'))],
         ];
         foreach ($casos as $mensaje => [$codigo, $reservaId]) {

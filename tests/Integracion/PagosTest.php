@@ -151,9 +151,9 @@ final class PagosTest extends CasoDeIntegracion
         $this->assertSame('confirmada', $fila['estado']);
         $this->assertSame([$this->filaPago('confirmado')], $this->pagosDe($reservaId));
 
-        //en "mis reservas" ya no se puede pagar ni cancelar (cancelar una confirmada es la épica L2-12)
+        //en "mis reservas" ya no se paga la seña, pero se puede cancelar (con devolución: CancelacionTest)
         $mia = $cliente->get('/reservas/mias')->json()['reservas'][0];
-        $this->assertSame(['confirmada', null, false, false], [$mia['estado'], $mia['vence_en'], $mia['puede_pagar'], $mia['puede_cancelar']]);
+        $this->assertSame(['confirmada', null, false, true], [$mia['estado'], $mia['vence_en'], $mia['puede_pagar'], $mia['puede_cancelar']]);
 
         //pagar la seña otra vez: ya está pagada
         $otra = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash(), 'tipo' => 'sena']);

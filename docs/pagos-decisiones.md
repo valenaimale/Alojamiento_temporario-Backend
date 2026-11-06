@@ -55,7 +55,26 @@ Las decisiones que tomamos al implementar la parte del Rol 2 del plan de la entr
 | 27 | Mails de seña confirmada, seña fallida, saldo confirmado y saldo fallido (`mail/AvisoPagoMail.php`). **Si el mail falla, no falla el pago:** queda en el log. | El pago ya quedó registrado; la respuesta no puede fallar por el mail. |
 | 28 | Los horarios en los mensajes van en hora de Argentina; en el JSON, en UTC (`…Z`). | El huésped lee el mensaje tal cual; el front convierte el UTC a su zona. |
 
+## Cancelar con devolución
+
+| # | Decisión | Por qué |
+|---|---|---|
+| 29 | Se cancela una reserva **pendiente** (sin vencer) o **confirmada**, solo **antes del día del ingreso**. Una estadía empezada o finalizada no se cancela desde la app. | Una vez que el huésped entró, el caso deja de ser una cancelación: es otra cosa, como irse antes o un problema en la unidad. |
+| 30 | La retención es el % **de la seña** del tramo, según los días que faltan hasta la `fecha_cobro`: más de 30, de 15 a 30 (con los dos bordes incluidos) o menos de 15. Si la fecha de cobro ya pasó, cuenta como menos de 15. | Es la política tal como quedó con la corrección del profesor. |
+| 31 | **Decidido:** si el saldo ya está pago, **se devuelve entero**. El tramo se sigue calculando por la fecha: el que pagó antes de tiempo no queda penalizado. | El huésped nunca pierde más que la seña. Si pagó en término, ya está a menos de 15 días del cobro. |
+| 32 | Las cuentas se hacen sobre **los pagos confirmados, en wei**, y no sobre los montos de la reserva. La retención en pesos se redondea a centavos; en wei se trunca. | Así nunca se pide devolver más ETH del que entró al contrato para esa reserva, aunque cambie `pesos_por_eth`. |
+| 33 | Se devuelve a la **billetera que pagó la seña**, aunque el saldo lo haya pagado otra. | El contrato solo deja devolverle a quien pagó la reserva, y tiene que ser una sola dirección. |
+| 34 | **Decidido:** el firmador es intercambiable (`FirmadorPagos`, con `pagos.firmador` o `PAGOS_FIRMADOR`). Hoy está `FirmadorSimulado`: red 31337, da la transacción por confirmada con un hash al azar, y a una billetera que termina en `dead` no le puede mandar nada, para probar los fallos. | Igual que el verificador: la cancelación queda completa y probada sin el contrato. El firmador real, con `PLATAFORMA_CLAVE_PRIVADA` y una librería de Composer, se agrega sin tocar el controlador. |
+| 35 | El orden es: se cancela la reserva y se anota la devolución `pendiente` (en una transacción de la base), después se manda la transacción a la red, y recién ahí se anota el `tx_hash`. | La red nunca deja una reserva a medio cancelar. Si falla, la reserva queda cancelada y la devolución pendiente. |
+| 36 | Las devoluciones que fallaron las reintenta `scripts/reintentar-devoluciones.php`, a mano o con un cron. Toma solo las de más de 5 minutos y usa un candado de MySQL para no correr dos veces al mismo tiempo. | Para no mandar dos veces la misma devolución. Igual, el contrato no deja devolver más de lo que entró. |
+| 37 | La devolución se guarda en `pagos` con `tipo = 'devolucion'`. La retención no se guarda aparte: es lo pagado menos lo devuelto. | No hace falta tocar la tabla de Valentino. Las liquidaciones (Rol 4) la pueden calcular. |
+| 38 | Se le avisa por mail al propietario **antes** de mandar la devolución (L2-18), y al huésped después, con lo retenido y lo devuelto. | Lo pide L2-18. |
+| 39 | **A charlar:** la devolución sale **en el momento**. La excepción manual del propietario (L2-19: cambiar el monto **antes** de que la devolución se efectivice) es de la fase 3. Para hacerla, habría que demorar la devolución, por ejemplo unas horas, para que el propietario pueda intervenir. | Hoy lo prioritario es el circuito del dinero. Demorar la devolución también cambia lo que ve el huésped. |
+| 40 | `GET /reservas/cancelacion` muestra lo mismo que se va a devolver, sin cambiar nada (L2-3). | El huésped ve el monto antes de confirmar. |
+| 41 | La reserva se traba con `FOR UPDATE` al cancelar. | Una cancelación y un pago del saldo al mismo tiempo no se pisan: una de las dos ve la reserva ya cambiada (409). |
+
 ## Pendiente del Rol 2
 
 - `Blockchain.php`: el verificador real por RPC (`eth_getTransactionReceipt` y el evento `PagoRealizado`).
-- Cancelar una reserva confirmada con devolución: la retención según el tramo y `devolver` firmado por el back con `PLATAFORMA_CLAVE_PRIVADA`.
+- El firmador real de `devolver`, con `PLATAFORMA_CLAVE_PRIVADA`. Sirve también para `liquidar` (Rol 4).
+- Qué pasa con la reserva si el saldo vence sin pagarse (#23).

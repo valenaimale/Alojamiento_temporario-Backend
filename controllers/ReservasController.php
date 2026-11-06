@@ -5,8 +5,12 @@ namespace App\Controllers;
 use App\Autorizacion\Autorizacion;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
+use App\Log\Log;
+use App\Mail\AvisoPagoMail;
 use App\Request\Request;
+use App\Validacion\Devolucion;
 use App\Validacion\Estadia;
+use App\Validacion\Firmadores;
 use App\Validacion\ValidadorFechas;
 use App\Validacion\VencimientoReserva;
 
@@ -151,6 +155,7 @@ class ReservasController
         );
         $consulta->execute([$_SESSION['usuario']['id']]);
 
+        $hoy = ValidadorFechas::hoy()->format('Y-m-d');
         $reservas = [];
         foreach ($consulta->fetchAll() as $fila) {
             $estado = VencimientoReserva::estadoVisible($fila['estado'], $fila['bloqueo_expira_en']);
@@ -159,7 +164,7 @@ class ReservasController
             $reservas[] = $datos + [
                 'vence_en'       => VencimientoReserva::venceEnIso($fila['estado'], $fila['bloqueo_expira_en']),
                 'puede_pagar'    => $estado === 'pendiente',
-                'puede_cancelar' => $estado === 'pendiente',
+                'puede_cancelar' => $estado === 'pendiente' || ($estado === 'confirmada' && $fila['fecha_ingreso'] > $hoy),
                 //el saldo (L2-6): lo que falta pagar y hasta cuándo (null en las reservas anteriores al cobro)
                 'saldo'             => $fila['monto_faltante'],
                 'fecha_cobro'       => $fila['fecha_cobro'],
@@ -178,48 +183,134 @@ class ReservasController
         echo json_encode(['reservas' => $reservas]);
     }
 
-    //POST /reservas/cancelar: {"reserva_id"}. El huésped cancela su reserva pendiente y las noches quedan libres.
-    //Sin seña pagada no hay nada que devolver. Cancelar una reserva confirmada (con su política) es la Épica L2-12.
+    //GET /reservas/cancelacion?reserva_id=12: cuánto se le devolvería al huésped si cancela ahora, según el tramo
+    //de la política (L2-3: lo ve antes de confirmar). No cambia nada.
+    public function cancelacion()
+    {
+        Autorizacion::requiere('huesped');
+
+        $reserva = $this->reservaParaCancelar(Request::parametroGet('reserva_id'));
+        if ($reserva === false) {
+            return $this->error('No encontramos esa reserva', 404);
+        }
+        $problema = $this->problemaParaCancelar($reserva);
+        if ($problema !== null) {
+            return $this->error(...$problema);
+        }
+
+        http_response_code(200);
+        echo json_encode([
+            'reserva_id' => (int) $reserva['id'],
+            'estado'     => VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']),
+        ] + $this->datosDevolucion($this->devolucionDe($reserva)));
+    }
+
+    //POST /reservas/cancelar: {"reserva_id"}. El huésped cancela su reserva y las noches quedan libres.
+    //  - pendiente: todavía no pagó nada, no hay devolución.
+    //  - confirmada (antes del ingreso): se retiene el % de la seña del tramo y se le devuelve el resto, más el saldo
+    //    si ya lo pagó (Devolucion). La devolución la manda la plataforma al contrato con devolver(...) (FirmadorPagos)
+    //    y queda en pagos con tipo 'devolucion'. Antes se le avisa al propietario (L2-18).
+    //La reserva se cancela primero y la devolución se manda después: si la red falla, la reserva queda cancelada igual
+    //y la devolución queda 'pendiente', sin tx_hash, para reintentarla.
     public function cancelar()
     {
         Autorizacion::requiere('huesped');
         $datos = Request::datosJson();
 
-        $reservaId = is_bool($datos['reserva_id'] ?? null)
-            ? false
-            : filter_var($datos['reserva_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        $reserva = false;
-        if ($reservaId !== false) {
-            //solo las suyas: la de otro huésped "no existe" (404), así nadie averigua reservas ajenas probando números
-            $consulta = Conexion::obtener()->prepare('SELECT estado, bloqueo_expira_en FROM reservas WHERE id = ? AND huesped_id = ?');
-            $consulta->execute([$reservaId, $_SESSION['usuario']['id']]);
-            $reserva = $consulta->fetch();
-        }
+        $reserva = $this->reservaParaCancelar($datos['reserva_id'] ?? null);
         if ($reserva === false) {
             return $this->error('No encontramos esa reserva', 404);
         }
-        $estado = VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']);
-        if ($estado === 'cancelada') {
-            return $this->error('Esa reserva ya estaba cancelada', 409);
-        }
-        if ($estado === 'expirada') {
-            return $this->error('Esa reserva ya venció sin pagar la seña: sus noches ya están libres', 409);
-        }
-        if ($estado !== 'pendiente') {
-            return $this->error('Por ahora solo se puede cancelar una reserva pendiente de pago', 409);
+        $problema = $this->problemaParaCancelar($reserva);
+        if ($problema !== null) {
+            return $this->error(...$problema);
         }
 
-        //UPDATE condicional: si llegan dos pedidos juntos, o se paga la seña al mismo tiempo, solo cambia si sigue pendiente
-        $consulta = Conexion::obtener()->prepare(
-            "UPDATE reservas SET estado = 'cancelada' WHERE id = ? AND " . VencimientoReserva::pendienteVigente()
+        if (VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']) === 'pendiente') {
+            //UPDATE condicional: si llegan dos pedidos juntos, o se paga la seña al mismo tiempo, solo cambia si sigue pendiente
+            $consulta = Conexion::obtener()->prepare(
+                "UPDATE reservas SET estado = 'cancelada' WHERE id = ? AND " . VencimientoReserva::pendienteVigente()
+            );
+            $consulta->execute([$reserva['id']]);
+            if ($consulta->rowCount() === 0) {
+                return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
+            }
+            http_response_code(200);
+            echo json_encode(['ok' => 'Cancelaste la reserva: esas noches quedaron libres']);
+            return;
+        }
+
+        $firmador = Firmadores::configurado();
+        $pdo = Conexion::obtener();
+        $pdo->beginTransaction();
+        try {
+            //Traba la reserva: si llegan dos cancelaciones juntas (o un pago del saldo), la segunda espera y ya la ve cancelada
+            $reserva = $this->reservaParaCancelar($reserva['id'], true);
+            if ($reserva === false || $reserva['estado'] !== 'confirmada' || $this->problemaParaCancelar($reserva) !== null) {
+                $pdo->rollBack();
+                return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
+            }
+            $devolucion = $this->devolucionDe($reserva);
+            $pdo->prepare("UPDATE reservas SET estado = 'cancelada' WHERE id = ?")->execute([$reserva['id']]);
+
+            $pagoId = null;
+            if (bccomp($devolucion['devolucion_wei'], '0', 0) > 0 && bccomp($devolucion['devolucion'], '0', 2) > 0) {
+                $pdo->prepare(
+                    "INSERT INTO pagos (reserva_id, tipo, monto_pesos, monto_wei, pesos_por_eth, billetera, red, tx_hash, estado, creado_en)
+                     VALUES (?, 'devolucion', ?, ?, ?, ?, ?, NULL, 'pendiente', ?)"
+                )->execute([
+                    $reserva['id'], $devolucion['devolucion'], $devolucion['devolucion_wei'], $devolucion['pesos_por_eth'],
+                    strtolower($devolucion['billetera']), $firmador->red(), VencimientoReserva::ahora(),
+                ]);
+                $pagoId = (int) $pdo->lastInsertId();
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;//lo atrapa el router y responde 500
+        }
+
+        //L2-18: el propietario se entera antes de que salga la devolución
+        AvisoPagoMail::cancelacionAlPropietario(
+            ['id' => $reserva['propietario_id'], 'nombre' => $reserva['propietario_nombre'], 'mail' => $reserva['propietario_mail']],
+            $reserva['unidad_nombre'], $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $devolucion['retencion'], $devolucion['devolucion']
         );
-        $consulta->execute([$reservaId]);
-        if ($consulta->rowCount() === 0) {
-            return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
-        }
 
+        $envio = null;
+        if ($pagoId !== null) {
+            try {
+                $envio = $firmador->devolver((int) $reserva['id'], $devolucion['billetera'], $devolucion['devolucion_wei']);
+                $pdo->prepare('UPDATE pagos SET tx_hash = ?, estado = ?, confirmado_en = ? WHERE id = ?')->execute([
+                    strtolower($envio->txHash), $envio->confirmada ? 'confirmado' : 'pendiente',
+                    $envio->confirmada ? VencimientoReserva::ahora() : null, $pagoId,
+                ]);
+            } catch (\Throwable $e) {
+                //la reserva ya está cancelada: la devolución queda pendiente, sin tx_hash, para reintentarla
+                Log::error('No se pudo mandar la devolución', $e, [
+                    'reserva_id' => $reserva['id'], 'pago_id' => $pagoId, 'tx_hash' => $envio?->txHash,
+                ]);
+                $envio = null;
+            }
+        }
+        $enCamino = $pagoId !== null && ($envio === null || !$envio->confirmada);
+        AvisoPagoMail::cancelacionAlHuesped($_SESSION['usuario'], $reserva['unidad_nombre'], $devolucion['devolucion'], $devolucion['retencion'], $enCamino);
+
+        $monto = '$' . number_format((float) $devolucion['devolucion'], 2, ',', '.');
+        $ok = match (true) {
+            $pagoId === null => 'Cancelaste la reserva: esas noches quedaron libres. Según la política de cancelación, no corresponde devolución',
+            $enCamino        => "Cancelaste la reserva: esas noches quedaron libres. La devolución de $monto está en proceso: te avisamos por mail",
+            default          => "Cancelaste la reserva: esas noches quedaron libres. Te devolvimos $monto a tu billetera",
+        };
         http_response_code(200);
-        echo json_encode(['ok' => 'Cancelaste la reserva: esas noches quedaron libres']);
+        echo json_encode([
+            'ok'         => $ok,
+            'devolucion' => $this->datosDevolucion($devolucion) + [
+                'estado'  => $pagoId === null ? null : ($envio !== null && $envio->confirmada ? 'confirmado' : 'pendiente'),
+                'tx_hash' => $envio?->txHash,
+            ],
+        ]);
     }
 
     //GET /unidades/reservas?id=5: las reservas en curso y próximas de una unidad (pendientes y confirmadas),
@@ -250,6 +341,73 @@ class ReservasController
     }
 
     //Los datos de una reserva como los devuelve la API (los mismos en todas las listas)
+    //La reserva del huésped logueado con lo que hace falta para cancelarla (la política que aceptó, la unidad y su
+    //propietario), o false si no existe o es de otro: la de otro huésped "no existe" (404), así nadie averigua
+    //reservas ajenas probando números. $bloquear: FOR UPDATE, dentro de una transacción.
+    private function reservaParaCancelar(mixed $id, bool $bloquear = false): array|false
+    {
+        $reservaId = is_bool($id) ? false : filter_var($id ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($reservaId === false) {
+            return false;
+        }
+        $consulta = Conexion::obtener()->prepare(
+            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.fecha_cobro,
+                    r.retencion_mas_de_30, r.retencion_de_15_a_30, r.retencion_menos_de_15,
+                    u.nombre AS unidad_nombre, p.id AS propietario_id, p.nombre AS propietario_nombre, p.mail AS propietario_mail
+             FROM reservas r
+             JOIN unidades u ON u.id = r.unidad_id
+             JOIN usuarios p ON p.id = u.propietario_id
+             WHERE r.id = ? AND r.huesped_id = ?' . ($bloquear ? ' FOR UPDATE' : '')
+        );
+        $consulta->execute([$reservaId, $_SESSION['usuario']['id']]);
+        return $consulta->fetch();
+    }
+
+    //Por qué no se puede cancelar esa reserva, como [mensaje, código HTTP], o null si se puede.
+    //Se cancela una pendiente sin vencer o una confirmada antes del día del ingreso.
+    private function problemaParaCancelar(array $reserva): ?array
+    {
+        $estado = VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']);
+        return match (true) {
+            $estado === 'cancelada'  => ['Esa reserva ya estaba cancelada', 409],
+            $estado === 'expirada'   => ['Esa reserva ya venció sin pagar la seña: sus noches ya están libres', 409],
+            $estado === 'finalizada' => ['Esa estadía ya terminó', 409],
+            $estado === 'confirmada' && $reserva['fecha_ingreso'] <= ValidadorFechas::hoy()->format('Y-m-d')
+                                     => ['La estadía ya empezó: no se puede cancelar desde la app', 409],
+            in_array($estado, ['pendiente', 'confirmada'], true) => null,
+            default                  => ['Esa reserva no se puede cancelar', 409],
+        };
+    }
+
+    //Cuánto se retiene y cuánto se devuelve si se cancela hoy (Devolucion), con los pagos confirmados de la reserva.
+    //Una pendiente no tiene pagos: no se devuelve nada.
+    private function devolucionDe(array $reserva): array
+    {
+        $consulta = Conexion::obtener()->prepare(
+            "SELECT tipo, monto_pesos, monto_wei, pesos_por_eth, billetera FROM pagos
+             WHERE reserva_id = ? AND estado = 'confirmado' AND tipo IN ('sena', 'saldo')
+             ORDER BY id"
+        );
+        $consulta->execute([$reserva['id']]);
+        //las reservas anteriores al cobro no tienen fecha_cobro: se calcula como al reservar
+        $reserva['fecha_cobro'] ??= Estadia::fechaCobro(ValidadorFechas::fecha($reserva['fecha_ingreso']))->format('Y-m-d');
+        return Devolucion::calcular($reserva, $consulta->fetchAll(), ValidadorFechas::hoy());
+    }
+
+    //Lo que ve el huésped de una devolución (sin la billetera ni el tipo de cambio)
+    private function datosDevolucion(array $devolucion): array
+    {
+        return [
+            'tramo'                => $devolucion['tramo'],
+            'dias_hasta_cobro'     => $devolucion['dias_hasta_cobro'],
+            'porcentaje_retencion' => $devolucion['porcentaje_retencion'],
+            'pagado'               => ['sena' => $devolucion['pagado_sena'], 'saldo' => $devolucion['pagado_saldo']],
+            'retencion'            => $devolucion['retencion'],
+            'devolucion'           => $devolucion['devolucion'],
+            'devolucion_wei'       => $devolucion['devolucion_wei'],//texto, como monto_wei
+        ];
+    }
+
     private function datosDe(array $fila): array
     {
         return [
