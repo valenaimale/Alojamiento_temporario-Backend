@@ -36,6 +36,7 @@ final class DatosDeEjemplo extends AbstractSeed
     private const RED = 31337;
 
     private string $pesosPorEth = '100000000';   //se lee del parámetro pesos_por_eth al cargar los datos
+    private int $diasCobroSaldo = 5;             //se lee del parámetro dias_cobro_saldo al cargar los datos
     private int $pagosCreados = 0;               //para que cada pago tenga un hash de transacción distinto
 
     //Carga todos los datos. Si ya estaban cargados (existe Marisa), no hace nada.
@@ -46,6 +47,7 @@ final class DatosDeEjemplo extends AbstractSeed
             return;
         }
         $this->pesosPorEth = (string) $this->fetchRow("SELECT valor FROM parametros WHERE clave = 'pesos_por_eth'")['valor'];
+        $this->diasCobroSaldo = (int) $this->fetchRow("SELECT valor FROM parametros WHERE clave = 'dias_cobro_saldo'")['valor'];
 
         $marisa = $this->crearUsuario('Marisa Gómez', 'marisa@ejemplo.local', '30111222', 'propietario');
         $elsa = $this->crearUsuario('Elsa Quiroga', 'elsa@ejemplo.local', '27234567', 'propietario');
@@ -244,10 +246,18 @@ final class DatosDeEjemplo extends AbstractSeed
         //reservó un mes antes del ingreso, o ayer si falta menos de un mes: nadie reserva en el futuro
         $reservadaEn = $this->momento(min($desde - 30, -1), '19:40:00');
 
+        //Las dos columnas del cobro del saldo, igual que las completa el Rol 2 al reservar:
+        //lo que falta pagar después de la seña, y el día en que se le empieza a pedir (dias_cobro_saldo antes
+        //del ingreso, o el día de la reserva si reservó con menos anticipación). Sin ellas, los recordatorios
+        //del saldo y los tramos de la política de cancelación no tienen de dónde leer las fechas.
+        $saldo = $this->importe((float) $total - (float) $sena);
+        $fechaCobro = max($this->fecha($desde - $this->diasCobroSaldo), substr($reservadaEn, 0, 10));
+
         $this->table('reservas')->insert([
             'unidad_id' => $unidadId, 'huesped_id' => $huespedId, 'estado' => $estado,
             'fecha_ingreso' => $ingreso, 'fecha_egreso' => $egreso, 'cantidad_personas' => $personas,
             'importe_total' => $total, 'porcentaje_sena' => $unidad['porcentaje_sena'], 'importe_sena' => $sena,
+            'monto_faltante' => $saldo, 'fecha_cobro' => $fechaCobro,
             'retencion_mas_de_30' => $unidad['retencion_mas_de_30'],
             'retencion_de_15_a_30' => $unidad['retencion_de_15_a_30'],
             'retencion_menos_de_15' => $unidad['retencion_menos_de_15'],
@@ -256,7 +266,7 @@ final class DatosDeEjemplo extends AbstractSeed
 
         return [
             'id' => $this->ultimoId(), 'desde' => $desde, 'hasta' => $hasta,
-            'total' => $total, 'sena' => $sena, 'saldo' => $this->importe((float) $total - (float) $sena),
+            'total' => $total, 'sena' => $sena, 'saldo' => $saldo,
             'reservada_en' => $reservadaEn,
         ];
     }
@@ -280,6 +290,12 @@ final class DatosDeEjemplo extends AbstractSeed
             'tx_hash' => '0x' . sprintf('%064x', $this->pagosCreados),
             'estado' => 'confirmado', 'creado_en' => $momento, 'confirmado_en' => $momento,
         ])->saveData();
+
+        //Pagado el saldo, no queda nada por pagar: es lo que hace el back al confirmar el pago (decisión #20
+        //de docs/pagos-decisiones.md), y de ahí leen el saldo impago los recordatorios y las liquidaciones.
+        if ($tipo === 'saldo') {
+            $this->execute("UPDATE reservas SET monto_faltante = 0 WHERE id = {$reserva['id']}");
+        }
     }
 
     //Registra el ingreso y el egreso de una estadía que ya pasó, como los habría cargado la operadora

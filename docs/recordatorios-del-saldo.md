@@ -15,22 +15,42 @@ Con la billetera no se puede: una transferencia la tiene que **firmar el huéspe
 | Condición | Por qué |
 |---|---|
 | Está `confirmada` | Pagó la seña. Una `pendiente` no debe el saldo: lo que le vence es el bloqueo de las fechas |
-| El huésped **todavía no ingresó** (no tiene fila en `estadias`) | Si ya está adentro, el saldo se resuelve en el mostrador, no por mail |
+| El huésped **todavía no ingresó** (no tiene fila en `estadias`) | Si ya está adentro, el saldo ya está pagado: sin el saldo no se registra el ingreso (#25) |
 | El ingreso es de hoy en adelante | Una estadía que ya pasó no se arregla con un mail |
-| Lo cobrado (pagos `confirmado` de tipo `sena` y `saldo`) es menor que el total | Si ya pagó todo, no hay nada que recordarle |
-| Ya llegó la fecha de cobro | `dias_cobro_saldo` antes del ingreso, o el día en que reservó si reservó con menos anticipación |
+| `monto_faltante` es mayor que 0 | Es lo que falta pagar. Lo deja en 0 el Rol 2 cuando se paga el saldo (decisión #20 de [`pagos-decisiones.md`](pagos-decisiones.md)). Si una reserva vieja no lo tiene, se calcula como antes: el total menos lo cobrado (#26) |
+| Ya llegó la fecha de cobro | `reservas.fecha_cobro`, que guarda el Rol 2 al reservar (#19). Si una reserva vieja no la tiene, se calcula: `dias_cobro_saldo` antes del ingreso, o el día en que reservó si reservó con menos anticipación |
+| **Todavía no se le pasó el plazo para pagar** | Pasado el plazo, lo que corresponde es cancelar la reserva (#23), no volver a pedirle la plata |
 | Se le mandaron menos de `max_recordatorios_cobro` | Después del último deja de ser un olvido y pasa a ser una deuda (RN-16) |
 | Pasaron `horas_entre_recordatorios` desde el anterior | Para no atosigarlo |
 
-Los tres parámetros están en la tabla `parametros` y los administra el backoffice:
+Las **canceladas**, las **expiradas** y las **finalizadas** quedan afuera por el estado, que es lo que corresponde: a una reserva que ya no sigue en pie no se le pide plata. Y como la cancelación automática del saldo vencido deja la reserva `cancelada`, una vez cancelada no recibe nada más.
 
-| Parámetro | Por defecto |
-|---|---|
-| `dias_cobro_saldo` | 5 |
-| `max_recordatorios_cobro` | 3 |
-| `horas_entre_recordatorios` | 24 |
+Los parámetros están en la tabla `parametros` y los administra el backoffice:
 
-El **último** recordatorio avisa que, si el saldo sigue sin pagarse, la reserva se cancela. Los anteriores no: no hace falta asustar de entrada.
+| Parámetro | Por defecto | Para qué |
+|---|---|---|
+| `dias_cobro_saldo` | 5 | Cuántos días antes del ingreso se empieza a pedir el saldo |
+| `max_recordatorios_cobro` | 3 | Cuántos recordatorios se mandan como máximo |
+| `horas_entre_recordatorios` | 24 | Cada cuánto |
+| `dias_vencimiento_saldo` | 3 | Cuántos días hay para pagar desde la fecha de cobro (ver abajo) |
+
+`dias_vencimiento_saldo` **todavía no está en la tabla**: lo tiene que agregar la migración de la cancelación automática (es del Rol 2). Hasta entonces, `CobroDelSaldo` usa 3, que es el valor de la decisión #23.
+
+## Hasta cuándo se puede pagar
+
+Por la decisión **#23** de [`pagos-decisiones.md`](pagos-decisiones.md), el saldo impago tiene una consecuencia: pasado el plazo, **la reserva se cancela sola** como una cancelación del huésped con el tramo de **menos de 15 días** (se le retiene ese % de la seña y se le devuelve el resto).
+
+El plazo lo calcula `CobroDelSaldo::limiteDePago()`:
+
+```
+límite = mínimo(fecha_cobro + dias_vencimiento_saldo, fecha_ingreso)
+```
+
+El tope en el día del ingreso es porque **sin el saldo pago no se registra el ingreso** (#25): ese día el huésped lo paga al llegar, pero no puede estirarlo más. Pasa cuando se reservó con menos de 3 días de anticipación.
+
+`limiteDePago()` es **pública a propósito**: el script con cron que cancela las vencidas (pendiente del Rol 2) tiene que usar **el mismo** plazo que anuncian los mails. Si cada uno lo calculara por su cuenta, el mail diría una fecha y la reserva se cancelaría en otra.
+
+**Todos** los recordatorios dicen hasta qué día se puede pagar y qué pasa si no se paga, no solo el último: el huésped tiene que poder decidir desde el primero. El del último día del plazo lo dice en el asunto («Hoy es el último día…»).
 
 ## Cómo se corre
 
@@ -47,7 +67,9 @@ Se anota antes y se manda después a propósito: si el mail falla (el servidor d
 
 ## Qué le llega al huésped
 
-Un mail con el nombre del alojamiento, las fechas, cuánto debe y un botón a **Mis reservas**, donde paga con la misma billetera con la que pagó la seña. Lo arma `mail/RecordatorioSaldo.php`, que como todos los mails del proyecto **nunca lanza excepciones**: si falla, lo deja en el log y el script sigue con los demás.
+Un mail con el nombre del alojamiento, las fechas, cuánto debe, **hasta qué día puede pagarlo y qué pasa si no lo paga**, y un botón a **Mis reservas**, donde paga con la misma billetera con la que pagó la seña. Lo arma `mail/RecordatorioSaldo.php`, que como todos los mails del proyecto **nunca lanza excepciones**: si falla, lo deja en el log y el script sigue con los demás.
+
+Sobre la cancelación, el mail dice que se le devuelve la seña **menos la retención que indica la política de la unidad**, sin poner el número: el porcentaje y los importes exactos se los muestra la pantalla de cancelación (`GET /reservas/cancelacion`, del Rol 2), que es la que hace la cuenta sobre los pagos confirmados en wei (#32).
 
 ## Tabla
 

@@ -8,6 +8,9 @@
 //
 //Quién recibe un recordatorio y cada cuánto lo decide App\Validacion\CobroDelSaldo, con los parámetros
 //dias_cobro_saldo, horas_entre_recordatorios y max_recordatorios_cobro, que administra el backoffice.
+//Cada mail dice hasta qué día se puede pagar el saldo (dias_vencimiento_saldo, 3 por defecto) y que, pasado
+//ese plazo, la reserva se cancela sola (decisión #23 de docs/pagos-decisiones.md). Una reserva ya cancelada,
+//o a la que se le pasó ese plazo, no recibe más recordatorios.
 //Correrlo dos veces el mismo día no manda nada dos veces: cada recordatorio se anota antes de mandarse
 //y la base no deja anotar dos veces el mismo (índice único de reserva_id y número).
 //La carpeta scripts/ está fuera de index/, así que el servidor web no la expone.
@@ -39,7 +42,8 @@ $enviados = 0;
 foreach ($pendientes as $recordatorio) {
     $detalle = "reserva {$recordatorio['reserva_id']} - {$recordatorio['unidad']} - "
         . "{$recordatorio['huesped']['nombre']} <{$recordatorio['huesped']['mail']}> - "
-        . "debe {$recordatorio['debe']} - recordatorio {$recordatorio['numero']}"
+        . "debe {$recordatorio['debe']} - paga hasta el {$recordatorio['limite']} - "
+        . "recordatorio {$recordatorio['numero']}"
         . ($recordatorio['ultimo'] ? ' (el ultimo)' : '');
 
     if (!$enviar) {
