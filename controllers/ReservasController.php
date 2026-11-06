@@ -8,9 +8,11 @@ use App\Database\Conexion;
 use App\Request\Request;
 use App\Validacion\Estadia;
 use App\Validacion\ValidadorFechas;
+use App\Validacion\VencimientoReserva;
 
-//Las reservas de la plataforma (Épica 4). Entrega 4, sin pagos: la reserva se crea 'pendiente' y ocupa sus noches
-//hasta que se cancele. Cuando lleguen los pagos por blockchain, pasa a 'confirmada' al pagarse la seña.
+//Las reservas de la plataforma (Épica 4). La reserva se crea 'pendiente' y guarda sus noches durante
+//minutos_bloqueo_reserva, mientras el huésped paga la seña (PagosController). Pagada, pasa a 'confirmada';
+//si no paga a tiempo, deja de ocupar y se ve 'expirada' (VencimientoReserva). Sin seña (0 %), se confirma al reservar.
 //Las reglas de las fechas, el precio y las noches ocupadas están en Estadia: las mismas que ve el huésped en el detalle.
 class ReservasController
 {
@@ -72,27 +74,35 @@ class ReservasController
 
             //importe, seña y política se copian de la unidad: son las condiciones que el huésped acepta ahora.
             //"Ahora" en UTC como el servidor, calculado en PHP (la base local puede tener otra zona horaria).
-            $ahora = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
+            $ahora = VencimientoReserva::ahora();
             $sena = Estadia::sena($estadia['precio_total'], $unidad['porcentaje_sena']);
+            //sin seña no hay nada que pagar: se confirma ya y no vence
+            $sinSena = (float) $sena === 0.0;
+            $estado = $sinSena ? 'confirmada' : 'pendiente';
+            $expiraEn = $sinSena ? null : VencimientoReserva::vencimientoDesdeAhora();
             $pdo->prepare(
-                'INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas,
-                                       importe_total, porcentaje_sena, importe_sena,
+                'INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado,
+                                       importe_total, porcentaje_sena, importe_sena, monto_faltante, fecha_cobro,
                                        retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15,
-                                       politica_aceptada_en, creado_en)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                                       politica_aceptada_en, bloqueo_expira_en, creado_en)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
                 $unidadId,
                 $_SESSION['usuario']['id'],//quién reserva sale siempre de la sesión
                 $fechas['ingreso']->format('Y-m-d'),
                 $fechas['egreso']->format('Y-m-d'),
                 $personas,
+                $estado,
                 $estadia['precio_total'],
                 $unidad['porcentaje_sena'],
                 $sena,
+                bcsub($estadia['precio_total'], $sena, 2),//el saldo
+                Estadia::fechaCobro($fechas['ingreso'])->format('Y-m-d'),
                 $unidad['retencion_mas_de_30'],
                 $unidad['retencion_de_15_a_30'],
                 $unidad['retencion_menos_de_15'],
                 $ahora,
+                $expiraEn,
                 $ahora,
             ]);
             $reservaId = (int) $pdo->lastInsertId();
@@ -106,28 +116,31 @@ class ReservasController
 
         http_response_code(201);
         echo json_encode([
-            'ok'      => "Reservaste {$unidad['nombre']}",
+            'ok'      => $sinSena
+                ? "Reservaste {$unidad['nombre']}: tu reserva está confirmada"
+                : "Reservaste {$unidad['nombre']}: pagá la seña antes de las " . VencimientoReserva::horaArgentina($expiraEn) . ' para confirmarla',
             'reserva' => [
                 'id'            => $reservaId,
-                'estado'        => 'pendiente',
+                'estado'        => $estado,
                 'ingreso'       => $fechas['ingreso']->format('Y-m-d'),
                 'egreso'        => $fechas['egreso']->format('Y-m-d'),
                 'noches'        => $estadia['noches'],
                 'personas'      => $personas,
                 'importe_total' => $estadia['precio_total'],
                 'importe_sena'  => $sena,
+                'vence_en'      => VencimientoReserva::venceEnIso($estado, $expiraEn),
             ],
         ]);
     }
 
-    //GET /reservas/mias: las reservas del huésped logueado (todas, también las canceladas), de la más nueva a la más vieja.
-    //Cada una con su alojamiento y si se puede cancelar.
+    //GET /reservas/mias: las reservas del huésped logueado (todas, también las canceladas y expiradas), de la más nueva
+    //a la más vieja. Cada una con su alojamiento, si se puede pagar la seña o cancelar, y hasta cuándo se puede pagar.
     public function mias()
     {
         Autorizacion::requiere('huesped');
 
         $consulta = Conexion::obtener()->prepare(
-            'SELECT r.id, r.estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
+            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
                     u.id AS unidad_id, u.nombre AS unidad_nombre, l.nombre AS localidad, l.provincia, f.url AS foto_principal
              FROM reservas r
              JOIN unidades u ON u.id = r.unidad_id
@@ -140,8 +153,13 @@ class ReservasController
 
         $reservas = [];
         foreach ($consulta->fetchAll() as $fila) {
-            $reservas[] = $this->datosDe($fila) + [
-                'puede_cancelar' => $fila['estado'] === 'pendiente',
+            $estado = VencimientoReserva::estadoVisible($fila['estado'], $fila['bloqueo_expira_en']);
+            $datos = $this->datosDe($fila);
+            $datos['estado'] = $estado;//una pendiente vencida se ve expirada (la clave queda en su lugar)
+            $reservas[] = $datos + [
+                'vence_en'       => VencimientoReserva::venceEnIso($fila['estado'], $fila['bloqueo_expira_en']),
+                'puede_pagar'    => $estado === 'pendiente',
+                'puede_cancelar' => $estado === 'pendiente',
                 'alojamiento'    => [
                     'id'             => (int) $fila['unidad_id'],
                     'nombre'         => $fila['unidad_nombre'],
@@ -157,7 +175,7 @@ class ReservasController
     }
 
     //POST /reservas/cancelar: {"reserva_id"}. El huésped cancela su reserva pendiente y las noches quedan libres.
-    //Sin pagos no hay nada que devolver. Cancelar una reserva confirmada (con su política) llega con los pagos.
+    //Sin seña pagada no hay nada que devolver. Cancelar una reserva confirmada (con su política) es la Épica L2-12.
     public function cancelar()
     {
         Autorizacion::requiere('huesped');
@@ -166,28 +184,34 @@ class ReservasController
         $reservaId = is_bool($datos['reserva_id'] ?? null)
             ? false
             : filter_var($datos['reserva_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        $estado = false;
+        $reserva = false;
         if ($reservaId !== false) {
             //solo las suyas: la de otro huésped "no existe" (404), así nadie averigua reservas ajenas probando números
-            $consulta = Conexion::obtener()->prepare('SELECT estado FROM reservas WHERE id = ? AND huesped_id = ?');
+            $consulta = Conexion::obtener()->prepare('SELECT estado, bloqueo_expira_en FROM reservas WHERE id = ? AND huesped_id = ?');
             $consulta->execute([$reservaId, $_SESSION['usuario']['id']]);
-            $estado = $consulta->fetchColumn();
+            $reserva = $consulta->fetch();
         }
-        if ($estado === false) {
+        if ($reserva === false) {
             return $this->error('No encontramos esa reserva', 404);
         }
+        $estado = VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']);
         if ($estado === 'cancelada') {
             return $this->error('Esa reserva ya estaba cancelada', 409);
+        }
+        if ($estado === 'expirada') {
+            return $this->error('Esa reserva ya venció sin pagar la seña: sus noches ya están libres', 409);
         }
         if ($estado !== 'pendiente') {
             return $this->error('Por ahora solo se puede cancelar una reserva pendiente de pago', 409);
         }
 
-        //UPDATE condicional: si llegan dos pedidos juntos, solo el primero la cancela
-        $consulta = Conexion::obtener()->prepare("UPDATE reservas SET estado = 'cancelada' WHERE id = ? AND estado = 'pendiente'");
+        //UPDATE condicional: si llegan dos pedidos juntos, o se paga la seña al mismo tiempo, solo cambia si sigue pendiente
+        $consulta = Conexion::obtener()->prepare(
+            "UPDATE reservas SET estado = 'cancelada' WHERE id = ? AND " . VencimientoReserva::pendienteVigente()
+        );
         $consulta->execute([$reservaId]);
         if ($consulta->rowCount() === 0) {
-            return $this->error('Esa reserva ya estaba cancelada', 409);
+            return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
         }
 
         http_response_code(200);
@@ -207,7 +231,7 @@ class ReservasController
                     h.nombre AS huesped
              FROM reservas r
              JOIN usuarios h ON h.id = r.huesped_id
-             WHERE r.unidad_id = ? AND r.estado IN ('pendiente', 'confirmada', 'finalizada') AND r.fecha_egreso >= ?
+             WHERE r.unidad_id = ? AND " . VencimientoReserva::ocupaNoches('r') . " AND r.fecha_egreso >= ?
              ORDER BY r.fecha_ingreso, r.id"
         );
         $consulta->execute([$unidad['id'], ValidadorFechas::hoy()->format('Y-m-d')]);

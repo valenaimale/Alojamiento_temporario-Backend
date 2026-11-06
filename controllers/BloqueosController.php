@@ -6,6 +6,7 @@ use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
 use App\Validacion\ValidadorFechas;
+use App\Validacion\VencimientoReserva;
 
 //Fechas bloqueadas de una unidad (US3.3): noches que no se pueden reservar en la plataforma, porque se reservaron
 //por otro medio (Airbnb, Booking), por mantenimiento, por daños, porque el propietario no quiere recibir reservas, etc.
@@ -75,11 +76,11 @@ class BloqueosController
                 ), 409);
             }
 
-            //Tampoco puede pisar una reserva (pendiente, confirmada o finalizada): bloquear esas noches sería una cancelación
-            //del propietario, que tiene su propio trato. La noche del egreso no es de la reserva.
+            //Tampoco puede pisar una reserva (pendiente sin vencer, confirmada o finalizada): bloquear esas noches sería
+            //una cancelación del propietario, que tiene su propio trato. La noche del egreso no es de la reserva.
             $consulta = $pdo->prepare(
                 "SELECT fecha_ingreso, fecha_egreso FROM reservas
-                 WHERE unidad_id = ? AND estado IN ('pendiente', 'confirmada', 'finalizada') AND fecha_ingreso <= ? AND fecha_egreso > ?
+                 WHERE unidad_id = ? AND " . VencimientoReserva::ocupaNoches() . " AND fecha_ingreso <= ? AND fecha_egreso > ?
                  ORDER BY fecha_ingreso
                  LIMIT 1"
             );
