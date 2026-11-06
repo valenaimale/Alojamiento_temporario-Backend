@@ -73,6 +73,20 @@ Las decisiones que tomamos al implementar la parte del Rol 2 del plan de la entr
 | 40 | `GET /reservas/cancelacion` muestra lo mismo que se va a devolver, sin cambiar nada (L2-3). | El huésped ve el monto antes de confirmar. |
 | 41 | La reserva se traba con `FOR UPDATE` al cancelar. | Una cancelación y un pago del saldo al mismo tiempo no se pisan: una de las dos ve la reserva ya cambiada (409). |
 
+## Relación con Jira (proyecto L2)
+
+Estado al 06/11/2026. Cada historia tiene un comentario con el detalle de lo hecho y lo que falta. Ninguna está en "Listo": a todas les falta el front (Rol 3), y a las de pagos, la red real (Rol 1).
+
+| Historia | Estado | Qué se hizo en el back | PR |
+|---|---|---|---|
+| L2-28 Reservar y pagar la seña | En curso | Reserva pendiente con plazo, pago de la seña, vencimiento. **Diferencias:** no se tokeniza tarjeta (es ETH), y si el pago falla la reserva no se cancela: se puede reintentar hasta que vence. | #23 |
+| L2-30 Notificación de pago rechazado | En curso | 402 con el motivo y mail, para la seña y el saldo. | #23, #24 |
+| L2-8 Cobro automático del saldo | En curso | Pago del saldo. **Diferencia:** con cripto no puede ser automático, porque firma el huésped. Los recordatorios son del Rol 4 (RF-25). | #24 |
+| L2-18 Cancelar como huésped | En curso | Vista previa de la devolución, cancelación con retención por tramo, aviso al propietario. L2-3 parece un duplicado. | #24 |
+| L2-9 Deuda por saldo no cobrado | Por hacer | Depende de la decisión #23. | — |
+| L2-19 Excepción manual a la retención | Por hacer | Fase 3. Ver la decisión #39. | — |
+| Épicas L2-6 y L2-12 | En curso | Contienen L2-8 y L2-18. | — |
+
 ## Pendiente del Rol 2
 
 - `Blockchain.php`: el verificador real por RPC (`eth_getTransactionReceipt` y el evento `PagoRealizado`).
