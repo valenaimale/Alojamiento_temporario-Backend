@@ -372,7 +372,7 @@ Así, nadie tiene que modificar su base a mano: después de un `git pull`, con u
 | `vendor/bin/phinx status` | Muestra qué migraciones están aplicadas y cuáles no. |
 | `vendor/bin/phinx create NombreEnCamelCase` | Crea una migración nueva en `db/migrations/`. |
 | `vendor/bin/phinx rollback` | Deshace la última migración. |
-| `vendor/bin/phinx seed:run` | Carga los datos de prueba. |
+| `vendor/bin/phinx seed:run -s DatosDeEjemplo` | Carga los datos de ejemplo de desarrollo: las dos propietarias (una que discrimina IVA y otra que no), el administrador, la operadora, dos huéspedes, cuatro unidades con temporadas y precios, y seis reservas, una por cada estado, con sus pagos, estadías y libro de huéspedes. **Solo en una base local:** las contraseñas son conocidas. |
 
 > **Regla del equipo:** una migración que ya se subió al repo **no se modifica**. Si hay que cambiar algo, se crea una migración nueva.
 
