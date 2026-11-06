@@ -6,6 +6,7 @@ use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
 use App\Validacion\ValidadorFechas;
+use App\Validacion\VencimientoReserva;
 
 class HuespedesReservaController
 {
@@ -145,7 +146,7 @@ class HuespedesReservaController
     private function puedeEditar(array $r): bool
     {
         return (int) $r['huesped_id'] === (int) $_SESSION['usuario']['id']
-            && in_array($r['estado'], ['pendiente', 'confirmada'], true)
+            && in_array(VencimientoReserva::estadoVisible($r['estado'], $r['bloqueo_expira_en']), ['pendiente', 'confirmada'], true)
             && $r['fecha_ingreso'] > ValidadorFechas::hoy()->format('Y-m-d') && $r['ingreso_en'] === null;
     }
     private function filas(int $id): array

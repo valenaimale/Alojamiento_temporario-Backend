@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Validacion\ValidadorFechas;
+use App\Validacion\VencimientoReserva;
 
 //La agenda del operador de estadías (RF-10): los ingresos y egresos de las unidades que tiene asignadas.
 //El operador recibe a los huéspedes: ve la dirección de la unidad y el nombre del huésped, pero nunca los montos (RN-19).
@@ -27,7 +28,8 @@ class AgendaOperadorController
              JOIN usuarios h ON h.id = r.huesped_id
              LEFT JOIN estadias e ON e.reserva_id = r.id
              WHERE u.operador_id = ? AND (
-                 (r.estado IN ('pendiente', 'confirmada') AND (r.fecha_egreso >= ? OR (e.ingreso_en IS NOT NULL AND e.egreso_en IS NULL)))
+                 ((r.estado = 'confirmada' OR " . VencimientoReserva::pendienteVigente('r') . ")
+                  AND (r.fecha_egreso >= ? OR (e.ingreso_en IS NOT NULL AND e.egreso_en IS NULL)))
                  OR (r.estado = 'finalizada' AND e.egreso_en >= ?)
              )
              ORDER BY r.fecha_ingreso, r.id"

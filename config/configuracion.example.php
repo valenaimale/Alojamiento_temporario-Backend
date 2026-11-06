@@ -31,6 +31,10 @@ return [
         'remitente'        => 'no-responder@alojamiento.local',
         'nombre_remitente' => 'Alojamiento temporario',
     ],
+    'pagos' => [                                  //L2-28
+        'verificador' => 'simulado',              //cómo se verifican las transacciones de pago: por ahora solo 'simulado'
+        'firmador'    => 'simulado',              //cómo manda la plataforma las devoluciones al contrato: por ahora solo 'simulado'
+    ],
     'google' => [                                 //Tarea 4
         'client_id'     => '',
         'client_secret' => '',

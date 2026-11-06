@@ -87,11 +87,22 @@ class Estadia
         return number_format(round((float) $precioTotal * (float) $porcentajeSena / 100, 2), 2, '.', '');
     }
 
+    //El día en que se cobra el saldo de una estadía: dias_cobro_saldo antes del ingreso (parámetro, 5 por defecto),
+    //o hoy si se reserva con menos anticipación. Los tramos de la política de cancelación se cuentan hasta esta fecha.
+    public static function fechaCobro(\DateTimeImmutable $ingreso): \DateTimeImmutable
+    {
+        $consulta = Conexion::obtener()->prepare("SELECT valor FROM parametros WHERE clave = 'dias_cobro_saldo'");
+        $consulta->execute();
+        $dias = filter_var($consulta->fetchColumn(), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+        $cobro = $ingreso->modify('-' . ($dias === false ? 5 : $dias) . ' days');
+        return max($cobro, ValidadorFechas::hoy());
+    }
+
     //Las noches ocupadas del rango (las dos fechas incluidas), como ["AAAA-MM-DD" => true, ...].
-    //Una noche está ocupada si tiene un bloqueo o una reserva pendiente, confirmada o finalizada (así la búsqueda, el detalle,
-    //el calendario y la reserva las tienen en cuenta). La noche del egreso de una reserva queda libre:
-    //ese día puede entrar otro huésped (RN-08).
-    //Cuando lleguen los pagos, las pendientes vencidas (bloqueo_expira_en) van a dejar de ocupar.
+    //Una noche está ocupada si tiene un bloqueo o una reserva pendiente (sin vencer), confirmada o finalizada
+    //(así la búsqueda, el detalle, el calendario y la reserva las tienen en cuenta). La noche del egreso de una reserva
+    //queda libre: ese día puede entrar otro huésped (RN-08).
+    //Una pendiente que no pagó la seña a tiempo (bloqueo_expira_en) ya no ocupa: ver VencimientoReserva.
     public static function nochesOcupadas(int $unidadId, string $primera, string $ultima): array
     {
         $consulta = Conexion::obtener()->prepare(
@@ -99,7 +110,7 @@ class Estadia
              WHERE unidad_id = ? AND fecha_desde <= ? AND fecha_hasta >= ?
              UNION ALL
              SELECT fecha_ingreso, DATE_SUB(fecha_egreso, INTERVAL 1 DAY) FROM reservas
-             WHERE unidad_id = ? AND estado IN ('pendiente', 'confirmada', 'finalizada') AND fecha_ingreso <= ? AND fecha_egreso > ?"
+             WHERE unidad_id = ? AND " . VencimientoReserva::ocupaNoches() . " AND fecha_ingreso <= ? AND fecha_egreso > ?"
         );
         $consulta->execute([$unidadId, $ultima, $primera, $unidadId, $ultima, $primera]);
 

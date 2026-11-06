@@ -345,7 +345,16 @@ Las funcionalidades que salieron de la devolución del profesor se documentan en
 | [`docs/api/verificacion-y-backoffice.md`](docs/api/verificacion-y-backoffice.md) | Verificación de mail y administración de usuarios (Tarea 2). |
 | [`docs/escalado-horizontal.md`](docs/escalado-horizontal.md) | Sesiones compartidas en Redis y *session affinity* (Tarea 3). |
 | [`docs/api/oauth.md`](docs/api/oauth.md) | Inicio de sesión con Google (Tarea 4). |
+
 | [`docs/recordatorios-del-saldo.md`](docs/recordatorios-del-saldo.md) | Los recordatorios para que el huésped pague el saldo de su reserva: a quién se le avisa, cada cuánto y cómo se corre el script (RF-25). |
+
+
+| [`docs/api/liquidaciones.md`](docs/api/liquidaciones.md) | Liquidaciones del propietario y comisiones del administrador, con su comprobante sin valor fiscal (RF-09, RF-13, RF-19). |
+
+| [`docs/api/pagos.md`](docs/api/pagos.md) | Pago de la seña y del saldo en ETH de prueba (pesos → wei), vencimiento de las reservas pendientes y aviso si un pago falla (L2-28, L2-30, L2-6, RF-26). Verificador simulado hasta que esté el contrato. |
+| [`docs/pagos-decisiones.md`](docs/pagos-decisiones.md) · [`docs/pagos-front.md`](docs/pagos-front.md) | Las decisiones del back de pagos y qué tiene que adaptar el front. |
+
+
 | [`docs/despliegue.md`](docs/despliegue.md) | Despliegue en Vercel (frontend), Railway (backend) y Aiven (MySQL): los cambios hechos para desplegar, las variables de entorno, el paso a paso y el pipeline CI/CD. |
 | [`docs/flujo-de-trabajo.md`](docs/flujo-de-trabajo.md) | **Cómo subir un cambio:** ramas, pull requests, la regla que protege `main` y el pipeline CI/CD, con ejemplos de qué pasa si los tests fallan o pasan. |
 | [`tests/README.md`](tests/README.md) | Tests automatizados (PHPUnit) e integración continua (GitHub Actions): cómo correrlos y cómo agregar uno. |
@@ -373,7 +382,7 @@ Así, nadie tiene que modificar su base a mano: después de un `git pull`, con u
 | `vendor/bin/phinx status` | Muestra qué migraciones están aplicadas y cuáles no. |
 | `vendor/bin/phinx create NombreEnCamelCase` | Crea una migración nueva en `db/migrations/`. |
 | `vendor/bin/phinx rollback` | Deshace la última migración. |
-| `vendor/bin/phinx seed:run` | Carga los datos de prueba. |
+| `vendor/bin/phinx seed:run -s DatosDeEjemplo` | Carga los datos de ejemplo de desarrollo: las dos propietarias (una que discrimina IVA y otra que no), el administrador, la operadora, dos huéspedes, cuatro unidades con temporadas y precios, y seis reservas, una por cada estado, con sus pagos, estadías y libro de huéspedes. **Solo en una base local:** las contraseñas son conocidas. |
 
 > **Regla del equipo:** una migración que ya se subió al repo **no se modifica**. Si hay que cambiar algo, se crea una migración nueva.
 
@@ -537,4 +546,4 @@ El error aparece solo en el navegador. Si se prueba el backend con `curl` o Post
 
 ### Estadías y libro de huéspedes (RF-10 y RF-20)
 
-Registro de ingreso/egreso del operador y libro por reserva con consulta y exportación: [contrato y reglas](docs/api/estadias-y-huespedes.md). Ejecutar la migración `20261031190000_agregar_estadias_y_libro.php` antes de desplegar estos controladores. La confirmación por pago sigue pendiente.
+Registro de ingreso/egreso del operador y libro por reserva con consulta y exportación: [contrato y reglas](docs/api/estadias-y-huespedes.md). Ejecutar la migración `20261031190000_agregar_estadias_y_libro.php` antes de desplegar estos controladores. La confirmación por pago de la seña está en [pagos](docs/api/pagos.md).
