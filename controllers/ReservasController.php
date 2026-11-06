@@ -5,12 +5,18 @@ namespace App\Controllers;
 use App\Autorizacion\Autorizacion;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
+use App\Log\Log;
+use App\Mail\AvisoPagoMail;
 use App\Request\Request;
+use App\Validacion\Devolucion;
 use App\Validacion\Estadia;
+use App\Validacion\Firmadores;
 use App\Validacion\ValidadorFechas;
+use App\Validacion\VencimientoReserva;
 
-//Las reservas de la plataforma (Épica 4). Entrega 4, sin pagos: la reserva se crea 'pendiente' y ocupa sus noches
-//hasta que se cancele. Cuando lleguen los pagos por blockchain, pasa a 'confirmada' al pagarse la seña.
+//Las reservas de la plataforma (Épica 4). La reserva se crea 'pendiente' y guarda sus noches durante
+//minutos_bloqueo_reserva, mientras el huésped paga la seña (PagosController). Pagada, pasa a 'confirmada';
+//si no paga a tiempo, deja de ocupar y se ve 'expirada' (VencimientoReserva). Sin seña (0 %), se confirma al reservar.
 //Las reglas de las fechas, el precio y las noches ocupadas están en Estadia: las mismas que ve el huésped en el detalle.
 class ReservasController
 {
@@ -72,27 +78,35 @@ class ReservasController
 
             //importe, seña y política se copian de la unidad: son las condiciones que el huésped acepta ahora.
             //"Ahora" en UTC como el servidor, calculado en PHP (la base local puede tener otra zona horaria).
-            $ahora = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
+            $ahora = VencimientoReserva::ahora();
             $sena = Estadia::sena($estadia['precio_total'], $unidad['porcentaje_sena']);
+            //sin seña no hay nada que pagar: se confirma ya y no vence
+            $sinSena = (float) $sena === 0.0;
+            $estado = $sinSena ? 'confirmada' : 'pendiente';
+            $expiraEn = $sinSena ? null : VencimientoReserva::vencimientoDesdeAhora();
             $pdo->prepare(
-                'INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas,
-                                       importe_total, porcentaje_sena, importe_sena,
+                'INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado,
+                                       importe_total, porcentaje_sena, importe_sena, monto_faltante, fecha_cobro,
                                        retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15,
-                                       politica_aceptada_en, creado_en)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                                       politica_aceptada_en, bloqueo_expira_en, creado_en)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
                 $unidadId,
                 $_SESSION['usuario']['id'],//quién reserva sale siempre de la sesión
                 $fechas['ingreso']->format('Y-m-d'),
                 $fechas['egreso']->format('Y-m-d'),
                 $personas,
+                $estado,
                 $estadia['precio_total'],
                 $unidad['porcentaje_sena'],
                 $sena,
+                bcsub($estadia['precio_total'], $sena, 2),//el saldo
+                Estadia::fechaCobro($fechas['ingreso'])->format('Y-m-d'),
                 $unidad['retencion_mas_de_30'],
                 $unidad['retencion_de_15_a_30'],
                 $unidad['retencion_menos_de_15'],
                 $ahora,
+                $expiraEn,
                 $ahora,
             ]);
             $reservaId = (int) $pdo->lastInsertId();
@@ -106,29 +120,32 @@ class ReservasController
 
         http_response_code(201);
         echo json_encode([
-            'ok'      => "Reservaste {$unidad['nombre']}",
+            'ok'      => $sinSena
+                ? "Reservaste {$unidad['nombre']}: tu reserva está confirmada"
+                : "Reservaste {$unidad['nombre']}: pagá la seña antes de las " . VencimientoReserva::horaArgentina($expiraEn) . ' para confirmarla',
             'reserva' => [
                 'id'            => $reservaId,
-                'estado'        => 'pendiente',
+                'estado'        => $estado,
                 'ingreso'       => $fechas['ingreso']->format('Y-m-d'),
                 'egreso'        => $fechas['egreso']->format('Y-m-d'),
                 'noches'        => $estadia['noches'],
                 'personas'      => $personas,
                 'importe_total' => $estadia['precio_total'],
                 'importe_sena'  => $sena,
+                'vence_en'      => VencimientoReserva::venceEnIso($estado, $expiraEn),
             ],
         ]);
     }
 
-    //GET /reservas/mias: las reservas del huésped logueado (todas, también las canceladas), de la más nueva a la más vieja.
-    //Cada una con su alojamiento y si se puede cancelar.
+    //GET /reservas/mias: las reservas del huésped logueado (todas, también las canceladas y expiradas), de la más nueva
+    //a la más vieja. Cada una con su alojamiento, si se puede pagar la seña o cancelar, y hasta cuándo se puede pagar.
     public function mias()
     {
         Autorizacion::requiere('huesped');
 
         $consulta = Conexion::obtener()->prepare(
-            'SELECT r.id, r.estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
-                    u.id AS unidad_id, u.nombre AS unidad_nombre, l.nombre AS localidad, l.provincia, f.url AS foto_principal
+            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
+                    r.monto_faltante, r.fecha_cobro, u.id AS unidad_id, u.nombre AS unidad_nombre, l.nombre AS localidad, l.provincia, f.url AS foto_principal
              FROM reservas r
              JOIN unidades u ON u.id = r.unidad_id
              JOIN localidades l ON l.id = u.localidad_id
@@ -138,10 +155,20 @@ class ReservasController
         );
         $consulta->execute([$_SESSION['usuario']['id']]);
 
+        $hoy = ValidadorFechas::hoy()->format('Y-m-d');
         $reservas = [];
         foreach ($consulta->fetchAll() as $fila) {
-            $reservas[] = $this->datosDe($fila) + [
-                'puede_cancelar' => $fila['estado'] === 'pendiente',
+            $estado = VencimientoReserva::estadoVisible($fila['estado'], $fila['bloqueo_expira_en']);
+            $datos = $this->datosDe($fila);
+            $datos['estado'] = $estado;//una pendiente vencida se ve expirada (la clave queda en su lugar)
+            $reservas[] = $datos + [
+                'vence_en'       => VencimientoReserva::venceEnIso($fila['estado'], $fila['bloqueo_expira_en']),
+                'puede_pagar'    => $estado === 'pendiente',
+                'puede_cancelar' => $estado === 'pendiente' || ($estado === 'confirmada' && $fila['fecha_ingreso'] > $hoy),
+                //el saldo (L2-6): lo que falta pagar y hasta cuándo (null en las reservas anteriores al cobro)
+                'saldo'             => $fila['monto_faltante'],
+                'fecha_cobro'       => $fila['fecha_cobro'],
+                'puede_pagar_saldo' => $estado === 'confirmada' && $fila['monto_faltante'] !== null && bccomp($fila['monto_faltante'], '0', 2) > 0,
                 'alojamiento'    => [
                     'id'             => (int) $fila['unidad_id'],
                     'nombre'         => $fila['unidad_nombre'],
@@ -156,42 +183,134 @@ class ReservasController
         echo json_encode(['reservas' => $reservas]);
     }
 
-    //POST /reservas/cancelar: {"reserva_id"}. El huésped cancela su reserva pendiente y las noches quedan libres.
-    //Sin pagos no hay nada que devolver. Cancelar una reserva confirmada (con su política) llega con los pagos.
+    //GET /reservas/cancelacion?reserva_id=12: cuánto se le devolvería al huésped si cancela ahora, según el tramo
+    //de la política (L2-3: lo ve antes de confirmar). No cambia nada.
+    public function cancelacion()
+    {
+        Autorizacion::requiere('huesped');
+
+        $reserva = $this->reservaParaCancelar(Request::parametroGet('reserva_id'));
+        if ($reserva === false) {
+            return $this->error('No encontramos esa reserva', 404);
+        }
+        $problema = $this->problemaParaCancelar($reserva);
+        if ($problema !== null) {
+            return $this->error(...$problema);
+        }
+
+        http_response_code(200);
+        echo json_encode([
+            'reserva_id' => (int) $reserva['id'],
+            'estado'     => VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']),
+        ] + $this->datosDevolucion($this->devolucionDe($reserva)));
+    }
+
+    //POST /reservas/cancelar: {"reserva_id"}. El huésped cancela su reserva y las noches quedan libres.
+    //  - pendiente: todavía no pagó nada, no hay devolución.
+    //  - confirmada (antes del ingreso): se retiene el % de la seña del tramo y se le devuelve el resto, más el saldo
+    //    si ya lo pagó (Devolucion). La devolución la manda la plataforma al contrato con devolver(...) (FirmadorPagos)
+    //    y queda en pagos con tipo 'devolucion'. Antes se le avisa al propietario (L2-18).
+    //La reserva se cancela primero y la devolución se manda después: si la red falla, la reserva queda cancelada igual
+    //y la devolución queda 'pendiente', sin tx_hash, para reintentarla.
     public function cancelar()
     {
         Autorizacion::requiere('huesped');
         $datos = Request::datosJson();
 
-        $reservaId = is_bool($datos['reserva_id'] ?? null)
-            ? false
-            : filter_var($datos['reserva_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        $estado = false;
-        if ($reservaId !== false) {
-            //solo las suyas: la de otro huésped "no existe" (404), así nadie averigua reservas ajenas probando números
-            $consulta = Conexion::obtener()->prepare('SELECT estado FROM reservas WHERE id = ? AND huesped_id = ?');
-            $consulta->execute([$reservaId, $_SESSION['usuario']['id']]);
-            $estado = $consulta->fetchColumn();
-        }
-        if ($estado === false) {
+        $reserva = $this->reservaParaCancelar($datos['reserva_id'] ?? null);
+        if ($reserva === false) {
             return $this->error('No encontramos esa reserva', 404);
         }
-        if ($estado === 'cancelada') {
-            return $this->error('Esa reserva ya estaba cancelada', 409);
-        }
-        if ($estado !== 'pendiente') {
-            return $this->error('Por ahora solo se puede cancelar una reserva pendiente de pago', 409);
+        $problema = $this->problemaParaCancelar($reserva);
+        if ($problema !== null) {
+            return $this->error(...$problema);
         }
 
-        //UPDATE condicional: si llegan dos pedidos juntos, solo el primero la cancela
-        $consulta = Conexion::obtener()->prepare("UPDATE reservas SET estado = 'cancelada' WHERE id = ? AND estado = 'pendiente'");
-        $consulta->execute([$reservaId]);
-        if ($consulta->rowCount() === 0) {
-            return $this->error('Esa reserva ya estaba cancelada', 409);
+        if (VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']) === 'pendiente') {
+            //UPDATE condicional: si llegan dos pedidos juntos, o se paga la seña al mismo tiempo, solo cambia si sigue pendiente
+            $consulta = Conexion::obtener()->prepare(
+                "UPDATE reservas SET estado = 'cancelada' WHERE id = ? AND " . VencimientoReserva::pendienteVigente()
+            );
+            $consulta->execute([$reserva['id']]);
+            if ($consulta->rowCount() === 0) {
+                return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
+            }
+            http_response_code(200);
+            echo json_encode(['ok' => 'Cancelaste la reserva: esas noches quedaron libres']);
+            return;
         }
 
+        $firmador = Firmadores::configurado();
+        $pdo = Conexion::obtener();
+        $pdo->beginTransaction();
+        try {
+            //Traba la reserva: si llegan dos cancelaciones juntas (o un pago del saldo), la segunda espera y ya la ve cancelada
+            $reserva = $this->reservaParaCancelar($reserva['id'], true);
+            if ($reserva === false || $reserva['estado'] !== 'confirmada' || $this->problemaParaCancelar($reserva) !== null) {
+                $pdo->rollBack();
+                return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
+            }
+            $devolucion = $this->devolucionDe($reserva);
+            $pdo->prepare("UPDATE reservas SET estado = 'cancelada' WHERE id = ?")->execute([$reserva['id']]);
+
+            $pagoId = null;
+            if (bccomp($devolucion['devolucion_wei'], '0', 0) > 0 && bccomp($devolucion['devolucion'], '0', 2) > 0) {
+                $pdo->prepare(
+                    "INSERT INTO pagos (reserva_id, tipo, monto_pesos, monto_wei, pesos_por_eth, billetera, red, tx_hash, estado, creado_en)
+                     VALUES (?, 'devolucion', ?, ?, ?, ?, ?, NULL, 'pendiente', ?)"
+                )->execute([
+                    $reserva['id'], $devolucion['devolucion'], $devolucion['devolucion_wei'], $devolucion['pesos_por_eth'],
+                    strtolower($devolucion['billetera']), $firmador->red(), VencimientoReserva::ahora(),
+                ]);
+                $pagoId = (int) $pdo->lastInsertId();
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;//lo atrapa el router y responde 500
+        }
+
+        //L2-18: el propietario se entera antes de que salga la devolución
+        AvisoPagoMail::cancelacionAlPropietario(
+            ['id' => $reserva['propietario_id'], 'nombre' => $reserva['propietario_nombre'], 'mail' => $reserva['propietario_mail']],
+            $reserva['unidad_nombre'], $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $devolucion['retencion'], $devolucion['devolucion']
+        );
+
+        $envio = null;
+        if ($pagoId !== null) {
+            try {
+                $envio = $firmador->devolver((int) $reserva['id'], $devolucion['billetera'], $devolucion['devolucion_wei']);
+                $pdo->prepare('UPDATE pagos SET tx_hash = ?, estado = ?, confirmado_en = ? WHERE id = ?')->execute([
+                    strtolower($envio->txHash), $envio->confirmada ? 'confirmado' : 'pendiente',
+                    $envio->confirmada ? VencimientoReserva::ahora() : null, $pagoId,
+                ]);
+            } catch (\Throwable $e) {
+                //la reserva ya está cancelada: la devolución queda pendiente, sin tx_hash, para reintentarla
+                Log::error('No se pudo mandar la devolución', $e, [
+                    'reserva_id' => $reserva['id'], 'pago_id' => $pagoId, 'tx_hash' => $envio?->txHash,
+                ]);
+                $envio = null;
+            }
+        }
+        $enCamino = $pagoId !== null && ($envio === null || !$envio->confirmada);
+        AvisoPagoMail::cancelacionAlHuesped($_SESSION['usuario'], $reserva['unidad_nombre'], $devolucion['devolucion'], $devolucion['retencion'], $enCamino);
+
+        $monto = '$' . number_format((float) $devolucion['devolucion'], 2, ',', '.');
+        $ok = match (true) {
+            $pagoId === null => 'Cancelaste la reserva: esas noches quedaron libres. Según la política de cancelación, no corresponde devolución',
+            $enCamino        => "Cancelaste la reserva: esas noches quedaron libres. La devolución de $monto está en proceso: te avisamos por mail",
+            default          => "Cancelaste la reserva: esas noches quedaron libres. Te devolvimos $monto a tu billetera",
+        };
         http_response_code(200);
-        echo json_encode(['ok' => 'Cancelaste la reserva: esas noches quedaron libres']);
+        echo json_encode([
+            'ok'         => $ok,
+            'devolucion' => $this->datosDevolucion($devolucion) + [
+                'estado'  => $pagoId === null ? null : ($envio !== null && $envio->confirmada ? 'confirmado' : 'pendiente'),
+                'tx_hash' => $envio?->txHash,
+            ],
+        ]);
     }
 
     //GET /unidades/reservas?id=5: las reservas en curso y próximas de una unidad (pendientes y confirmadas),
@@ -207,7 +326,7 @@ class ReservasController
                     h.nombre AS huesped
              FROM reservas r
              JOIN usuarios h ON h.id = r.huesped_id
-             WHERE r.unidad_id = ? AND r.estado IN ('pendiente', 'confirmada', 'finalizada') AND r.fecha_egreso >= ?
+             WHERE r.unidad_id = ? AND " . VencimientoReserva::ocupaNoches('r') . " AND r.fecha_egreso >= ?
              ORDER BY r.fecha_ingreso, r.id"
         );
         $consulta->execute([$unidad['id'], ValidadorFechas::hoy()->format('Y-m-d')]);
@@ -222,6 +341,73 @@ class ReservasController
     }
 
     //Los datos de una reserva como los devuelve la API (los mismos en todas las listas)
+    //La reserva del huésped logueado con lo que hace falta para cancelarla (la política que aceptó, la unidad y su
+    //propietario), o false si no existe o es de otro: la de otro huésped "no existe" (404), así nadie averigua
+    //reservas ajenas probando números. $bloquear: FOR UPDATE, dentro de una transacción.
+    private function reservaParaCancelar(mixed $id, bool $bloquear = false): array|false
+    {
+        $reservaId = is_bool($id) ? false : filter_var($id ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($reservaId === false) {
+            return false;
+        }
+        $consulta = Conexion::obtener()->prepare(
+            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.fecha_cobro,
+                    r.retencion_mas_de_30, r.retencion_de_15_a_30, r.retencion_menos_de_15,
+                    u.nombre AS unidad_nombre, p.id AS propietario_id, p.nombre AS propietario_nombre, p.mail AS propietario_mail
+             FROM reservas r
+             JOIN unidades u ON u.id = r.unidad_id
+             JOIN usuarios p ON p.id = u.propietario_id
+             WHERE r.id = ? AND r.huesped_id = ?' . ($bloquear ? ' FOR UPDATE' : '')
+        );
+        $consulta->execute([$reservaId, $_SESSION['usuario']['id']]);
+        return $consulta->fetch();
+    }
+
+    //Por qué no se puede cancelar esa reserva, como [mensaje, código HTTP], o null si se puede.
+    //Se cancela una pendiente sin vencer o una confirmada antes del día del ingreso.
+    private function problemaParaCancelar(array $reserva): ?array
+    {
+        $estado = VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']);
+        return match (true) {
+            $estado === 'cancelada'  => ['Esa reserva ya estaba cancelada', 409],
+            $estado === 'expirada'   => ['Esa reserva ya venció sin pagar la seña: sus noches ya están libres', 409],
+            $estado === 'finalizada' => ['Esa estadía ya terminó', 409],
+            $estado === 'confirmada' && $reserva['fecha_ingreso'] <= ValidadorFechas::hoy()->format('Y-m-d')
+                                     => ['La estadía ya empezó: no se puede cancelar desde la app', 409],
+            in_array($estado, ['pendiente', 'confirmada'], true) => null,
+            default                  => ['Esa reserva no se puede cancelar', 409],
+        };
+    }
+
+    //Cuánto se retiene y cuánto se devuelve si se cancela hoy (Devolucion), con los pagos confirmados de la reserva.
+    //Una pendiente no tiene pagos: no se devuelve nada.
+    private function devolucionDe(array $reserva): array
+    {
+        $consulta = Conexion::obtener()->prepare(
+            "SELECT tipo, monto_pesos, monto_wei, pesos_por_eth, billetera FROM pagos
+             WHERE reserva_id = ? AND estado = 'confirmado' AND tipo IN ('sena', 'saldo')
+             ORDER BY id"
+        );
+        $consulta->execute([$reserva['id']]);
+        //las reservas anteriores al cobro no tienen fecha_cobro: se calcula como al reservar
+        $reserva['fecha_cobro'] ??= Estadia::fechaCobro(ValidadorFechas::fecha($reserva['fecha_ingreso']))->format('Y-m-d');
+        return Devolucion::calcular($reserva, $consulta->fetchAll(), ValidadorFechas::hoy());
+    }
+
+    //Lo que ve el huésped de una devolución (sin la billetera ni el tipo de cambio)
+    private function datosDevolucion(array $devolucion): array
+    {
+        return [
+            'tramo'                => $devolucion['tramo'],
+            'dias_hasta_cobro'     => $devolucion['dias_hasta_cobro'],
+            'porcentaje_retencion' => $devolucion['porcentaje_retencion'],
+            'pagado'               => ['sena' => $devolucion['pagado_sena'], 'saldo' => $devolucion['pagado_saldo']],
+            'retencion'            => $devolucion['retencion'],
+            'devolucion'           => $devolucion['devolucion'],
+            'devolucion_wei'       => $devolucion['devolucion_wei'],//texto, como monto_wei
+        ];
+    }
+
     private function datosDe(array $fila): array
     {
         return [

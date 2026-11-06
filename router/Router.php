@@ -157,6 +157,7 @@ class Router {
         $this->register('POST@/reservas/crear', 'ReservasController@crear');
         $this->register('GET@/reservas/mias', 'ReservasController@mias');
         $this->register('POST@/reservas/cancelar', 'ReservasController@cancelar');
+        $this->register('GET@/reservas/cancelacion', 'ReservasController@cancelacion');//Rol 2: cuánto se devuelve si cancela
         $this->register('GET@/unidades/reservas', 'ReservasController@deLaUnidad');
         $this->register('GET@/operador/agenda', 'AgendaOperadorController@ver');
         $this->register('POST@/operador/estadias/registrar', 'EstadiasController@registrar');
@@ -166,6 +167,7 @@ class Router {
         $this->register('GET@/unidades/libro', 'HuespedesReservaController@deLaUnidad');
         // ---------- fin Épica 4 ----------
 
+
         // ---------- Liquidaciones (entrega del 80 %, Rol 4) ----------
         $this->register('GET@/liquidaciones/mias', 'LiquidacionesController@mias');
         $this->register('GET@/liquidaciones/comprobante', 'LiquidacionesController@comprobante');
@@ -173,6 +175,11 @@ class Router {
         $this->register('POST@/liquidaciones/generar', 'LiquidacionesController@generar');
         $this->register('POST@/liquidaciones/pagar', 'LiquidacionesController@pagar');
         // ---------- fin Liquidaciones ----------
+        // ---------- Pagos (L2-28, L2-30: seña; L2-6, RF-26: saldo) ----------
+        $this->register('GET@/pagos/sena', 'PagosController@sena');
+        $this->register('GET@/pagos/saldo', 'PagosController@saldo');
+        $this->register('POST@/pagos/confirmar', 'PagosController@confirmar');
+        // ---------- fin Pagos ----------
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){

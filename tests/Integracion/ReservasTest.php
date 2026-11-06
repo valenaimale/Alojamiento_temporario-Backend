@@ -74,11 +74,14 @@ final class ReservasTest extends CasoDeIntegracion
 
         $this->assertSame(201, $respuesta->codigo, $respuesta->cuerpo);
         $reservaId = $respuesta->json()['reserva']['id'];
+        $venceEn = $respuesta->json()['reserva']['vence_en'];//el plazo para pagar la seña se prueba en PagosTest
         $this->assertSame([
-            'ok'      => 'Reservaste Cabaña del Mar',
+            'ok'      => 'Reservaste Cabaña del Mar: pagá la seña antes de las ' . (new \DateTimeImmutable($venceEn))
+                ->setTimezone(new \DateTimeZone('America/Argentina/Buenos_Aires'))->format('H:i') . ' para confirmarla',
             'reserva' => [
                 'id' => $reservaId, 'estado' => 'pendiente', 'ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+13 days'),
                 'noches' => 3, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00',//20% de seña
+                'vence_en' => $venceEn,
             ],
         ], $respuesta->json());
 
@@ -248,7 +251,8 @@ final class ReservasTest extends CasoDeIntegracion
         $unidadId = $this->unidadPublicada();
         $huesped = $this->conMailVerificado($this->crearUsuarioEnBase('huesped'));
         $cliente = $this->iniciarSesion($huesped['mail']);
-        $proxima = $cliente->post('/reservas/crear', $this->datosReserva($unidadId))->json()['reserva']['id'];
+        $creada = $cliente->post('/reservas/crear', $this->datosReserva($unidadId))->json()['reserva'];
+        $proxima = $creada['id'];
         $cancelada = $this->reservaEnBase($unidadId, $huesped['id'], $this->fecha('+30 days'), $this->fecha('+32 days'), 'cancelada');
         $this->assertSame(201, $this->reservar($unidadId, ['ingreso' => $this->fecha('+40 days'), 'egreso' => $this->fecha('+42 days')])->codigo);//de otro
 
@@ -263,12 +267,14 @@ final class ReservasTest extends CasoDeIntegracion
             [
                 'id' => $cancelada, 'estado' => 'cancelada', 'ingreso' => $this->fecha('+30 days'), 'egreso' => $this->fecha('+32 days'),
                 'noches' => 2, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00',
-                'puede_cancelar' => false, 'alojamiento' => $alojamiento,
+                'vence_en' => null, 'puede_pagar' => false, 'puede_cancelar' => false,
+                'saldo' => null, 'fecha_cobro' => null, 'puede_pagar_saldo' => false, 'alojamiento' => $alojamiento,
             ],
             [
                 'id' => $proxima, 'estado' => 'pendiente', 'ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+13 days'),
                 'noches' => 3, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00',
-                'puede_cancelar' => true, 'alojamiento' => $alojamiento,
+                'vence_en' => $creada['vence_en'], 'puede_pagar' => true, 'puede_cancelar' => true,
+                'saldo' => '168000.00', 'fecha_cobro' => $this->fecha('+5 days'), 'puede_pagar_saldo' => false, 'alojamiento' => $alojamiento,
             ],
         ]], $respuesta->json());
     }
@@ -300,7 +306,7 @@ final class ReservasTest extends CasoDeIntegracion
         $this->assertSame(201, $this->reservar($unidadId)->codigo);//las mismas fechas, otro huésped
     }
 
-    //No se cancela dos veces, ni una reserva confirmada (eso llega con los pagos, 409),
+    //No se cancela dos veces, ni una estadía terminada (409; la confirmada con devolución está en CancelacionTest),
     //ni la de otro huésped o una que no existe (404)
     public function testQueNoSePuedeCancelar(): void
     {
@@ -309,7 +315,7 @@ final class ReservasTest extends CasoDeIntegracion
         $cliente = $this->iniciarSesion($huesped['mail']);
         $casos = [
             'Esa reserva ya estaba cancelada'                                => [409, $this->reservaEnBase($unidadId, $huesped['id'], $this->fecha('+10 days'), $this->fecha('+12 days'), 'cancelada')],
-            'Por ahora solo se puede cancelar una reserva pendiente de pago' => [409, $this->reservaEnBase($unidadId, $huesped['id'], $this->fecha('+20 days'), $this->fecha('+22 days'), 'confirmada')],
+            'Esa estadía ya terminó'                                         => [409, $this->reservaEnBase($unidadId, $huesped['id'], $this->fecha('+20 days'), $this->fecha('+22 days'), 'finalizada')],
             'No encontramos esa reserva'                                     => [404, $this->reservaEnBase($unidadId, $this->crearUsuarioEnBase('huesped')['id'], $this->fecha('+30 days'), $this->fecha('+32 days'))],
         ];
         foreach ($casos as $mensaje => [$codigo, $reservaId]) {
