@@ -134,8 +134,9 @@ final class DatosDeEjemplo extends AbstractSeed
         //Pendiente: reservó y todavía no pagó la seña, así que esas noches siguen ocupadas mientras paga
         $this->crearReserva($cabania, $juan, 'pendiente', 40, 45, 3);
 
-        //Confirmada: pagó la seña y le queda el saldo. Es la que levantan los recordatorios de cobro (RF-25)
-        $proxima = $this->crearReserva($casa, $lucia, 'confirmada', 12, 17, 4);
+        //Confirmada: pagó la seña y le queda el saldo. Ingresa en 3 días, así que ya pasó la fecha de cobro
+        //(dias_cobro_saldo son 5): es la que levantan los recordatorios del saldo (RF-25) apenas se corre el script
+        $proxima = $this->crearReserva($casa, $lucia, 'confirmada', 3, 8, 4);
         $this->pagar($proxima, $lucia, 'sena', $proxima['sena'], $proxima['reservada_en']);
 
         //Finalizada de una unidad de autogestión: la liquidación no tiene comisión de administrador
