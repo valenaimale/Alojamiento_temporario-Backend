@@ -345,6 +345,7 @@ Las funcionalidades que salieron de la devolución del profesor se documentan en
 | [`docs/api/verificacion-y-backoffice.md`](docs/api/verificacion-y-backoffice.md) | Verificación de mail y administración de usuarios (Tarea 2). |
 | [`docs/escalado-horizontal.md`](docs/escalado-horizontal.md) | Sesiones compartidas en Redis y *session affinity* (Tarea 3). |
 | [`docs/api/oauth.md`](docs/api/oauth.md) | Inicio de sesión con Google (Tarea 4). |
+| [`docs/recordatorios-del-saldo.md`](docs/recordatorios-del-saldo.md) | Los recordatorios para que el huésped pague el saldo de su reserva: a quién se le avisa, cada cuánto y cómo se corre el script (RF-25). |
 | [`docs/despliegue.md`](docs/despliegue.md) | Despliegue en Vercel (frontend), Railway (backend) y Aiven (MySQL): los cambios hechos para desplegar, las variables de entorno, el paso a paso y el pipeline CI/CD. |
 | [`docs/flujo-de-trabajo.md`](docs/flujo-de-trabajo.md) | **Cómo subir un cambio:** ramas, pull requests, la regla que protege `main` y el pipeline CI/CD, con ejemplos de qué pasa si los tests fallan o pasan. |
 | [`tests/README.md`](tests/README.md) | Tests automatizados (PHPUnit) e integración continua (GitHub Actions): cómo correrlos y cómo agregar uno. |
