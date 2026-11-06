@@ -25,6 +25,9 @@ class Devolucion
     public static function calcular(array $reserva, array $pagos, \DateTimeImmutable $hoy): array
     {
         $cobro = ValidadorFechas::fecha($reserva['fecha_cobro']);
+        //se comparan días de calendario: las dos fechas en la misma zona y sin hora (si no, con $hoy en UTC
+        //y el cobro en hora de Argentina, la diferencia de 3 horas le come un día a la cuenta)
+        $hoy = ValidadorFechas::fecha($hoy->format('Y-m-d'));
         $dias = (int) $hoy->diff($cobro)->format('%r%a');//negativo si el cobro ya pasó
         $tramo = match (true) {
             $dias > 30  => self::MAS_DE_30,
