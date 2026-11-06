@@ -15,7 +15,8 @@ RUN composer dump-autoload --no-dev --optimize
 # ---- Etapa 2: la imagen final, solo con PHP y el código ya listo ----
 # PHP >= 8.4.1: lo exigen las dependencias de Phinx (Symfony 8) que están en composer.lock
 FROM php:8.5-cli
-RUN docker-php-ext-install pdo_mysql
+# bcmath: cuentas exactas con números grandes (pesos → wei de los pagos en ETH)
+RUN docker-php-ext-install pdo_mysql bcmath
 WORKDIR /app
 COPY --from=dependencias /app /app
 

@@ -345,6 +345,7 @@ Las funcionalidades que salieron de la devolución del profesor se documentan en
 | [`docs/api/verificacion-y-backoffice.md`](docs/api/verificacion-y-backoffice.md) | Verificación de mail y administración de usuarios (Tarea 2). |
 | [`docs/escalado-horizontal.md`](docs/escalado-horizontal.md) | Sesiones compartidas en Redis y *session affinity* (Tarea 3). |
 | [`docs/api/oauth.md`](docs/api/oauth.md) | Inicio de sesión con Google (Tarea 4). |
+| [`docs/api/pagos.md`](docs/api/pagos.md) | Pago de la seña en ETH de prueba (pesos → wei), vencimiento de las reservas pendientes y saldo a cobrar (L2-28, L2-30). Verificador simulado hasta que esté el contrato. |
 | [`docs/despliegue.md`](docs/despliegue.md) | Despliegue en Vercel (frontend), Railway (backend) y Aiven (MySQL): los cambios hechos para desplegar, las variables de entorno, el paso a paso y el pipeline CI/CD. |
 | [`docs/flujo-de-trabajo.md`](docs/flujo-de-trabajo.md) | **Cómo subir un cambio:** ramas, pull requests, la regla que protege `main` y el pipeline CI/CD, con ejemplos de qué pasa si los tests fallan o pasan. |
 | [`tests/README.md`](tests/README.md) | Tests automatizados (PHPUnit) e integración continua (GitHub Actions): cómo correrlos y cómo agregar uno. |
@@ -536,4 +537,4 @@ El error aparece solo en el navegador. Si se prueba el backend con `curl` o Post
 
 ### Estadías y libro de huéspedes (RF-10 y RF-20)
 
-Registro de ingreso/egreso del operador y libro por reserva con consulta y exportación: [contrato y reglas](docs/api/estadias-y-huespedes.md). Ejecutar la migración `20261031190000_agregar_estadias_y_libro.php` antes de desplegar estos controladores. La confirmación por pago sigue pendiente.
+Registro de ingreso/egreso del operador y libro por reserva con consulta y exportación: [contrato y reglas](docs/api/estadias-y-huespedes.md). Ejecutar la migración `20261031190000_agregar_estadias_y_libro.php` antes de desplegar estos controladores. La confirmación por pago de la seña está en [pagos](docs/api/pagos.md).

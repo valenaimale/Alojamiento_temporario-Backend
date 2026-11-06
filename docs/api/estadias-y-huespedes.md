@@ -70,6 +70,6 @@ Lectura: titular, propietario de la unidad y administrador actualmente asignado.
 
 ## Alcance pendiente
 
-Pagos y confirmación por pago continúan pendientes. Para demostrar ingreso/egreso se usa una reserva confirmada sintética. La integración futura debe validar el libro antes del pago según la definición del producto. No hay edición destructiva de movimientos ya registrados, no-show, liberación anticipada, correcciones excepcionales del libro fuera de plazo ni reglas económicas por daños; requieren el flujo correspondiente y acuerdo del equipo. El cierre de RF aquí corresponde al alcance del archivo de avance: marcar llegada/salida con hora/notas y cargar quiénes se alojan.
+La confirmación por pago de la seña está en [pagos](pagos.md) (con verificador simulado); el saldo sigue pendiente. La integración futura debe validar el libro antes del pago según la definición del producto. No hay edición destructiva de movimientos ya registrados, no-show, liberación anticipada, correcciones excepcionales del libro fuera de plazo ni reglas económicas por daños; requieren el flujo correspondiente y acuerdo del equipo. El cierre de RF aquí corresponde al alcance del archivo de avance: marcar llegada/salida con hora/notas y cargar quiénes se alojan.
 
 Pruebas: `tests/Integracion/EstadiasYLibroTest.php`, `AgendaOperadorTest.php`, `RequestTest.php`; regresión de reservas, bloqueos y búsqueda. Evidencia visual y CSV sintético en la carpeta de seguimiento de Entrega 4.

@@ -165,6 +165,11 @@ class Router {
         $this->register('GET@/reservas/huespedes/exportar', 'HuespedesReservaController@exportar');
         $this->register('GET@/unidades/libro', 'HuespedesReservaController@deLaUnidad');
         // ---------- fin Épica 4 ----------
+
+        // ---------- Pagos (L2-28, L2-30: seña) ----------
+        $this->register('GET@/pagos/sena', 'PagosController@sena');
+        $this->register('POST@/pagos/confirmar', 'PagosController@confirmar');
+        // ---------- fin Pagos ----------
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){

@@ -2,9 +2,9 @@
 
 Las reservas de la plataforma. Las convenciones generales (URL base, formato de los errores, sesiones) están en el `Readme.md`, sección "API: rutas y contratos".
 
-**Entrega 4, sin pagos:** la reserva se crea **pendiente** y ocupa sus noches hasta que se cancele. Los pagos (seña y saldo) llegan en la entrega final, con la pasarela de pago por blockchain. Ahí la reserva va a pasar a **confirmada** al pagarse la seña, y las pendientes sin pagar van a vencer (**expirada**).
+**Seña:** la reserva se crea **pendiente** y guarda sus noches durante `minutos_bloqueo_reserva` (15 por defecto) mientras el huésped paga la seña ([pagos](pagos.md)). Pagada, pasa a **confirmada**. Si no paga a tiempo, deja de ocupar sus noches y se ve **expirada**. Una unidad sin seña (0 %) confirma la reserva al momento. El saldo llega con la épica L2-6.
 
-**Noches:** una reserva del 5 al 10 ocupa las noches 5, 6, 7, 8 y 9. La fecha de egreso no es una noche: ese día puede entrar otro huésped (RN-08). Las reservas **pendientes, confirmadas y finalizadas** ocupan sus noches contratadas en la búsqueda, el detalle, el calendario y los bloqueos; las canceladas y expiradas, no.
+**Noches:** una reserva del 5 al 10 ocupa las noches 5, 6, 7, 8 y 9. La fecha de egreso no es una noche: ese día puede entrar otro huésped (RN-08). Las reservas **pendientes (sin vencer), confirmadas y finalizadas** ocupan sus noches contratadas en la búsqueda, el detalle, el calendario y los bloqueos; las canceladas y expiradas, no.
 
 ## Crear una reserva
 
@@ -21,7 +21,7 @@ Se guarda la **foto de las condiciones** que el huésped acepta: el total (la su
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `201` | `{"ok": "Reservaste Casa del Bosque", "reserva": {"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00"}}` | Se reservó. |
+| `201` | `{"ok": "Reservaste Casa del Bosque: pagá la seña antes de las 17:15 para confirmarla", "reserva": {"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z"}}` | Se reservó. `vence_en` (UTC) es hasta cuándo se puede pagar la seña. Sin seña: `"estado": "confirmada"`, `"vence_en": null` y el mensaje "Reservaste Casa del Bosque: tu reserva está confirmada". |
 | `401` | `{"error": "No hay sesión iniciada"}` | |
 | `403` | `{"error": "Tenés que verificar tu mail para hacer esto"}` o `{"error": "No tenés permiso para hacer esto"}` | Sin el mail verificado, o es administrador, operador o backoffice. |
 | `404` | `{"error": "No encontramos ese alojamiento"}` | No existe o no está publicada. |
@@ -35,11 +35,11 @@ Se guarda la **foto de las condiciones** que el huésped acepta: el total (la su
 GET /reservas/mias
 ```
 
-Las reservas del usuario logueado (huésped o propietario), **todas** (también las canceladas), de la más nueva a la más vieja según el ingreso. `puede_cancelar` es `true` solo para las pendientes. La dirección exacta no se muestra todavía: se le va a dar al huésped cuando la reserva esté confirmada (pagada).
+Las reservas del usuario logueado (huésped o propietario), **todas** (también las canceladas y expiradas), de la más nueva a la más vieja según el ingreso. `puede_pagar` y `puede_cancelar` son `true` solo para las pendientes sin vencer, y `vence_en` dice hasta cuándo se paga la seña (`null` en las demás). Una pendiente vencida aparece con `"estado": "expirada"`. La dirección exacta no se muestra todavía: se le va a dar al huésped cuando la reserva esté confirmada (pagada).
 
 | Código | Cuerpo |
 |---|---|
-| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "puede_cancelar": true, "alojamiento": {"id": 5, "nombre": "Casa del Bosque", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires", "foto_principal": "https://res.cloudinary.com/..."}}]}` (o `[]`) |
+| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z", "puede_pagar": true, "puede_cancelar": true, "alojamiento": {"id": 5, "nombre": "Casa del Bosque", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires", "foto_principal": "https://res.cloudinary.com/..."}}]}` (o `[]`) |
 | `401` / `403` | Sin sesión / no es huésped ni propietario. |
 
 ## Cancelar una reserva
@@ -49,13 +49,13 @@ POST /reservas/cancelar
 {"reserva_id": 12}
 ```
 
-El huésped cancela **su reserva pendiente** y las noches quedan libres. Como todavía no pagó nada, no hay devolución. Cancelar una reserva confirmada, con su política de cancelación, llega con los pagos.
+El huésped cancela **su reserva pendiente** (sin vencer) y las noches quedan libres. Como todavía no pagó nada, no hay devolución. Cancelar una reserva confirmada, con su política de cancelación, es la épica L2-12.
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
 | `200` | `{"ok": "Cancelaste la reserva: esas noches quedaron libres"}` | |
 | `404` | `{"error": "No encontramos esa reserva"}` | No existe, no es suya o el id no es válido. |
-| `409` | `{"error": "Esa reserva ya estaba cancelada"}` o `{"error": "Por ahora solo se puede cancelar una reserva pendiente de pago"}` | |
+| `409` | `{"error": "Esa reserva ya estaba cancelada"}`, `{"error": "Esa reserva ya venció sin pagar la seña: sus noches ya están libres"}`, `{"error": "Por ahora solo se puede cancelar una reserva pendiente de pago"}` o `{"error": "La reserva cambió mientras la cancelabas: actualizá la página"}` (se pagó la seña o venció al mismo tiempo) | |
 
 ## Reservas de una unidad (propietario y administrador)
 
