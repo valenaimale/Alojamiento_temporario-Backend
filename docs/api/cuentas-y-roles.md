@@ -27,7 +27,8 @@ POST /registrarse
     "domicilio_fiscal": "Av. Siempreviva 742, Luján, Buenos Aires",
     "cbu": "2850590940090418135201",
     "alias": "ana.alojamientos",
-    "titular_cuenta": "Ana Pérez"
+    "titular_cuenta": "Ana Pérez",
+    "billetera": "0x734779432891a4E2C9152FdF6eCFFC34825b36B4"
 }
 ```
 
@@ -47,6 +48,7 @@ POST /registrarse
 | `cbu` | Solo si `rol` es `propietario` o `administrador`, y ahí es obligatorio. 22 números con sus dos dígitos verificadores correctos. Se puede mandar con espacios o guiones: se guarda solo con números. |
 | `alias` | Opcional (propietario o administrador). De 6 a 20 caracteres: letras sin tilde ni ñ, números, puntos y guiones. Se guarda en minúsculas. Vacío = sin alias. |
 | `titular_cuenta` | Solo si `rol` es `propietario` o `administrador`, y ahí es obligatorio. Entre 2 y 150 caracteres. |
+| `billetera` | Solo si `rol` es `propietario` o `administrador`, y ahí es obligatorio. La dirección **pública** de su billetera de Ethereum (la que muestra MetaMask): `0x` y 40 caracteres hexadecimales. Se guarda en minúsculas. Ahí cobra en ETH lo que le liquida el contrato de pagos. |
 
 Si el `rol` es `huesped` u `operador`, los datos fiscales y bancarios se ignoran. Si cobra IVA es `"0"`, el CUIT, la razón social y el domicilio fiscal se ignoran y quedan vacíos.
 
@@ -71,6 +73,7 @@ Si el `rol` es `huesped` u `operador`, los datos fiscales y bancarios se ignoran
 | `422` | `{"error": "El CBU no es válido: revisá que esté bien escrito"}` | El CBU tiene 22 números pero algún dígito verificador está mal (un número mal escrito). |
 | `422` | `{"error": "El alias debe tener entre 6 y 20 caracteres: letras sin tilde, números, puntos o guiones"}` | Se mandó un alias con otro largo o con otros caracteres. |
 | `422` | `{"error": "El titular de la cuenta debe tener entre 2 y 150 caracteres"}` | Falta el titular, o es demasiado corto o largo. |
+| `422` | `{"error": "La billetera tiene que ser una dirección de Ethereum: 0x y 40 caracteres (copiala de MetaMask)"}` | Falta la billetera, no tiene ese formato, o es la dirección `0x000…000`. |
 | `422` | `{"error": "El mail ya está registrado"}` | Ya existe una cuenta con ese mail. |
 | `422` | `{"error": "El DNI ya está registrado"}` | Ya existe una cuenta con ese DNI. |
 | `422` | `{"error": "El CUIT ya está registrado"}` | Ya existe un propietario o un administrador con ese CUIT. |
@@ -96,11 +99,12 @@ Convierte al huésped logueado en propietario. Es la misma cuenta, con el mismo 
     "domicilio_fiscal": "Av. Siempreviva 742, Luján, Buenos Aires",
     "cbu": "2850590940090418135201",
     "alias": "ana.alojamientos",
-    "titular_cuenta": "Ana Pérez"
+    "titular_cuenta": "Ana Pérez",
+    "billetera": "0x734779432891a4E2C9152FdF6eCFFC34825b36B4"
 }
 ```
 
-Si no cobra IVA, alcanza con `cobra_iva` en `"0"` y la cuenta bancaria. Las reglas de cada campo son las mismas que en el registro.
+Si no cobra IVA, alcanza con `cobra_iva` en `"0"`, la cuenta bancaria y la billetera. Las reglas de cada campo son las mismas que en el registro.
 
 **Responde:**
 
@@ -111,7 +115,7 @@ Si no cobra IVA, alcanza con `cobra_iva` en `"0"` y la cuenta bancaria. Las regl
 | `403` | `{"error": "No tenés permiso para hacer esto"}` | El usuario es administrador, operador o backoffice. |
 | `409` | `{"error": "Ya sos propietario"}` | El usuario ya es propietario. |
 | `422` | `{"error": "Completá tu DNI antes de hacerte propietario"}` | La cuenta no tiene DNI (cuentas creadas con Google). |
-| `422` | Los mismos errores de los datos fiscales y bancarios del registro | `cobra_iva`, CUIT, razón social, domicilio fiscal, CBU, alias o titular inválidos. |
+| `422` | Los mismos errores de los datos fiscales y bancarios del registro | `cobra_iva`, CUIT, razón social, domicilio fiscal, CBU, alias, titular o billetera inválidos. |
 | `422` | `{"error": "El CUIT ya está registrado"}` | Ya existe un propietario o un administrador con ese CUIT. |
 
 ## Datos fiscales y bancarios
@@ -126,9 +130,32 @@ Devuelve los datos fiscales y bancarios del propietario o administrador logueado
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `200` | `{"datos_fiscales": {"cobra_iva": true, "cuit": "20301234563", "razon_social": "Ana Pérez Alojamientos", "domicilio_fiscal": "Av. Siempreviva 742, Luján, Buenos Aires", "cbu": "2850590940090418135201", "alias": "ana.alojamientos", "titular_cuenta": "Ana Pérez"}}` | Cobra IVA. El CUIT y el CBU vienen solo con números. |
-| `200` | `{"datos_fiscales": {"cobra_iva": false, "cuit": null, "razon_social": null, "domicilio_fiscal": null, "cbu": "2850590940090418135201", "alias": null, "titular_cuenta": "Ana Pérez"}}` | No cobra IVA y no cargó alias. |
+| `200` | `{"datos_fiscales": {"cobra_iva": true, "cuit": "20301234563", "razon_social": "Ana Pérez Alojamientos", "domicilio_fiscal": "Av. Siempreviva 742, Luján, Buenos Aires", "cbu": "2850590940090418135201", "alias": "ana.alojamientos", "titular_cuenta": "Ana Pérez", "billetera": "0x734779432891a4e2c9152fdf6ecffc34825b36b4"}}` | Cobra IVA. El CUIT y el CBU vienen solo con números. |
+| `200` | `{"datos_fiscales": {"cobra_iva": false, "cuit": null, "razon_social": null, "domicilio_fiscal": null, "cbu": "2850590940090418135201", "alias": null, "titular_cuenta": "Ana Pérez", "billetera": null}}` | No cobra IVA, no cargó alias y todavía no cargó su billetera (se registró antes de que existiera; ver abajo). |
 | `401` | `{"error": "No hay sesión iniciada"}` | No hay sesión, o expiró. |
 | `403` | `{"error": "No tenés permiso para hacer esto"}` | El usuario no es propietario ni administrador. |
 
 El detalle de un usuario en el backoffice (`GET /backoffice/usuario`) devuelve estos mismos datos en `datos_fiscales`, para propietarios y administradores (`null` para el resto).
+
+## Billetera de cobro
+
+```
+POST /datos-fiscales/billetera
+```
+
+Carga o cambia la billetera de cobro del propietario o administrador logueado. Es para los que se registraron antes de que se pidiera la billetera (les llega `"billetera": null` en `GET /datos-fiscales`) y para quien quiera cambiarla. Mientras no tenga billetera, sus liquidaciones quedan pendientes: el ETH sigue retenido en el contrato.
+
+**Envía:**
+
+```json
+{"billetera": "0x734779432891a4E2C9152FdF6eCFFC34825b36B4"}
+```
+
+**Responde:**
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"ok": "Guardamos tu billetera", "datos_fiscales": {…}}` | Se guardó (también si era la misma). `datos_fiscales` es lo mismo que devuelve `GET /datos-fiscales`. |
+| `401` | `{"error": "No hay sesión iniciada"}` | No hay sesión, o expiró. |
+| `403` | `{"error": "No tenés permiso para hacer esto"}` | El usuario no es propietario ni administrador. |
+| `422` | `{"error": "La billetera tiene que ser una dirección de Ethereum: 0x y 40 caracteres (copiala de MetaMask)"}` | Falta, no tiene el formato `0x` + 40 hexadecimales, o es la dirección `0x000…000`. |

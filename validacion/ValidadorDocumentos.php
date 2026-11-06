@@ -2,7 +2,7 @@
 
 namespace App\Validacion;
 
-//Validación de DNI, CUIT, CBU y alias. Siempre se normaliza primero y se valida el resultado normalizado.
+//Validación de DNI, CUIT, CBU, alias y billetera. Siempre se normaliza primero y se valida el resultado normalizado.
 class ValidadorDocumentos
 {
     //Saca puntos, guiones y espacios: "30.123.456" → "30123456"
@@ -87,5 +87,19 @@ class ValidadorDocumentos
     public static function esAliasValido(string $alias): bool
     {
         return preg_match('/^[a-z0-9.\-]{6,20}$/', $alias) === 1;
+    }
+
+    //La billetera (dirección de Ethereum) no distingue mayúsculas: se guarda en minúsculas.
+    //"  0xAbC…  " → "0xabc…". Las mayúsculas de MetaMask son solo un control de tipeo (EIP-55), no cambian la dirección.
+    public static function normalizarBilletera(string $billetera): string
+    {
+        return strtolower(trim($billetera));
+    }
+
+    //Billetera ya normalizada: "0x" y 40 hexadecimales, y que no sea la dirección 0x000…000 (no es de nadie:
+    //lo que se le manda se pierde para siempre)
+    public static function esBilleteraValida(string $billetera): bool
+    {
+        return preg_match('/^0x[0-9a-f]{40}$/', $billetera) === 1 && $billetera !== '0x' . str_repeat('0', 40);
     }
 }
