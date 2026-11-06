@@ -32,11 +32,23 @@ Cuando el **huésped ingresa**, no cuando se va: es el momento en que el contrat
 
 El importe cobrado es la suma de los pagos **confirmados** de tipo `sena` y `saldo` de esa reserva. Si es menor que el total de la reserva, la liquidación se calcula igual pero queda en **`retenida_por_deuda`** y la respuesta trae `faltante` con lo que falta cobrar: es **RN-16**, *"no se liquida lo que todavía no se cobró"*.
 
+Desde la decisión **#25** de [`../pagos-decisiones.md`](../pagos-decisiones.md) (*no se registra el ingreso sin el saldo pago*), `retenida_por_deuda` casi no debería aparecer: queda como red de seguridad para las estadías registradas antes de esa regla y para cualquier caso en el que lo cobrado no llegue al total.
+
 | Estado | Qué significa |
 |---|---|
 | `pendiente` | Calculada, lista para transferirle al propietario |
 | `retenida_por_deuda` | Falta cobrar parte de la estadía (RN-16). No se puede pagar |
 | `pagada` | Ya se le transfirió. Tiene `liquidada_en` |
+
+## La billetera de cobro
+
+`liquidar()` del contrato le manda a cada uno su parte **a su billetera**: `propietarios.billetera` y `administradores.billetera` (decisión **#42**, migración `20261106120000`). Son direcciones públicas, en minúsculas, y se cargan desde el perfil (`POST /datos-fiscales/billetera`).
+
+Los que se registraron antes de esa columna la tienen en `NULL`. **Mientras no la carguen, su liquidación queda `pendiente` y no se paga** (#44): el ETH sigue retenido en el contrato y se liquida cuando la carguen. Nunca se le manda a otra billetera, porque eso mezclaría su plata con la de la plataforma, que es justamente lo que el escrow evita.
+
+Por eso las tres respuestas traen **`faltan_billeteras`**: un arreglo con `"propietario"`, `"administrador"`, los dos, o vacío si se puede liquidar. En una unidad de autogestión no se mira la del administrador, porque no hay comisión que transferirle.
+
+Las billeteras se leen **en el momento de pagar**, no se copian en la liquidación: la plata va a la billetera que la persona tenga cargada cuando se le transfiere, no a la que tenía el día en que se calculó. Es distinto de la condición fiscal y de los porcentajes, que sí se congelan.
 
 ## Las liquidaciones del propietario (RF-13)
 
@@ -55,14 +67,17 @@ Solo el propietario, y solo las de sus unidades. De la más nueva a la más viej
   "cobra_iva": true,
   "importe_cobrado": "425000.00", "porcentaje_iva": "21.00", "importe_iva": "73760.33", "base_comisiones": "351239.67",
   "porcentaje_comision_plataforma": "7.50", "comision_plataforma": "26342.98",
-  "administrador": {"nombre": "Cacho Fernández", "cuit": "20301234563", "cobra_iva": true, "porcentaje": "10.00"},
+  "administrador": {"nombre": "Cacho Fernández", "cuit": "20301234563", "cobra_iva": true, "porcentaje": "10.00",
+                    "billetera": "0x90f79bf6eb2c4f870365e785982e1f101e93b906"},
   "comision_administrador": "35123.97",
   "importe_propietario": "363533.05",
-  "faltante": null
+  "faltante": null,
+  "billetera": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "faltan_billeteras": []
 }]}
 ```
 
-`administrador` es `null` si la unidad es de autogestión, y entonces `comision_administrador` es `"0.00"`. `faltante` solo trae un importe cuando el estado es `retenida_por_deuda`.
+`administrador` es `null` si la unidad es de autogestión, y entonces `comision_administrador` es `"0.00"`. `faltante` solo trae un importe cuando el estado es `retenida_por_deuda`. `billetera` es la del propietario logueado (`null` si todavía no la cargó) y `administrador.billetera`, la del administrador.
 
 | Código | Cuándo |
 |---|---|
@@ -83,9 +98,13 @@ Solo el administrador, y solo las de las unidades que administra. **No** trae lo
   "reserva": {"id": 5, "ingreso": "2026-10-27", "egreso": "2026-11-01", "noches": 5, "...": "..."},
   "propietario": "Elsa Quiroga",
   "base_comisiones": "351239.67", "porcentaje": "10.00", "comision": "35123.97",
-  "faltante": null
+  "faltante": null,
+  "billetera": "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+  "faltan_billeteras": []
 }]}
 ```
+
+Acá `billetera` es la **del administrador logueado**, la dirección a la que le va a llegar su comisión.
 
 ## El comprobante sin valor fiscal (RF-13, RF-19, RN-25)
 
@@ -100,7 +119,7 @@ Lo pueden pedir el propietario de la unidad, el administrador de esa liquidació
 | `propietario` | El propietario (o el backoffice) | El reparto completo: su condición fiscal y su CUIT o DNI, el importe cobrado, el IVA, la base, las dos comisiones (y el nombre y CUIT del administrador, porque su comisión sale de esta liquidación) y el importe final |
 | `administrador` | El administrador | Solo su comisión, con **su** condición fiscal y su CUIT, para facturarla aparte (RF-19). Del propietario, nada más que el nombre |
 
-Los dos traen `"sin_valor_fiscal": true`: el front tiene que mostrarlo al pie.
+Los dos traen `"sin_valor_fiscal": true`: el front tiene que mostrarlo al pie. Y los dos traen la billetera de cobro de cada parte (`propietario.billetera`, `administrador.billetera`) y `faltan_billeteras`, porque es parte de cómo se le paga.
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
@@ -137,9 +156,10 @@ Registra que ya se le transfirió al propietario y al administrador: deja la liq
 | `200` | `{"ok": "Liquidación pagada"}` | |
 | `409` | `{"error": "Esa liquidación ya estaba pagada"}` | Dos pedidos juntos: solo el primero la paga |
 | `409` | `{"error": "Esa liquidación está retenida: todavía no se cobró toda la estadía"}` | RN-16 |
+| `409` | `{"error": "El propietario todavía no cargó su billetera de cobro: ..."}` | Falta una billetera (#44). También el caso del administrador y el de los dos |
 | `404` | `{"error": "No encontramos esa liquidación"}` | |
 
-> **Pendiente:** hoy `pagar` solo registra el cambio de estado. Cuando esté la billetera de la plataforma y la firma de transacciones (Rol 2), acá va la llamada a `liquidar(reservaId, destinatarios[], montos[])` del contrato y los pagos de tipo `liquidacion` en la tabla `pagos`, uno por destinatario, con el mismo `tx_hash`. Para eso hace falta además guardar la billetera del propietario y del administrador, que todavía no tienen columna.
+> **Pendiente:** hoy `pagar` solo registra el cambio de estado. Cuando esté el **firmador real** de la plataforma (`PLATAFORMA_CLAVE_PRIVADA`, pendiente del Rol 2), acá va la llamada a `liquidar(reservaId, destinatarios[], montos[])` del contrato y los pagos de tipo `liquidacion` en la tabla `pagos`, uno por destinatario, con el mismo `tx_hash`. Los destinatarios son `propietarios.billetera` y `administradores.billetera`, que es lo que ya controla el `409` de arriba.
 
 ## Tablas
 

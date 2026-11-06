@@ -226,6 +226,78 @@ final class LiquidacionesTest extends CasoDeIntegracion
         $this->assertStringContainsString('retenida', $respuesta->json()['error']);
     }
 
+    //Sin la billetera de cobro del propietario no se liquida: el ETH se queda en el contrato hasta que
+    //la cargue, porque no hay a dónde mandarle su parte (#44). La liquidación sigue pendiente.
+    public function testNoSePuedePagarSinLaBilleteraDelPropietario(): void
+    {
+        $escena = $this->escena();
+        $this->generar();
+        $id = $this->liquidacionesDe($escena['propietario']['mail'])[0]['id'];
+        $this->borrarBilleteraEnBase('propietarios', $escena['propietario']['id']);
+
+        $respuesta = $this->sesionDeBackoffice()->post('/liquidaciones/pagar', ['liquidacion_id' => $id]);
+
+        $this->assertSame(409, $respuesta->codigo);
+        $this->assertStringContainsString('billetera', $respuesta->json()['error']);
+        $this->assertSame('pendiente', $this->liquidacionesDe($escena['propietario']['mail'])[0]['estado']);
+    }
+
+    //Tampoco se liquida si el que no cargó la billetera es el administrador: su comisión también sale
+    //del contrato, y liquidar() manda las dos partes en la misma transacción
+    public function testNoSePuedePagarSinLaBilleteraDelAdministrador(): void
+    {
+        $escena = $this->escena(['comision' => 10]);
+        $this->generar();
+        $id = $this->liquidacionesDe($escena['propietario']['mail'])[0]['id'];
+        $this->borrarBilleteraEnBase('administradores', $escena['administrador']['id']);
+
+        $respuesta = $this->sesionDeBackoffice()->post('/liquidaciones/pagar', ['liquidacion_id' => $id]);
+
+        $this->assertSame(409, $respuesta->codigo);
+        $this->assertStringContainsString('administrador', $respuesta->json()['error']);
+    }
+
+    //En una unidad de autogestión no hay administrador: con la billetera del propietario alcanza para liquidar
+    public function testUnaUnidadDeAutogestionSeLiquidaConLaBilleteraDelPropietario(): void
+    {
+        $escena = $this->escena(['comision' => null]);
+        $this->generar();
+        $id = $this->liquidacionesDe($escena['propietario']['mail'])[0]['id'];
+
+        $respuesta = $this->sesionDeBackoffice()->post('/liquidaciones/pagar', ['liquidacion_id' => $id]);
+
+        $this->assertSame(200, $respuesta->codigo);
+    }
+
+    //El propietario ve su billetera y, si no la cargó, que es lo que falta para que le transfieran (#44)
+    public function testLaLiquidacionDiceQuienNoCargoSuBilletera(): void
+    {
+        $escena = $this->escena(['comision' => 10]);
+        $this->generar();
+
+        $conTodo = $this->liquidacionesDe($escena['propietario']['mail'])[0];
+        $this->borrarBilleteraEnBase('propietarios', $escena['propietario']['id']);
+        $sinBilletera = $this->liquidacionesDe($escena['propietario']['mail'])[0];
+
+        $this->assertSame([], $conTodo['faltan_billeteras']);
+        $this->assertNotNull($conTodo['billetera']);
+        $this->assertSame(['propietario'], $sinBilletera['faltan_billeteras']);
+        $this->assertNull($sinBilletera['billetera']);
+    }
+
+    //El administrador también ve la suya en sus comisiones
+    public function testElAdministradorVeSuBilleteraEnSusComisiones(): void
+    {
+        $escena = $this->escena(['comision' => 10]);
+        $this->generar();
+        $administrador = $this->iniciarSesion($escena['administrador']['mail']);
+
+        $comision = $administrador->get('/administrador/comisiones')->json()['comisiones'][0];
+
+        $this->assertNotNull($comision['billetera']);
+        $this->assertSame([], $comision['faltan_billeteras']);
+    }
+
     //Una liquidación que no existe da 404, y un id que no es un número también
     public function testPagarAlgoQueNoExisteDevuelve404(): void
     {
@@ -346,6 +418,13 @@ final class LiquidacionesTest extends CasoDeIntegracion
         $respuesta = $this->sesionDeBackoffice()->post('/liquidaciones/generar');
         $this->assertSame(200, $respuesta->codigo, "No se pudieron generar las liquidaciones: {$respuesta->cuerpo}");
         return $respuesta->json();
+    }
+
+    //Le borra la billetera de cobro, como la tienen los propietarios y administradores que se registraron
+    //antes de que existiera la columna y todavía no la cargaron (#44)
+    private function borrarBilleteraEnBase(string $tabla, int $usuarioId): void
+    {
+        $this->pdo()->prepare("UPDATE {$tabla} SET billetera = NULL WHERE usuario_id = ?")->execute([$usuarioId]);
     }
 
     //Las liquidaciones que ve ese propietario

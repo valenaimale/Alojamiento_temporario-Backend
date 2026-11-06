@@ -74,6 +74,9 @@ class Liquidacion
 
         //RN-16, "no se liquida lo que todavía no se cobró": si falta parte del saldo, la liquidación se calcula
         //igual pero queda retenida, y el propietario ve cuánto falta.
+        //Desde la decisión #25 de docs/pagos-decisiones.md (no se registra el ingreso sin el saldo pago) esto
+        //casi no debería pasar: queda como red de seguridad para las estadías registradas antes de esa regla
+        //y para cualquier caso en el que lo cobrado no llegue al total de la reserva.
         $estado = self::aCentesimas((string) $datos['cobrado']) < self::aCentesimas((string) $datos['importe_total'])
             ? 'retenida_por_deuda'
             : 'pendiente';
