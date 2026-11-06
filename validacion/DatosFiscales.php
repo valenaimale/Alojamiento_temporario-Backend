@@ -8,7 +8,8 @@ use App\Database\Conexion;
 //Los dos roles tienen los mismos datos, así que se validan y se guardan en un solo lugar:
 //lo usan el registro (RegistroController) y "hacerme propietario" (PropietarioController).
 //  - cobra_iva: siempre. Si cobra IVA, también cuit, razon_social y domicilio_fiscal.
-//  - cbu y titular_cuenta: siempre (donde cobra lo que se le liquida). alias: opcional.
+//  - cbu y titular_cuenta: siempre (donde cobra lo que se le liquida en pesos). alias: opcional.
+//  - billetera: siempre (donde cobra en ETH lo que le liquida el contrato PasarelaPago).
 class DatosFiscales
 {
     //Las únicas tablas donde se guardan: el nombre de una tabla no se puede pasar como parámetro de PDO,
@@ -17,7 +18,7 @@ class DatosFiscales
 
     //Valida los datos que llegan en el JSON y los deja listos para guardar.
     //Si algo está mal devuelve ['error' => 'mensaje'].
-    //Si está bien devuelve cobra_iva (0 o 1), cuit, razon_social, domicilio_fiscal, cbu, alias y titular_cuenta,
+    //Si está bien devuelve cobra_iva (0 o 1), cuit, razon_social, domicilio_fiscal, cbu, alias, titular_cuenta y billetera,
     //con los datos fiscales en null cuando no cobra IVA y el alias en null cuando no lo cargó.
     public static function validar(array $datos): array
     {
@@ -62,7 +63,35 @@ class DatosFiscales
             return ['error' => 'El titular de la cuenta debe tener entre 2 y 150 caracteres'];
         }
 
-        return $fiscales + ['cbu' => $cbu, 'alias' => $alias === '' ? null : $alias, 'titular_cuenta' => $titular];
+        $billetera = self::validarBilletera($datos['billetera'] ?? '');
+        if (isset($billetera['error'])) {
+            return $billetera;
+        }
+
+        return $fiscales + ['cbu' => $cbu, 'alias' => $alias === '' ? null : $alias, 'titular_cuenta' => $titular]
+            + $billetera;
+    }
+
+    //Valida la billetera de cobro. Devuelve ['billetera' => '0x…'] en minúsculas, o ['error' => 'mensaje'].
+    //La usan validar() y el cambio de billetera desde el perfil (PropietarioController::billetera).
+    public static function validarBilletera(mixed $billetera): array
+    {
+        $billetera = ValidadorDocumentos::normalizarBilletera(is_string($billetera) ? $billetera : '');
+        if (!ValidadorDocumentos::esBilleteraValida($billetera)) {
+            return ['error' => 'La billetera tiene que ser una dirección de Ethereum: 0x y 40 caracteres (copiala de MetaMask)'];
+        }
+        return ['billetera' => $billetera];
+    }
+
+    //Cambia (o carga por primera vez) la billetera de cobro del usuario, en propietarios o en administradores según $rol.
+    //Devuelve false si el usuario no tiene su fila de datos fiscales.
+    public static function cambiarBilletera(string $rol, int $usuarioId, string $billetera): bool
+    {
+        $tabla = self::TABLAS[$rol] ?? throw new \InvalidArgumentException("El rol $rol no tiene datos fiscales");
+        $consulta = Conexion::obtener()->prepare("UPDATE {$tabla} SET billetera = ? WHERE usuario_id = ?");
+        $consulta->execute([$billetera, $usuarioId]);
+        //rowCount() cuenta las filas cambiadas: si la billetera era la misma da 0, así que se busca la fila
+        return $consulta->rowCount() > 0 || self::buscar($rol, $usuarioId) !== null;
     }
 
     //Devuelve true si el CUIT ya lo tiene un propietario o un administrador.
@@ -85,8 +114,8 @@ class DatosFiscales
     {
         $tabla = self::TABLAS[$rol] ?? throw new \InvalidArgumentException("El rol $rol no tiene datos fiscales");
         $consulta = Conexion::obtener()->prepare(
-            "INSERT INTO {$tabla} (usuario_id, cobra_iva, cuit, razon_social, domicilio_fiscal, cbu, alias, titular_cuenta)
-             VALUES (:usuario_id, :cobra_iva, :cuit, :razon_social, :domicilio_fiscal, :cbu, :alias, :titular_cuenta)"
+            "INSERT INTO {$tabla} (usuario_id, cobra_iva, cuit, razon_social, domicilio_fiscal, cbu, alias, titular_cuenta, billetera)
+             VALUES (:usuario_id, :cobra_iva, :cuit, :razon_social, :domicilio_fiscal, :cbu, :alias, :titular_cuenta, :billetera)"
         );
         $consulta->execute([
             'usuario_id'       => $usuarioId,
@@ -97,10 +126,12 @@ class DatosFiscales
             'cbu'              => $datos['cbu'],
             'alias'            => $datos['alias'],
             'titular_cuenta'   => $datos['titular_cuenta'],
+            'billetera'        => $datos['billetera'],
         ]);
     }
 
     //Los datos fiscales y bancarios de un usuario, para mostrarlos (perfil y backoffice).
+    //billetera es null si es un usuario de antes de la billetera y todavía no la cargó.
     //Devuelve null si el rol no tiene datos fiscales o si el usuario no tiene su fila.
     public static function buscar(string $rol, int $usuarioId): ?array
     {
@@ -109,7 +140,7 @@ class DatosFiscales
             return null;
         }
         $consulta = Conexion::obtener()->prepare(
-            "SELECT cobra_iva, cuit, razon_social, domicilio_fiscal, cbu, alias, titular_cuenta FROM {$tabla} WHERE usuario_id = ?"
+            "SELECT cobra_iva, cuit, razon_social, domicilio_fiscal, cbu, alias, titular_cuenta, billetera FROM {$tabla} WHERE usuario_id = ?"
         );
         $consulta->execute([$usuarioId]);
         $fila = $consulta->fetch();//devuelve false si no encontró ninguna fila

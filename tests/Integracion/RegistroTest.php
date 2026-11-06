@@ -72,6 +72,7 @@ final class RegistroTest extends CasoDeIntegracion
             'cbu'              => $datos['cbu'],
             'alias'            => $datos['alias'],
             'titular_cuenta'   => $datos['titular_cuenta'],
+            'billetera'        => $datos['billetera'],
         ], $respuesta->json()['datos_fiscales']);
     }
 
@@ -90,6 +91,7 @@ final class RegistroTest extends CasoDeIntegracion
             'cbu'              => $datos['cbu'],
             'alias'            => null,
             'titular_cuenta'   => $datos['titular_cuenta'],
+            'billetera'        => $datos['billetera'],
         ], $respuesta->json()['datos_fiscales']);
 
         $consulta = $this->pdo()->prepare('SELECT COUNT(*) FROM administradores WHERE usuario_id = ?');
@@ -173,6 +175,8 @@ final class RegistroTest extends CasoDeIntegracion
             'administrador sin decir si cobra IVA' => [['rol' => 'administrador', 'cobra_iva' => ''], 'Indicá si cobrás IVA'],
             'administrador con CBU inválido' => [['rol' => 'administrador', 'cbu' => '2850590940090418135202'], 'El CBU no es válido: revisá que esté bien escrito'],
             'administrador sin titular'     => [['rol' => 'administrador', 'titular_cuenta' => ''], 'El titular de la cuenta debe tener entre 2 y 150 caracteres'],
+            'propietario sin billetera'     => [['rol' => 'propietario', 'billetera' => ''], 'La billetera tiene que ser una dirección de Ethereum: 0x y 40 caracteres (copiala de MetaMask)'],
+            'administrador con billetera inválida' => [['rol' => 'administrador', 'billetera' => '0x123'], 'La billetera tiene que ser una dirección de Ethereum: 0x y 40 caracteres (copiala de MetaMask)'],
         ];
     }
 

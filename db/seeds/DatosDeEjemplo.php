@@ -54,19 +54,22 @@ final class DatosDeEjemplo extends AbstractSeed
         $juan = $this->crearUsuario('Juan Pérez', 'juan@ejemplo.local', '40111555', 'huesped');
         $lucia = $this->crearUsuario('Lucía Sosa', 'lucia@ejemplo.local', '38111666', 'huesped');
 
+        //Las billeteras de cobro son las cuentas 1, 2 y 3 de Anvil (la red local de Foundry): públicas y sin valor
         //Marisa es monotributista: no discrimina IVA, así que las comisiones se calculan sobre el total (RN-24)
         $this->table('propietarios')->insert([
             'usuario_id' => $marisa, 'cobra_iva' => 0, 'cbu' => self::CBU, 'titular_cuenta' => 'Marisa Gómez',
+            'billetera' => '0x70997970c51812dc3a010c7d01b50e0d17dc79c8',
         ])->saveData();
         //Elsa es responsable inscripta: discrimina IVA, así que las comisiones se calculan sobre el neto sin IVA
         $this->table('propietarios')->insert([
             'usuario_id' => $elsa, 'cobra_iva' => 1, 'cuit' => '27234567891', 'razon_social' => 'Elsa Quiroga',
             'domicilio_fiscal' => 'Av. 3 n.º 1250, Villa Gesell', 'cbu' => self::CBU, 'alias' => 'elsa.gesell',
-            'titular_cuenta' => 'Elsa Quiroga',
+            'titular_cuenta' => 'Elsa Quiroga', 'billetera' => '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc',
         ])->saveData();
         $this->table('administradores')->insert([
             'usuario_id' => $cacho, 'cobra_iva' => 1, 'cuit' => '20301234563', 'razon_social' => 'Cacho Administraciones',
             'domicilio_fiscal' => 'Av. Costanera 450, Las Grutas', 'cbu' => self::CBU, 'alias' => 'cacho.admin', 'titular_cuenta' => 'Cacho Fernández',
+            'billetera' => '0x90f79bf6eb2c4f870365e785982e1f101e93b906',
         ])->saveData();
 
         //1. Publicada, de autogestión: temporada baja (mínimo 2 noches) y alta (mínimo 7), con precios y una semana bloqueada

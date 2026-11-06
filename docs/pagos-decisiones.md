@@ -1,6 +1,6 @@
 # Decisiones del Rol 2: pagos y reservas
 
-Las decisiones que tomamos al implementar la parte del Rol 2 del plan de la entrega del 80 %, y por qué. Las que dicen **a charlar** conviene confirmarlas con el equipo. El contrato de la API está en [`api/pagos.md`](api/pagos.md) y [`api/reservas.md`](api/reservas.md).
+Las decisiones que tomamos al implementar la parte del Rol 2 del plan de la entrega del 80 %, y por qué. Las que dicen **a charlar** conviene confirmarlas con el equipo; las que dicen **decidido (06/11)** ya las definió el equipo y falta implementarlas donde se indica. El contrato de la API está en [`api/pagos.md`](api/pagos.md) y [`api/reservas.md`](api/reservas.md).
 
 ## Verificación de los pagos
 
@@ -43,9 +43,9 @@ Las decisiones que tomamos al implementar la parte del Rol 2 del plan de la entr
 | 20 | Pagar el saldo deja `monto_faltante` en **0**; no agregamos una columna "saldo pagado". | El dato ya está: lo que falta es 0, y el pago queda en `pagos` con `tipo = 'saldo'`. |
 | 21 | `POST /pagos/confirmar` acepta un `tipo` **opcional**. Si no viene: una pendiente paga la seña y una confirmada el saldo. | Respeta la firma del plan (`{reserva_id, tx_hash}`) y deja al front ser explícito. |
 | 22 | El saldo se puede pagar **antes** de la `fecha_cobro`. | No hay motivo para impedirlo; el ETH queda en el contrato igual. |
-| 23 | **A charlar:** pasada la `fecha_cobro`, el saldo **se puede seguir pagando**. Figura `vencido` y la reserva **sigue `confirmada`** (no hay un estado nuevo). Se considera vencido desde el día siguiente a la `fecha_cobro`, en días de Argentina. | Con cripto no hay "cobro automático con reintentos" (L2-8): el huésped tiene que firmar. Cancelar sola la reserva o registrar una deuda (L2-9) es una regla de negocio que no definimos. |
+| 23 | **Decidido (06/11):** pasada la `fecha_cobro`, el huésped tiene **3 días** para pagar el saldo, o hasta el **día del ingreso** si eso llega antes (pasa cuando se reserva con menos de 3 días de anticipación); ese día lo puede pagar al llegar. Mientras tanto figura `vencido` y se puede pagar. Si vence ese plazo sin pagar, **la reserva se cancela sola** como una cancelación del huésped con el tramo de **menos de 15 días** (#30): se retiene ese % de la seña y se le devuelve el resto. **Hay que avisarlo al reservar**: en la pantalla de la reserva, en el mail de la seña confirmada y en los recordatorios del saldo. **Falta implementarlo:** un script con cron, como `reintentar-devoluciones.php`, que busque las vencidas y las cancele con la devolución. | Con cripto no hay "cobro automático con reintentos" (L2-8): el huésped tiene que firmar, así que sin una consecuencia el saldo podría no pagarse nunca. Una deuda (L2-9) no se puede cobrar con cripto. El plazo no pasa del ingreso porque el saldo es obligatorio para entrar (#25). |
 | 24 | El saldo no se paga antes de la seña, ni en una reserva cancelada, vencida o finalizada. | |
-| 25 | **A charlar:** registrar el ingreso **no exige** el saldo pago. | `EstadiasController` no es del Rol 2. Si se decide exigirlo, es un cambio de una línea allá. |
+| 25 | **Decidido (06/11):** **no se registra el ingreso sin el saldo pago** (`monto_faltante` = 0). Si falta, el back responde 409 y el huésped lo paga en el momento desde MetaMask. **Falta implementarlo** en `EstadiasController`. | El ingreso dispara la liquidación (`liquidar` del contrato): sin el saldo, en el contrato está solo la seña y el propietario cobraría de menos. |
 | 26 | En las reservas viejas sin `monto_faltante`, `puede_pagar_saldo` es `false`. | No inventamos un saldo que no está guardado. |
 
 ## Avisos
@@ -69,9 +69,18 @@ Las decisiones que tomamos al implementar la parte del Rol 2 del plan de la entr
 | 36 | Las devoluciones que fallaron las reintenta `scripts/reintentar-devoluciones.php`, a mano o con un cron. Toma solo las de más de 5 minutos y usa un candado de MySQL para no correr dos veces al mismo tiempo. | Para no mandar dos veces la misma devolución. Igual, el contrato no deja devolver más de lo que entró. |
 | 37 | La devolución se guarda en `pagos` con `tipo = 'devolucion'`. La retención no se guarda aparte: es lo pagado menos lo devuelto. | No hace falta tocar la tabla de Valentino. Las liquidaciones (Rol 4) la pueden calcular. |
 | 38 | Se le avisa por mail al propietario **antes** de mandar la devolución (L2-18), y al huésped después, con lo retenido y lo devuelto. | Lo pide L2-18. |
-| 39 | **A charlar:** la devolución sale **en el momento**. La excepción manual del propietario (L2-19: cambiar el monto **antes** de que la devolución se efectivice) es de la fase 3. Para hacerla, habría que demorar la devolución, por ejemplo unas horas, para que el propietario pueda intervenir. | Hoy lo prioritario es el circuito del dinero. Demorar la devolución también cambia lo que ve el huésped. |
+| 39 | **Decidido (06/11):** para esta entrega la devolución sale **en el momento**. **Para la entrega final es obligatoria** la excepción manual del propietario (L2-19: cambiar el monto **antes** de que la devolución se efectivice). Para hacerla hay que demorar la devolución (por ejemplo, unas horas) para que el propietario pueda intervenir, porque el contrato deja devolver **una sola vez** por reserva. | Hoy lo prioritario es el circuito del dinero. Demorar la devolución también cambia lo que ve el huésped. |
 | 40 | `GET /reservas/cancelacion` muestra lo mismo que se va a devolver, sin cambiar nada (L2-3). | El huésped ve el monto antes de confirmar. |
 | 41 | La reserva se traba con `FOR UPDATE` al cancelar. | Una cancelación y un pago del saldo al mismo tiempo no se pisan: una de las dos ve la reserva ya cambiada (409). |
+
+## Billeteras
+
+| # | Decisión | Por qué |
+|---|---|---|
+| 42 | **Decidido (06/11):** propietarios y administradores tienen una **billetera de cobro** (columna `billetera`, migración `20261106120000`), **obligatoria** en el registro y en "hacerme propietario". Es la dirección pública (`0x` + 40 hexadecimales), se guarda en minúsculas y se carga o cambia desde el perfil (`POST /datos-fiscales/billetera`). | `liquidar` del contrato necesita a qué billetera mandarle su parte al propietario y su comisión al administrador. |
+| 43 | El CBU, el alias y el titular **se mantienen**. | Sirven para cobrar en pesos; la billetera, para cobrar en ETH. |
+| 44 | Los que se registraron antes tienen la billetera en `NULL` hasta que la carguen. **Mientras no la carguen, sus liquidaciones quedan pendientes**: el ETH sigue retenido en el contrato, y `liquidar` se puede hacer después. | No se les puede inventar una billetera. Mandar su parte a la plataforma mezclaría su dinero con el de la plataforma, que es lo que el escrow evita. |
+| 45 | **El huésped no tiene columna de billetera.** Su billetera es la que pagó la seña (`pagos.billetera` y, en el contrato, `reservas(id).huesped`). | El contrato solo deja devolverle a esa billetera (#33), también cuando cancela el propietario. |
 
 ## Relación con Jira (proyecto L2)
 
@@ -83,12 +92,13 @@ Estado al 06/11/2026. Cada historia tiene un comentario con el detalle de lo hec
 | L2-30 Notificación de pago rechazado | En curso | 402 con el motivo y mail, para la seña y el saldo. | #23, #24 |
 | L2-8 Cobro automático del saldo | En curso | Pago del saldo. **Diferencia:** con cripto no puede ser automático, porque firma el huésped. Los recordatorios son del Rol 4 (RF-25). | #24 |
 | L2-18 Cancelar como huésped | En curso | Vista previa de la devolución, cancelación con retención por tramo, aviso al propietario. L2-3 parece un duplicado. | #24 |
-| L2-9 Deuda por saldo no cobrado | Por hacer | Depende de la decisión #23. | — |
-| L2-19 Excepción manual a la retención | Por hacer | Fase 3. Ver la decisión #39. | — |
+| L2-9 Deuda por saldo no cobrado | Por hacer | Se reemplaza por la cancelación automática de la decisión #23: con cripto una deuda no se puede cobrar. | — |
+| L2-19 Excepción manual a la retención | Por hacer | **Obligatoria para la entrega final.** Ver la decisión #39. | — |
 | Épicas L2-6 y L2-12 | En curso | Contienen L2-8 y L2-18. | — |
 
 ## Pendiente del Rol 2
 
 - `Blockchain.php`: el verificador real por RPC (`eth_getTransactionReceipt` y el evento `PagoRealizado`).
 - El firmador real de `devolver`, con `PLATAFORMA_CLAVE_PRIVADA`. Sirve también para `liquidar` (Rol 4).
-- Qué pasa con la reserva si el saldo vence sin pagarse (#23).
+- La cancelación automática del saldo vencido (#23): el script con cron que cancela y devuelve.
+- Para la entrega final: la demora de la devolución y la excepción del propietario (#39, L2-19).

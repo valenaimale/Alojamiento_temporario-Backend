@@ -150,7 +150,8 @@ GET /backoffice/usuario?id=9
     "domicilio_fiscal": "Av. Siempre Viva 742",
     "cbu": "2850590940090418135201",
     "alias": "perez.cabanias",
-    "titular_cuenta": "Ana Pérez"
+    "titular_cuenta": "Ana Pérez",
+    "billetera": "0x734779432891a4e2c9152fdf6ecffc34825b36b4"
 }
 ```
 

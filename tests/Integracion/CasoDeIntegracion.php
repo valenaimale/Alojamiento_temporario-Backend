@@ -93,14 +93,14 @@ abstract class CasoDeIntegracion extends TestCase
         return $this->crearConDatosFiscales('administrador', 'administradores', $cambios);
     }
 
-    //Crea el usuario y su fila en propietarios o administradores (sin IVA, con un CBU válido)
+    //Crea el usuario y su fila en propietarios o administradores (sin IVA, con un CBU y una billetera válidos)
     private function crearConDatosFiscales(string $rol, string $tabla, array $cambios): array
     {
         $usuario = $this->crearUsuarioEnBase($rol, $cambios);
         $consulta = $this->pdo()->prepare(
-            "INSERT INTO {$tabla} (usuario_id, cobra_iva, cbu, titular_cuenta) VALUES (?, 0, ?, ?)"
+            "INSERT INTO {$tabla} (usuario_id, cobra_iva, cbu, titular_cuenta, billetera) VALUES (?, 0, ?, ?, ?)"
         );
-        $consulta->execute([$usuario['id'], Datos::cbu(), $usuario['nombre']]);
+        $consulta->execute([$usuario['id'], Datos::cbu(), $usuario['nombre'], Datos::billetera()]);
         return $usuario;
     }
 

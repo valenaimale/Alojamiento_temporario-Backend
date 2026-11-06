@@ -28,7 +28,7 @@ class RegistroController{
         //'rol'                      => 'huesped',
         //]
         //Si el rol es propietario o administrador llegan ademas cobra_iva, cuit, razon_social, domicilio_fiscal,
-        //cbu, alias y titular_cuenta.
+        //cbu, alias, titular_cuenta y billetera.
         $nombre= trim($datos_registro['nombre'] ?? '');//trim elimina espacios en blanco al comienzo y al final del nombre
         $dni = trim($datos_registro['dni'] ?? '');
         $mail = strtolower(trim($datos_registro['mail'] ?? ''));//strtolower pasa el texto a todo minuscula

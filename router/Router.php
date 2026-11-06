@@ -81,6 +81,7 @@ class Router {
         // ---------- Tarea 1: cuentas y roles ----------
         $this->register('POST@/hacerse-propietario', 'PropietarioController@hacerse');
         $this->register('GET@/datos-fiscales', 'PropietarioController@datosFiscales');
+        $this->register('POST@/datos-fiscales/billetera', 'PropietarioController@billetera');
         // ---------- fin Tarea 1 ----------
 
         // ---------- Tarea 2: verificación de mail y backoffice ----------

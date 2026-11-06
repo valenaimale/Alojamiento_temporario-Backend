@@ -8,7 +8,7 @@ use App\Autorizacion\Autorizacion;
 use App\Autorizacion\SesionUsuario;
 use App\Validacion\DatosFiscales;
 
-//"Hacerme propietario" y los datos fiscales y bancarios del usuario logueado.
+//"Hacerme propietario", los datos fiscales y bancarios del usuario logueado y su billetera de cobro.
 //La validacion y el INSERT de esos datos estan en App\Validacion\DatosFiscales, porque tambien
 //los usa RegistroController (registro de propietarios y de administradores).
 class PropietarioController{
@@ -68,6 +68,29 @@ class PropietarioController{
 
         http_response_code(200);
         echo json_encode(['datos_fiscales' => $datos]);
+    }
+
+    //POST /datos-fiscales/billetera: carga o cambia la billetera de cobro del propietario o administrador logueado.
+    //Body: {"billetera": "0x…"}. La usan sobre todo los que se registraron antes de que existiera la billetera.
+    public function billetera(){
+        Autorizacion::requiereSesion();
+        $usuario = $_SESSION['usuario'];//el id sale siempre de la sesion, nunca de lo que manda el front
+        if($usuario['rol'] !== 'propietario' && $usuario['rol'] !== 'administrador'){
+            return $this->error('No tenés permiso para hacer esto', 403);
+        }
+
+        $datos = Request::datosJson();
+        $billetera = DatosFiscales::validarBilletera($datos['billetera'] ?? '');
+        if(isset($billetera['error'])){
+            return $this->error($billetera['error']);
+        }
+        if(!DatosFiscales::cambiarBilletera($usuario['rol'], $usuario['id'], $billetera['billetera'])){
+            //no deberia pasar: todo propietario y todo administrador tiene su fila con los datos fiscales
+            throw new \RuntimeException("El usuario {$usuario['id']} ({$usuario['rol']}) no tiene sus datos fiscales");
+        }
+
+        http_response_code(200);
+        echo json_encode(['ok' => 'Guardamos tu billetera', 'datos_fiscales' => DatosFiscales::buscar($usuario['rol'], $usuario['id'])]);
     }
 
     //Responde un error en JSON con su código HTTP

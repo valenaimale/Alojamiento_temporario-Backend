@@ -71,13 +71,20 @@ final class Datos
             . $bloque2 . $verificador($bloque2, [3, 9, 7, 1, 3, 9, 7, 1, 3, 9, 7, 1, 3]);
     }
 
-    //La cuenta bancaria que piden el registro de propietarios y administradores y "hacerme propietario"
+    //Una billetera de cobro válida: 0x y 40 hexadecimales al azar, en minúsculas (como la guarda el back)
+    public static function billetera(): string
+    {
+        return '0x' . bin2hex(random_bytes(20));
+    }
+
+    //La cuenta bancaria y la billetera que piden el registro de propietarios y administradores y "hacerme propietario"
     public static function cuentaBancaria(): array
     {
         return [
             'cbu'            => self::cbu(),
             'alias'          => 'cuenta.' . bin2hex(random_bytes(4)),
             'titular_cuenta' => 'Persona de Prueba',
+            'billetera'      => self::billetera(),
         ];
     }
 
