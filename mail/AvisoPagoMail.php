@@ -4,9 +4,10 @@ namespace App\Mail;
 
 use App\Config\Config;
 use App\Log\Log;
+use App\Validacion\ValidadorFechas;
 use App\Validacion\VencimientoReserva;
 
-//Avisa por mail al huésped el resultado del pago de la seña (L2-28, L2-30).
+//Avisa por mail al huésped el resultado del pago de la seña (L2-28, L2-30) y del saldo (L2-6, RF-26).
 //Regla: nunca lanza excepciones (si el mail falla, el pago ya quedó registrado y la respuesta no tiene que fallar).
 class AvisoPagoMail
 {
@@ -32,6 +33,33 @@ class AvisoPagoMail
             $huesped,
             "No pudimos confirmar el pago de la seña de tu reserva en $unidad",
             "El pago de la seña de tu reserva en $unidad no se pudo confirmar: $motivo.$plazo"
+        );
+    }
+
+    //"Recibimos el pago del saldo de tu reserva en Cabaña del Mar"
+    public static function saldoConfirmado(array $huesped, string $unidad, string $ingreso, string $monto): void
+    {
+        self::avisar(
+            $huesped,
+            "Recibimos el pago del saldo de tu reserva en $unidad",
+            'Recibimos el pago del saldo ($' . number_format((float) $monto, 2, ',', '.') . ") de tu estadía en $unidad. "
+                . 'Tu reserva está paga: te esperamos el ' . self::dia($ingreso) . '.'
+        );
+    }
+
+    //"No pudimos confirmar el pago del saldo de tu reserva en Cabaña del Mar" (RF-26)
+    //$fechaCobro: hasta cuándo tenía que pagarlo, o null si no se sabe.
+    public static function saldoFallido(array $huesped, string $unidad, string $motivo, ?string $fechaCobro): void
+    {
+        $plazo = match (true) {
+            $fechaCobro === null => ' Podés volver a pagarlo desde tus reservas.',
+            $fechaCobro < ValidadorFechas::hoy()->format('Y-m-d') => ' El plazo para pagarlo venció el ' . self::dia($fechaCobro) . ': pagalo antes de ingresar.',
+            default => ' Podés volver a pagarlo hasta el ' . self::dia($fechaCobro) . '.',
+        };
+        self::avisar(
+            $huesped,
+            "No pudimos confirmar el pago del saldo de tu reserva en $unidad",
+            "El pago del saldo de tu reserva en $unidad no se pudo confirmar: $motivo.$plazo"
         );
     }
 

@@ -143,6 +143,7 @@ final class PagosTest extends CasoDeIntegracion
         $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
         $this->assertSame([
             'ok'      => 'Pagaste la seña: tu reserva en Cabaña del Mar está confirmada',
+            'tipo'    => 'sena',
             'reserva' => ['id' => $reservaId, 'estado' => 'confirmada'],
             'pago'    => ['monto_pesos' => '42000.00', 'monto_wei' => '420000000000000', 'tx_hash' => $hash, 'red' => 31337],
         ], $respuesta->json());
@@ -154,8 +155,8 @@ final class PagosTest extends CasoDeIntegracion
         $mia = $cliente->get('/reservas/mias')->json()['reservas'][0];
         $this->assertSame(['confirmada', null, false, false], [$mia['estado'], $mia['vence_en'], $mia['puede_pagar'], $mia['puede_cancelar']]);
 
-        //pagar otra vez: ya está pagada
-        $otra = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash()]);
+        //pagar la seña otra vez: ya está pagada
+        $otra = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash(), 'tipo' => 'sena']);
         $this->assertSame(409, $otra->codigo);
         $this->assertSame(['error' => 'La seña de esa reserva ya está pagada'], $otra->json());
         $this->assertSame(409, $cliente->get('/pagos/sena', ['reserva_id' => $reservaId])->codigo);
@@ -210,6 +211,116 @@ final class PagosTest extends CasoDeIntegracion
         $this->assertSame(409, $respuesta->codigo);
         $this->assertSame(['error' => 'Esa transacción ya se usó para otro pago'], $respuesta->json());
         $this->assertSame('pendiente', $this->filaReserva($segunda)['estado']);
+    }
+
+    // ---------- pagar el saldo ----------
+
+    //Reserva y paga la seña: queda confirmada, con $168.000 de saldo
+    private function reservaConfirmada(ClienteApi $cliente, array $cambios = []): int
+    {
+        $reservaId = $this->reservar($cliente, $cambios);
+        $respuesta = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash()]);
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        return $reservaId;
+    }
+
+    //Con la seña paga: consulta el saldo, lo paga y la reserva queda sin nada que pagar
+    public function testPagaElSaldo(): void
+    {
+        $cliente = $this->huesped();
+        $reservaId = $this->reservaConfirmada($cliente);
+
+        $saldo = $cliente->get('/pagos/saldo', ['reserva_id' => $reservaId]);
+        $this->assertSame(200, $saldo->codigo, $saldo->cuerpo);
+        //$168.000 con 1 ETH = $100.000.000: 0,00168 ETH. Se cobra 5 días antes del ingreso (+10)
+        $this->assertSame([
+            'reserva_id' => $reservaId, 'tipo' => 'saldo', 'monto_pesos' => '168000.00', 'monto_wei' => '1680000000000000',
+            'pesos_por_eth' => '100000000', 'red' => 31337, 'fecha_cobro' => $this->fecha('+5 days'), 'vencido' => false,
+            'pago' => ['contrato' => null, 'funcion' => 'pagarSaldo', 'simulado' => true],
+        ], $saldo->json());
+        $mia = $cliente->get('/reservas/mias')->json()['reservas'][0];
+        $this->assertSame(['168000.00', true], [$mia['saldo'], $mia['puede_pagar_saldo']]);
+
+        //sin "tipo": la reserva ya está confirmada, así que paga el saldo
+        $hash = $this->hash();
+        $respuesta = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $hash]);
+
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame([
+            'ok'      => 'Pagaste el saldo: tu reserva en Cabaña del Mar está paga',
+            'tipo'    => 'saldo',
+            'reserva' => ['id' => $reservaId, 'estado' => 'confirmada'],
+            'pago'    => ['monto_pesos' => '168000.00', 'monto_wei' => '1680000000000000', 'tx_hash' => $hash, 'red' => 31337],
+        ], $respuesta->json());
+        $this->assertSame(['confirmada', '0.00'], [$this->filaReserva($reservaId)['estado'], $this->filaReserva($reservaId)['monto_faltante']]);
+        $this->assertSame([
+            $this->filaPago('confirmado'),
+            array_replace($this->filaPago('confirmado'), ['tipo' => 'saldo', 'monto_pesos' => '168000.00', 'monto_wei' => '1680000000000000']),
+        ], $this->pagosDe($reservaId));
+        $mia = $cliente->get('/reservas/mias')->json()['reservas'][0];
+        $this->assertSame(['0.00', false], [$mia['saldo'], $mia['puede_pagar_saldo']]);
+
+        //pagarlo otra vez: ya está pagado
+        $otra = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash()]);
+        $this->assertSame(['error' => 'El saldo de esa reserva ya está pagado'], $otra->json());
+        $this->assertSame(409, $cliente->get('/pagos/saldo', ['reserva_id' => $reservaId])->codigo);
+    }
+
+    //RF-26: si el pago del saldo falla, se guarda el intento, se avisa por qué (402) y se puede reintentar
+    public function testPagoDelSaldoFallidoAvisaYPermiteReintentar(): void
+    {
+        $cliente = $this->huesped();
+        $reservaId = $this->reservaConfirmada($cliente);
+
+        $respuesta = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash('dead'), 'tipo' => 'saldo']);
+
+        $this->assertSame(402, $respuesta->codigo, $respuesta->cuerpo);
+        $dia = (new \DateTimeImmutable($this->fecha('+5 days')))->format('d/m/Y');
+        $this->assertSame([
+            'error'       => "No pudimos confirmar el pago del saldo: La transacción falló en la red. Tenés tiempo hasta el $dia.",
+            'tipo'        => 'saldo',
+            'motivo'      => 'La transacción falló en la red',
+            'fecha_cobro' => $this->fecha('+5 days'),
+        ], $respuesta->json());
+        $this->assertSame(['confirmada', '168000.00'], [$this->filaReserva($reservaId)['estado'], $this->filaReserva($reservaId)['monto_faltante']]);
+        $this->assertSame(['confirmado', 'fallido'], array_column($this->pagosDe($reservaId), 'estado'));
+
+        $this->assertSame(200, $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash()])->codigo);
+        $this->assertSame('0.00', $this->filaReserva($reservaId)['monto_faltante']);
+    }
+
+    //El saldo no se paga antes de la seña, ni en una reserva cancelada o terminada; "tipo" tiene que ser válido
+    public function testCuandoNoSePagaElSaldo(): void
+    {
+        $cliente = $this->huesped();
+        $pendiente = $this->reservar($cliente);
+
+        $this->assertSame(['error' => 'Primero tenés que pagar la seña'], $cliente->get('/pagos/saldo', ['reserva_id' => $pendiente])->json());
+        $respuesta = $cliente->post('/pagos/confirmar', ['reserva_id' => $pendiente, 'tx_hash' => $this->hash(), 'tipo' => 'saldo']);
+        $this->assertSame([409, 'pendiente'], [$respuesta->codigo, $this->filaReserva($pendiente)['estado']]);
+        $this->assertSame([], $this->pagosDe($pendiente));
+        $this->assertSame(422, $cliente->post('/pagos/confirmar', ['reserva_id' => $pendiente, 'tx_hash' => $this->hash(), 'tipo' => 'otro'])->codigo);
+
+        foreach (['cancelada' => 'Esa reserva está cancelada', 'finalizada' => 'Esa estadía ya terminó'] as $estado => $error) {
+            $reservaId = $this->reservaConfirmada($cliente, ['ingreso' => $this->fecha('+20 days'), 'egreso' => $this->fecha('+23 days')]);
+            $this->pdo()->prepare('UPDATE reservas SET estado = ? WHERE id = ?')->execute([$estado, $reservaId]);
+            $respuesta = $cliente->get('/pagos/saldo', ['reserva_id' => $reservaId]);
+            $this->assertSame([409, ['error' => $error]], [$respuesta->codigo, $respuesta->json()], $estado);
+        }
+    }
+
+    //Pasada la fecha de cobro el saldo se puede seguir pagando, pero figura vencido (RF-26)
+    public function testElSaldoVencidoSeSiguePagando(): void
+    {
+        $cliente = $this->huesped();
+        $reservaId = $this->reservaConfirmada($cliente);
+        $this->pdo()->prepare('UPDATE reservas SET fecha_cobro = ? WHERE id = ?')->execute([$this->fecha('-1 day'), $reservaId]);
+
+        $this->assertTrue($cliente->get('/pagos/saldo', ['reserva_id' => $reservaId])->json()['vencido']);
+        $fallido = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash('dead')]);
+        $dia = (new \DateTimeImmutable($this->fecha('-1 day')))->format('d/m/Y');
+        $this->assertStringEndsWith("El plazo venció el $dia: pagalo antes de ingresar.", $fallido->json()['error']);
+        $this->assertSame(200, $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash()])->codigo);
     }
 
     // ---------- vencimiento ----------

@@ -35,11 +35,11 @@ Se guarda la **foto de las condiciones** que el huésped acepta: el total (la su
 GET /reservas/mias
 ```
 
-Las reservas del usuario logueado (huésped o propietario), **todas** (también las canceladas y expiradas), de la más nueva a la más vieja según el ingreso. `puede_pagar` y `puede_cancelar` son `true` solo para las pendientes sin vencer, y `vence_en` dice hasta cuándo se paga la seña (`null` en las demás). Una pendiente vencida aparece con `"estado": "expirada"`. La dirección exacta no se muestra todavía: se le va a dar al huésped cuando la reserva esté confirmada (pagada).
+Las reservas del usuario logueado (huésped o propietario), **todas** (también las canceladas y expiradas), de la más nueva a la más vieja según el ingreso. `puede_pagar` y `puede_cancelar` son `true` solo para las pendientes sin vencer, y `vence_en` dice hasta cuándo se paga la seña (`null` en las demás). `saldo` es lo que falta pagar (`"0.00"` cuando ya está pago), `fecha_cobro` hasta cuándo se paga, y `puede_pagar_saldo` es `true` en las confirmadas con saldo (se paga con `GET /pagos/saldo`, ver `pagos.md`). Las reservas anteriores al cobro pueden tener `saldo` y `fecha_cobro` en `null`. Una pendiente vencida aparece con `"estado": "expirada"`. La dirección exacta no se muestra todavía: se le va a dar al huésped cuando la reserva esté confirmada (pagada).
 
 | Código | Cuerpo |
 |---|---|
-| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z", "puede_pagar": true, "puede_cancelar": true, "alojamiento": {"id": 5, "nombre": "Casa del Bosque", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires", "foto_principal": "https://res.cloudinary.com/..."}}]}` (o `[]`) |
+| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z", "puede_pagar": true, "puede_cancelar": true, "saldo": "280000.00", "fecha_cobro": "2026-11-30", "puede_pagar_saldo": false, "alojamiento": {"id": 5, "nombre": "Casa del Bosque", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires", "foto_principal": "https://res.cloudinary.com/..."}}]}` (o `[]`) |
 | `401` / `403` | Sin sesión / no es huésped ni propietario. |
 
 ## Cancelar una reserva

@@ -267,12 +267,14 @@ final class ReservasTest extends CasoDeIntegracion
             [
                 'id' => $cancelada, 'estado' => 'cancelada', 'ingreso' => $this->fecha('+30 days'), 'egreso' => $this->fecha('+32 days'),
                 'noches' => 2, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00',
-                'vence_en' => null, 'puede_pagar' => false, 'puede_cancelar' => false, 'alojamiento' => $alojamiento,
+                'vence_en' => null, 'puede_pagar' => false, 'puede_cancelar' => false,
+                'saldo' => null, 'fecha_cobro' => null, 'puede_pagar_saldo' => false, 'alojamiento' => $alojamiento,
             ],
             [
                 'id' => $proxima, 'estado' => 'pendiente', 'ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+13 days'),
                 'noches' => 3, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00',
-                'vence_en' => $creada['vence_en'], 'puede_pagar' => true, 'puede_cancelar' => true, 'alojamiento' => $alojamiento,
+                'vence_en' => $creada['vence_en'], 'puede_pagar' => true, 'puede_cancelar' => true,
+                'saldo' => '168000.00', 'fecha_cobro' => $this->fecha('+5 days'), 'puede_pagar_saldo' => false, 'alojamiento' => $alojamiento,
             ],
         ]], $respuesta->json());
     }
