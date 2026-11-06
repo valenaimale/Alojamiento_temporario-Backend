@@ -165,6 +165,14 @@ class Router {
         $this->register('GET@/reservas/huespedes/exportar', 'HuespedesReservaController@exportar');
         $this->register('GET@/unidades/libro', 'HuespedesReservaController@deLaUnidad');
         // ---------- fin Épica 4 ----------
+
+        // ---------- Liquidaciones (entrega del 80 %, Rol 4) ----------
+        $this->register('GET@/liquidaciones/mias', 'LiquidacionesController@mias');
+        $this->register('GET@/liquidaciones/comprobante', 'LiquidacionesController@comprobante');
+        $this->register('GET@/administrador/comisiones', 'LiquidacionesController@comisiones');
+        $this->register('POST@/liquidaciones/generar', 'LiquidacionesController@generar');
+        $this->register('POST@/liquidaciones/pagar', 'LiquidacionesController@pagar');
+        // ---------- fin Liquidaciones ----------
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){
