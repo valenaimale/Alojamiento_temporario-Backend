@@ -134,28 +134,88 @@ final class RecordatoriosSaldoTest extends CasoDeIntegracion
         $this->assertSame([], $this->recordatoriosDe($reserva));
     }
 
+    //Una reserva cancelada no recibe recordatorios: ya no hay reserva que salvar pagando el saldo.
+    //Es el estado en el que la deja la cancelación automática del saldo vencido (#23).
+    public function testUnaReservaCanceladaNoRecibeRecordatorios(): void
+    {
+        $reserva = $this->reservaConSaldoImpago(['estado' => 'cancelada']);
+
+        $this->correrScript(true);
+
+        $this->assertSame([], $this->recordatoriosDe($reserva));
+    }
+
+    //Pasado el plazo para pagar el saldo (la fecha de cobro más dias_vencimiento_saldo, 3 por defecto)
+    //no se le manda otro mail: lo que corresponde es cancelarla, no volver a pedirle la plata (#23)
+    public function testNoLeEscribeSiYaSeLePasoElPlazo(): void
+    {
+        $reserva = $this->reservaConSaldoImpago([
+            'ingreso' => '+10 days', 'egreso' => '+15 days', 'fecha_cobro' => '-4 days',
+        ]);
+
+        $this->correrScript(true);
+
+        $this->assertSame([], $this->recordatoriosDe($reserva));
+    }
+
+    //El último día del plazo todavía recibe su recordatorio: ese día puede pagarlo, incluso al ingresar (#23 y #25)
+    public function testElUltimoDiaDelPlazoTodaviaRecibeRecordatorio(): void
+    {
+        $reserva = $this->reservaConSaldoImpago([
+            'ingreso' => '+10 days', 'egreso' => '+15 days', 'fecha_cobro' => '-3 days',
+        ]);
+
+        $this->correrScript(true);
+
+        $this->assertSame([1], $this->recordatoriosDe($reserva));
+    }
+
+    //El recordatorio dice hasta qué día se puede pagar: es el plazo que después usa la cancelación automática.
+    //Con el ingreso en 3 días y la fecha de cobro hace 2, el plazo se corta en el ingreso y no a los 3 días.
+    public function testElRecordatorioAnunciaElPlazoParaPagar(): void
+    {
+        $reserva = $this->reservaConSaldoImpago();
+        $limite = $this->fecha('+1 day');   //la fecha de cobro (hace 2 días) más los 3 días del plazo
+
+        $salida = $this->correrScript(true);
+
+        $this->assertStringContainsString("reserva $reserva", $salida);
+        $this->assertStringContainsString("paga hasta el $limite", $salida);
+    }
+
     // ---------- Ayudas de este test ----------
 
     //Una reserva confirmada de 5 noches que empiezan en 3 días, con la seña pagada y el saldo sin pagar.
+    //Como la hace el Rol 2 al reservar: con monto_faltante (el saldo) y fecha_cobro, que es de donde salen
+    //el importe que se reclama y el plazo que anuncia el mail.
+    //Opciones: ingreso, egreso, estado, pagar_sena y fecha_cobro (por defecto, 5 días antes del ingreso,
+    //que es dias_cobro_saldo).
     //Devuelve el id de la reserva.
     private function reservaConSaldoImpago(array $opciones = []): int
     {
         $opciones = array_merge([
             'ingreso' => '+3 days', 'egreso' => '+8 days', 'estado' => 'confirmada', 'pagar_sena' => true,
+            'fecha_cobro' => null,
         ], $opciones);
 
         $propietario = $this->crearPropietarioEnBase();
         $huesped = $this->crearUsuarioEnBase('huesped');
         $unidad = $this->crearUnidadEnBase($propietario['id']);
 
+        $ingreso = $this->fecha($opciones['ingreso']);
+        $fechaCobro = $opciones['fecha_cobro'] === null
+            ? (new \DateTimeImmutable($ingreso))->modify('-5 days')->format('Y-m-d')
+            : $this->fecha($opciones['fecha_cobro']);
+
         $this->pdo()->prepare(
             "INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado,
-                                   importe_total, porcentaje_sena, importe_sena,
+                                   importe_total, porcentaje_sena, importe_sena, monto_faltante, fecha_cobro,
                                    retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15,
                                    politica_aceptada_en, creado_en)
-             VALUES (?, ?, ?, ?, 2, ?, '400000.00', 20, '80000.00', 30, 50, 70, UTC_TIMESTAMP(), UTC_TIMESTAMP() - INTERVAL 20 DAY)"
+             VALUES (?, ?, ?, ?, 2, ?, '400000.00', 20, '80000.00', '320000.00', ?, 30, 50, 70,
+                     UTC_TIMESTAMP(), UTC_TIMESTAMP() - INTERVAL 20 DAY)"
         )->execute([
-            $unidad, $huesped['id'], $this->fecha($opciones['ingreso']), $this->fecha($opciones['egreso']), $opciones['estado'],
+            $unidad, $huesped['id'], $ingreso, $this->fecha($opciones['egreso']), $opciones['estado'], $fechaCobro,
         ]);
         $reserva = (int) $this->pdo()->lastInsertId();
         $this->reservas[] = $reserva;
@@ -166,7 +226,8 @@ final class RecordatoriosSaldoTest extends CasoDeIntegracion
         return $reserva;
     }
 
-    //Un pago ya confirmado de la reserva, con el formato que exigen los CHECK de la tabla
+    //Un pago ya confirmado de la reserva, con el formato que exigen los CHECK de la tabla.
+    //Pagar el saldo deja monto_faltante en 0, como lo hace PagosController al confirmar el pago (#20).
     private function pagarEnBase(int $reservaId, string $tipo, string $pesos): void
     {
         $this->pdo()->prepare(
@@ -179,6 +240,10 @@ final class RecordatoriosSaldoTest extends CasoDeIntegracion
             '0x' . bin2hex(random_bytes(20)),
             '0x' . bin2hex(random_bytes(32)),
         ]);
+
+        if ($tipo === 'saldo') {
+            $this->pdo()->prepare('UPDATE reservas SET monto_faltante = 0 WHERE id = ?')->execute([$reservaId]);
+        }
     }
 
     //Mueve para atrás los recordatorios de la reserva, para simular que pasaron los días

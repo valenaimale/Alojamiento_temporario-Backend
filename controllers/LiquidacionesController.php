@@ -44,6 +44,8 @@ class LiquidacionesController
                 'comision_administrador'         => $fila['comision_administrador'],
                 'importe_propietario'            => $fila['importe_propietario'],
                 'faltante'                       => Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado']),
+                'billetera'                      => $fila['propietario_billetera'],
+                'faltan_billeteras'              => $this->faltanBilleteras($fila),
             ];
         }
 
@@ -62,16 +64,18 @@ class LiquidacionesController
         $comisiones = [];
         foreach ($filas as $fila) {
             $comisiones[] = [
-                'id'              => (int) $fila['id'],
-                'estado'          => $fila['estado'],
-                'creado_en'       => $this->momento($fila['creado_en']),
-                'liquidada_en'    => $this->momento($fila['liquidada_en']),
-                'reserva'         => $this->reservaDe($fila),
-                'propietario'     => $fila['propietario'],
-                'base_comisiones' => $fila['base_comisiones'],
-                'porcentaje'      => $fila['porcentaje_comision_administrador'],
-                'comision'        => $fila['comision_administrador'],
-                'faltante'        => Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado']),
+                'id'                => (int) $fila['id'],
+                'estado'            => $fila['estado'],
+                'creado_en'         => $this->momento($fila['creado_en']),
+                'liquidada_en'      => $this->momento($fila['liquidada_en']),
+                'reserva'           => $this->reservaDe($fila),
+                'propietario'       => $fila['propietario'],
+                'base_comisiones'   => $fila['base_comisiones'],
+                'porcentaje'        => $fila['porcentaje_comision_administrador'],
+                'comision'          => $fila['comision_administrador'],
+                'faltante'          => Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado']),
+                'billetera'         => $fila['administrador_billetera'],
+                'faltan_billeteras' => $this->faltanBilleteras($fila),
             ];
         }
 
@@ -141,9 +145,11 @@ class LiquidacionesController
     }
 
     //POST /liquidaciones/pagar: {"liquidacion_id"}. El backoffice registra que ya se le transfirió al propietario
-    //y al administrador. Una liquidación retenida por deuda no se puede pagar (RN-16).
-    //PENDIENTE: cuando esté la billetera de la plataforma (Rol 2), acá va la llamada a liquidar() del contrato
-    //y los pagos de tipo 'liquidacion' con su tx_hash. Hoy solo se registra el cambio de estado.
+    //y al administrador. Una liquidación retenida por deuda no se puede pagar (RN-16), y tampoco una cuyo
+    //propietario o administrador no cargó su billetera de cobro (#44).
+    //PENDIENTE: cuando esté el firmador real de la plataforma (Rol 2), acá va la llamada a liquidar() del
+    //contrato y los pagos de tipo 'liquidacion' con su tx_hash. Los destinatarios son propietarios.billetera y
+    //administradores.billetera, que es lo que se controla más abajo. Hoy solo se registra el cambio de estado.
     public function pagar()
     {
         Autorizacion::requiere('backoffice');
@@ -152,20 +158,36 @@ class LiquidacionesController
         $id = is_bool($datos['liquidacion_id'] ?? null)
             ? false
             : filter_var($datos['liquidacion_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        $estado = false;
+        $liquidacion = false;
         if ($id !== false) {
-            $consulta = Conexion::obtener()->prepare('SELECT estado FROM liquidaciones WHERE id = ?');
+            //las billeteras se leen ACÁ y no se copian en la liquidación: la plata va a la billetera que la
+            //persona tenga cargada cuando se le transfiere, no a la que tenía el día en que se calculó
+            $consulta = Conexion::obtener()->prepare(
+                'SELECT q.estado, q.administrador_id,
+                        p.billetera AS propietario_billetera, a.billetera AS administrador_billetera
+                 FROM liquidaciones q
+                 JOIN propietarios p ON p.usuario_id = q.propietario_id
+                 LEFT JOIN administradores a ON a.usuario_id = q.administrador_id
+                 WHERE q.id = ?'
+            );
             $consulta->execute([$id]);
-            $estado = $consulta->fetchColumn();
+            $liquidacion = $consulta->fetch();
         }
-        if ($estado === false) {
+        if ($liquidacion === false) {
             return $this->error('No encontramos esa liquidación', 404);
         }
-        if ($estado === 'pagada') {
+        if ($liquidacion['estado'] === 'pagada') {
             return $this->error('Esa liquidación ya estaba pagada', 409);
         }
-        if ($estado === 'retenida_por_deuda') {
+        if ($liquidacion['estado'] === 'retenida_por_deuda') {
             return $this->error('Esa liquidación está retenida: todavía no se cobró toda la estadía', 409);
+        }
+
+        //Sin billetera no se liquida: el ETH se queda en el contrato hasta que la carguen (#44).
+        //Nunca se le manda a otra billetera, porque eso mezclaría su plata con la de la plataforma.
+        $faltan = $this->faltanBilleteras($liquidacion);
+        if ($faltan !== []) {
+            return $this->error($this->avisoDeBilleteraFaltante($faltan), 409);
         }
 
         //"Ahora" en UTC calculado en PHP, como en el resto del back: la base local puede tener otra zona horaria.
@@ -182,12 +204,40 @@ class LiquidacionesController
         echo json_encode(['ok' => 'Liquidación pagada']);
     }
 
+    //Quiénes de esta liquidación todavía no cargaron su billetera de cobro (#42 y #44 de docs/pagos-decisiones.md).
+    //Mientras falte alguna, la liquidación queda pendiente: liquidar() del contrato le manda a cada uno su parte
+    //a SU billetera, y no hay a dónde mandarla. El ETH sigue retenido en el contrato, que es lo seguro.
+    //Devuelve ['propietario'], ['administrador'], los dos, o un array vacío si se puede liquidar.
+    private function faltanBilleteras(array $fila): array
+    {
+        $faltan = [];
+        if ($fila['propietario_billetera'] === null) {
+            $faltan[] = 'propietario';
+        }
+        //en una unidad de autogestión no hay administrador: no hay comisión que transferirle
+        if ($fila['administrador_id'] !== null && $fila['administrador_billetera'] === null) {
+            $faltan[] = 'administrador';
+        }
+        return $faltan;
+    }
+
+    //El motivo que ve el backoffice cuando intenta pagar una liquidación sin billeteras cargadas
+    private function avisoDeBilleteraFaltante(array $faltan): string
+    {
+        $quien = match (true) {
+            $faltan === ['propietario']   => 'El propietario todavía no cargó su billetera de cobro',
+            $faltan === ['administrador'] => 'El administrador todavía no cargó su billetera de cobro',
+            default                       => 'El propietario y el administrador todavía no cargaron su billetera de cobro',
+        };
+        return "$quien: hasta que la carguen, lo que cobró esta estadía sigue retenido en el contrato";
+    }
+
     //Las liquidaciones que cumplen la condición, con su reserva, su unidad y los datos fiscales de las partes,
     //de la más nueva a la más vieja.
     private function buscar(string $condicion, array $parametros): array
     {
         $consulta = Conexion::obtener()->prepare(
-            "SELECT q.id, q.reserva_id, q.estado, q.cobra_iva, q.creado_en, q.liquidada_en,
+            "SELECT q.id, q.reserva_id, q.estado, q.cobra_iva, q.creado_en, q.liquidada_en, q.administrador_id,
                     q.importe_cobrado, q.porcentaje_iva, q.importe_iva, q.base_comisiones,
                     q.porcentaje_comision_plataforma, q.comision_plataforma,
                     q.porcentaje_comision_administrador, q.comision_administrador, q.importe_propietario,
@@ -196,10 +246,11 @@ class LiquidacionesController
                     h.nombre AS huesped,
                     pu.nombre AS propietario, pu.dni AS propietario_dni,
                     p.cuit AS propietario_cuit, p.razon_social AS propietario_razon_social,
-                    p.domicilio_fiscal AS propietario_domicilio,
+                    p.domicilio_fiscal AS propietario_domicilio, p.billetera AS propietario_billetera,
                     au.nombre AS administrador, au.dni AS administrador_dni,
                     a.cobra_iva AS administrador_cobra_iva, a.cuit AS administrador_cuit,
-                    a.razon_social AS administrador_razon_social, a.domicilio_fiscal AS administrador_domicilio
+                    a.razon_social AS administrador_razon_social, a.domicilio_fiscal AS administrador_domicilio,
+                    a.billetera AS administrador_billetera
              FROM liquidaciones q
              JOIN reservas r ON r.id = q.reserva_id
              JOIN unidades u ON u.id = r.unidad_id
@@ -233,6 +284,7 @@ class LiquidacionesController
                 'razon_social'     => $fila['propietario_razon_social'],
                 'domicilio_fiscal' => $fila['propietario_domicilio'],
                 'cobra_iva'        => (bool) $fila['cobra_iva'],   //la condición fiscal del momento de liquidar
+                'billetera'        => $fila['propietario_billetera'],   //null si todavía no la cargó (#44)
             ],
             'administrador'                  => $this->administradorDe($fila),
             'importe_cobrado'                => $fila['importe_cobrado'],
@@ -244,6 +296,7 @@ class LiquidacionesController
             'comision_administrador'         => $fila['comision_administrador'],
             'importe_propietario'            => $fila['importe_propietario'],
             'faltante'                       => Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado']),
+            'faltan_billeteras'              => $this->faltanBilleteras($fila),
             'sin_valor_fiscal'               => true,
         ];
     }
@@ -252,14 +305,14 @@ class LiquidacionesController
     private function comprobanteDelAdministrador(array $fila): array
     {
         return [
-            'para'             => 'administrador',
-            'numero'           => (int) $fila['id'],
-            'estado'           => $fila['estado'],
-            'creado_en'        => $this->momento($fila['creado_en']),
-            'liquidada_en'     => $this->momento($fila['liquidada_en']),
-            'reserva'          => $this->reservaDe($fila),
-            'propietario'      => ['nombre' => $fila['propietario']],
-            'administrador'    => [
+            'para'              => 'administrador',
+            'numero'            => (int) $fila['id'],
+            'estado'            => $fila['estado'],
+            'creado_en'         => $this->momento($fila['creado_en']),
+            'liquidada_en'      => $this->momento($fila['liquidada_en']),
+            'reserva'           => $this->reservaDe($fila),
+            'propietario'       => ['nombre' => $fila['propietario']],
+            'administrador'     => [
                 'nombre'           => $fila['administrador'],
                 'dni'              => $fila['administrador_dni'],
                 'cuit'             => $fila['administrador_cuit'],
@@ -267,11 +320,13 @@ class LiquidacionesController
                 'domicilio_fiscal' => $fila['administrador_domicilio'],
                 'cobra_iva'        => (bool) $fila['administrador_cobra_iva'],
                 'porcentaje'       => $fila['porcentaje_comision_administrador'],
+                'billetera'        => $fila['administrador_billetera'],   //null si todavía no la cargó (#44)
             ],
-            'base_comisiones'  => $fila['base_comisiones'],
-            'comision'         => $fila['comision_administrador'],
-            'faltante'         => Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado']),
-            'sin_valor_fiscal' => true,
+            'base_comisiones'   => $fila['base_comisiones'],
+            'comision'          => $fila['comision_administrador'],
+            'faltante'          => Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado']),
+            'faltan_billeteras' => $this->faltanBilleteras($fila),
+            'sin_valor_fiscal'  => true,
         ];
     }
 
@@ -306,6 +361,7 @@ class LiquidacionesController
             'cuit'       => $fila['administrador_cuit'],
             'cobra_iva'  => (bool) $fila['administrador_cobra_iva'],
             'porcentaje' => $fila['porcentaje_comision_administrador'],
+            'billetera'  => $fila['administrador_billetera'],   //null si todavía no la cargó (#44)
         ];
     }
 
