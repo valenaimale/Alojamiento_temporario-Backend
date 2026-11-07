@@ -278,7 +278,8 @@ final class PagosTest extends CasoDeIntegracion
 
         $this->assertSame(402, $respuesta->codigo, $respuesta->cuerpo);
         //decisión #23: el plazo es 3 días después del cobro, o el ingreso si llega antes
-        $limite = CobroDelSaldo::limiteDePago($this->fecha('+5 days'), $this->filaReserva($reservaId)['fecha_ingreso']);
+        //con los días explícitos: sin ellos, limiteDePago lee el parámetro con la conexión de la app, no la de prueba
+        $limite = CobroDelSaldo::limiteDePago($this->fecha('+5 days'), $this->filaReserva($reservaId)['fecha_ingreso'], 3);
         $dia = (new \DateTimeImmutable($limite))->format('d/m/Y');
         $this->assertSame([
             'error'       => "No pudimos confirmar el pago del saldo: La transacción falló en la red. Tenés tiempo hasta el $dia inclusive: si no, la reserva se cancela sola.",
@@ -322,7 +323,7 @@ final class PagosTest extends CasoDeIntegracion
         $this->pdo()->prepare('UPDATE reservas SET fecha_cobro = ? WHERE id = ?')->execute([$this->fecha('-1 day'), $reservaId]);
 
         $saldo = $cliente->get('/pagos/saldo', ['reserva_id' => $reservaId])->json();
-        $limite = CobroDelSaldo::limiteDePago($this->fecha('-1 day'), $this->filaReserva($reservaId)['fecha_ingreso']);
+        $limite = CobroDelSaldo::limiteDePago($this->fecha('-1 day'), $this->filaReserva($reservaId)['fecha_ingreso'], 3);
         $this->assertSame([true, $limite], [$saldo['vencido'], $saldo['limite_pago']]);
         $fallido = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash('dead')]);
         $dia = (new \DateTimeImmutable($limite))->format('d/m/Y');
