@@ -43,7 +43,7 @@ Las decisiones que tomamos al implementar la parte del Rol 2 del plan de la entr
 | 20 | Pagar el saldo deja `monto_faltante` en **0**; no agregamos una columna "saldo pagado". | El dato ya está: lo que falta es 0, y el pago queda en `pagos` con `tipo = 'saldo'`. |
 | 21 | `POST /pagos/confirmar` acepta un `tipo` **opcional**. Si no viene: una pendiente paga la seña y una confirmada el saldo. | Respeta la firma del plan (`{reserva_id, tx_hash}`) y deja al front ser explícito. |
 | 22 | El saldo se puede pagar **antes** de la `fecha_cobro`. | No hay motivo para impedirlo; el ETH queda en el contrato igual. |
-| 23 | **Decidido (06/11):** pasada la `fecha_cobro`, el huésped tiene **3 días** para pagar el saldo, o hasta el **día del ingreso** si eso llega antes (pasa cuando se reserva con menos de 3 días de anticipación); ese día lo puede pagar al llegar. Mientras tanto figura `vencido` y se puede pagar. Si vence ese plazo sin pagar, **la reserva se cancela sola** como una cancelación del huésped con el tramo de **menos de 15 días** (#30): se retiene ese % de la seña y se le devuelve el resto. **Hay que avisarlo al reservar**: en la pantalla de la reserva, en el mail de la seña confirmada y en los recordatorios del saldo. **Falta implementarlo:** un script con cron, como `reintentar-devoluciones.php`, que busque las vencidas y las cancele con la devolución. | Con cripto no hay "cobro automático con reintentos" (L2-8): el huésped tiene que firmar, así que sin una consecuencia el saldo podría no pagarse nunca. Una deuda (L2-9) no se puede cobrar con cripto. El plazo no pasa del ingreso porque el saldo es obligatorio para entrar (#25). |
+| 23 | **Decidido (06/11):** pasada la `fecha_cobro`, el huésped tiene **3 días** para pagar el saldo, o hasta el **día del ingreso** si eso llega antes (pasa cuando se reserva con menos de 3 días de anticipación); ese día lo puede pagar al llegar. Mientras tanto figura `vencido` y se puede pagar. Si vence ese plazo sin pagar, **la reserva se cancela sola** como una cancelación del huésped con el tramo de **menos de 15 días** (#30): se retiene ese % de la seña y se le devuelve el resto. **Hay que avisarlo al reservar**: en la pantalla de la reserva, en el mail de la seña confirmada y en los recordatorios del saldo. **Hecho (07/11):** `scripts/cancelar-saldos-vencidos.php` (cron diario) las cancela con `CancelacionConDevolucion`, la misma lógica que usa el huésped, y con el plazo de `CobroDelSaldo::limiteDePago` (el mismo que anuncian los mails). El mail de la seña confirmada avisa el plazo y la retención, y `GET /pagos/saldo` devuelve `limite_pago`. | Con cripto no hay "cobro automático con reintentos" (L2-8): el huésped tiene que firmar, así que sin una consecuencia el saldo podría no pagarse nunca. Una deuda (L2-9) no se puede cobrar con cripto. El plazo no pasa del ingreso porque el saldo es obligatorio para entrar (#25). |
 | 24 | El saldo no se paga antes de la seña, ni en una reserva cancelada, vencida o finalizada. | |
 | 25 | **Decidido (06/11):** **no se registra el ingreso sin el saldo pago** (`monto_faltante` = 0). Si falta, el back responde 409 y el huésped lo paga en el momento desde MetaMask. **Falta implementarlo** en `EstadiasController`. | El ingreso dispara la liquidación (`liquidar` del contrato): sin el saldo, en el contrato está solo la seña y el propietario cobraría de menos. |
 | 26 | En las reservas viejas sin `monto_faltante`, `puede_pagar_saldo` es `false`. | No inventamos un saldo que no está guardado. |
@@ -98,7 +98,29 @@ Estado al 06/11/2026. Cada historia tiene un comentario con el detalle de lo hec
 
 ## Pendiente del Rol 2
 
-- `Blockchain.php`: el verificador real por RPC (`eth_getTransactionReceipt` y el evento `PagoRealizado`).
-- El firmador real de `devolver`, con `PLATAFORMA_CLAVE_PRIVADA`. Sirve también para `liquidar` (Rol 4).
-- La cancelación automática del saldo vencido (#23): el script con cron que cancela y devuelve.
 - Para la entrega final: la demora de la devolución y la excepción del propietario (#39, L2-19).
+- Rol 4: llamar a `Firmadores::configurado()->liquidar(...)` desde `LiquidacionesController` (el firmador ya lo tiene).
+- Reservas con seña del 0 %: el contrato exige seña para `pagarSaldo` (lo detectó Justino). Hay que decidir con el Rol 1.
+
+## Red real (07/11)
+
+| # | Decisión | Por qué |
+|---|---|---|
+| 46 | `VerificadorBlockchain` (`PAGOS_VERIFICADOR=blockchain`) lee el recibo con `eth_getTransactionReceipt` y busca el log `PagoRealizado` **emitido por `CONTRATO_DIRECCION`**, de esa reserva (`topics[1]`) y de ese tipo. Sin recibo es `pendiente` (202), aunque el nodo todavía no conozca la transacción: MetaMask la manda por su propio RPC. | Lo pide el README del contrato: cualquiera puede desplegar otro contrato con un evento igual. |
+| 47 | Se acepta un pago **igual o mayor** al pedido, y se guarda en `pagos.monto_wei` **lo que entró de verdad** (el monto del evento). Uno menor falla (402). | El contrato acepta una sola seña por reserva: rechazar un pago de más dejaría el ETH trabado. Las devoluciones se calculan sobre lo que entró (#32). |
+| 48 | `FirmadorBlockchain` (`PAGOS_FIRMADOR=blockchain`) firma con `PLATAFORMA_CLAVE_PRIVADA` una transacción EIP-155 (`FirmaEthereum`, con `simplito/elliptic-php` y `kornrunner/keccak`; necesita la extensión **gmp**, agregada al `Dockerfile` y al CI). Antes controla que el RPC sea de la red 84532 y estima el gas: si el contrato la rechazaría, no se manda y la devolución queda pendiente. | La firma es la del ejemplo oficial de EIP-155 (test unitario). Estimar el gas evita pagar gas por una transacción que va a revertir. |
+| 49 | Un candado de MySQL (`firmador_plataforma`) rodea el nonce y el envío. | Dos cancelaciones al mismo tiempo no mandan dos transacciones con el mismo nonce. |
+| 50 | El firmador espera hasta ~10 s a que la transacción entre en un bloque; si no, queda `pendiente` con su `tx_hash` y la confirma `reintentar-devoluciones.php`. Si revirtió o la red no la conoce, le borra el `tx_hash` y la vuelve a mandar. | Base hace un bloque cada 2 s: casi siempre se confirma en el momento y el huésped ve "Te devolvimos". |
+| 51 | La cancelación con devolución está en `CancelacionConDevolucion`, que usan el huésped (`POST /reservas/cancelar`) y el script del saldo vencido. | Las dos tienen que hacer exactamente lo mismo con la plata. |
+
+### Variables de Railway para la red real
+
+`PAGOS_VERIFICADOR=blockchain`, `PAGOS_FIRMADOR=blockchain`, `BLOCKCHAIN_RPC_URL`, `CONTRATO_DIRECCION` y `PLATAFORMA_CLAVE_PRIVADA` (`BLOCKCHAIN_RED` es opcional: 84532 por defecto). Con `simulado` (el valor por defecto) todo sigue funcionando sin red.
+
+### Crons
+
+| Script | Cada cuánto | Qué hace |
+|---|---|---|
+| `php scripts/cancelar-saldos-vencidos.php` | Una vez por día (por ejemplo, 03:00 UTC) | Cancela las reservas con el saldo vencido y manda la devolución (#23). |
+| `php scripts/reintentar-devoluciones.php` | Cada 10 a 15 minutos | Confirma las devoluciones en camino y reintenta las que no salieron (#36, #50). |
+| `php scripts/enviar-recordatorios.php` | Una vez por día (Rol 4) | Recordatorios del saldo. |

@@ -13,14 +13,20 @@ use App\Validacion\VencimientoReserva;
 class AvisoPagoMail
 {
     //"Tu reserva en Cabaña del Mar está confirmada"
-    public static function senaConfirmada(array $huesped, string $unidad, string $ingreso, string $egreso, string $monto): void
+    //$saldo: lo que falta pagar ($saldo['monto'], 'fecha_cobro', 'limite' y 'retencion', el % de la seña del tramo de
+    //menos de 15 días), o null si no queda saldo. Decisión #23: se le avisa desde la seña hasta cuándo puede pagarlo
+    //y qué pasa si no lo paga.
+    public static function senaConfirmada(array $huesped, string $unidad, string $ingreso, string $egreso, string $monto, ?array $saldo = null): void
     {
-        self::avisar(
-            $huesped,
-            "Tu reserva en $unidad está confirmada",
-            'Recibimos el pago de la seña ($' . number_format((float) $monto, 2, ',', '.') . ") de tu estadía en $unidad, del "
-                . self::dia($ingreso) . ' al ' . self::dia($egreso) . '. Tu reserva está confirmada.'
-        );
+        $texto = 'Recibimos el pago de la seña ($' . number_format((float) $monto, 2, ',', '.') . ") de tu estadía en $unidad, del "
+            . self::dia($ingreso) . ' al ' . self::dia($egreso) . '. Tu reserva está confirmada.';
+        if ($saldo !== null) {
+            $texto .= ' Te queda pagar el saldo de ' . self::pesos($saldo['monto']) . '. Lo podés pagar desde ya, desde tus reservas;'
+                . ' se cobra a partir del ' . self::dia($saldo['fecha_cobro']) . ' y tenés tiempo hasta el ' . self::dia($saldo['limite']) . ' inclusive.'
+                . ' Si no lo pagás para esa fecha, la reserva se cancela sola: según la política de cancelación que aceptaste, se retiene el '
+                . self::porcentaje($saldo['retencion']) . ' de la seña y se te devuelve el resto.';
+        }
+        self::avisar($huesped, "Tu reserva en $unidad está confirmada", $texto);
     }
 
     //"No pudimos confirmar el pago de la seña de tu reserva en Cabaña del Mar"
@@ -49,14 +55,12 @@ class AvisoPagoMail
     }
 
     //"No pudimos confirmar el pago del saldo de tu reserva en Cabaña del Mar" (RF-26)
-    //$fechaCobro: hasta cuándo tenía que pagarlo, o null si no se sabe.
-    public static function saldoFallido(array $huesped, string $unidad, string $motivo, ?string $fechaCobro): void
+    //$limite: el último día para pagarlo (decisión #23), o null si no se sabe.
+    public static function saldoFallido(array $huesped, string $unidad, string $motivo, ?string $limite): void
     {
-        $plazo = match (true) {
-            $fechaCobro === null => ' Podés volver a pagarlo desde tus reservas.',
-            $fechaCobro < ValidadorFechas::hoy()->format('Y-m-d') => ' El plazo para pagarlo venció el ' . self::dia($fechaCobro) . ': pagalo antes de ingresar.',
-            default => ' Podés volver a pagarlo hasta el ' . self::dia($fechaCobro) . '.',
-        };
+        $plazo = $limite === null
+            ? ' Podés volver a pagarlo desde tus reservas.'
+            : ' Podés volver a pagarlo hasta el ' . self::dia($limite) . ' inclusive: si no, la reserva se cancela sola.';
         self::avisar(
             $huesped,
             "No pudimos confirmar el pago del saldo de tu reserva en $unidad",
@@ -72,9 +76,13 @@ class AvisoPagoMail
 
     //"Cancelaste tu reserva en Cabaña del Mar" (L2-3). $devolucion: lo que se le devuelve (puede ser "0.00");
     //$enCamino: si la devolución todavía no salió (la red falló y queda para reintentar).
-    public static function cancelacionAlHuesped(array $huesped, string $unidad, string $devolucion, string $retencion, bool $enCamino): void
+    //$limiteSaldo: si es la cancelación automática por el saldo impago (decisión #23), el último día que tenía para pagarlo.
+    public static function cancelacionAlHuesped(array $huesped, string $unidad, string $devolucion, string $retencion, bool $enCamino, ?string $limiteSaldo = null): void
     {
-        $texto = "Cancelaste tu reserva en $unidad. ";
+        $asunto = $limiteSaldo === null ? "Cancelaste tu reserva en $unidad" : "Se canceló tu reserva en $unidad por falta de pago del saldo";
+        $texto = $limiteSaldo === null
+            ? "Cancelaste tu reserva en $unidad. "
+            : "Tu reserva en $unidad se canceló porque el saldo no se pagó hasta el " . self::dia($limiteSaldo) . ', como te avisamos. ';
         if (bccomp($devolucion, '0', 2) <= 0) {
             $texto .= 'Según la política de cancelación que aceptaste, no corresponde devolución.';
         } else {
@@ -82,21 +90,28 @@ class AvisoPagoMail
                 . ' y te devolvemos ' . self::pesos($devolucion) . ' a la billetera con la que pagaste.'
                 . ($enCamino ? ' La devolución está en proceso: puede tardar un poco en llegarte.' : '');
         }
-        self::avisar($huesped, "Cancelaste tu reserva en $unidad", $texto);
+        self::avisar($huesped, $asunto, $texto);
     }
 
     //"Un huésped canceló su reserva en Cabaña del Mar" (L2-18: se le avisa al propietario antes de devolver)
-    public static function cancelacionAlPropietario(array $propietario, string $unidad, string $ingreso, string $egreso, string $retencion, string $devolucion): void
+    //$porSaldoVencido: si la canceló la plataforma porque el huésped no pagó el saldo a tiempo (decisión #23)
+    public static function cancelacionAlPropietario(array $propietario, string $unidad, string $ingreso, string $egreso, string $retencion, string $devolucion, bool $porSaldoVencido = false): void
     {
         self::avisar(
             $propietario,
-            "Un huésped canceló su reserva en $unidad",
-            "Se canceló la reserva de $unidad del " . self::dia($ingreso) . ' al ' . self::dia($egreso)
+            $porSaldoVencido ? "Se canceló una reserva en $unidad por falta de pago del saldo" : "Un huésped canceló su reserva en $unidad",
+            ($porSaldoVencido ? 'El huésped no pagó el saldo a tiempo. ' : '') . "Se canceló la reserva de $unidad del " . self::dia($ingreso) . ' al ' . self::dia($egreso)
                 . '. Esas noches quedaron libres. Según la política de cancelación, se retienen ' . self::pesos($retencion)
                 . ' de la seña y se le devuelven ' . self::pesos($devolucion) . ' al huésped.',
             '/vistas/homes/index-propietario.html',
             'Ver mis alojamientos'
         );
+    }
+
+    //"50.00" → "50 %", "12.50" → "12,5 %"
+    private static function porcentaje(string $valor): string
+    {
+        return rtrim(rtrim(number_format((float) $valor, 2, ',', ''), '0'), ',') . ' %';
     }
 
     //"42000.00" → "$42.000,00"

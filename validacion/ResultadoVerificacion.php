@@ -17,12 +17,14 @@ final class ResultadoVerificacion
         public readonly string $estado,
         public readonly ?string $billetera,
         public readonly ?string $motivo,
+        public readonly ?string $montoWei = null,//lo que pagó de verdad (el verificador real lo lee del evento)
     ) {
     }
 
-    public static function confirmado(string $billetera): self
+    //$montoWei: lo que entró al contrato, si el verificador lo sabe (si no, se guarda el monto pedido)
+    public static function confirmado(string $billetera, ?string $montoWei = null): self
     {
-        return new self(self::CONFIRMADO, $billetera, null);
+        return new self(self::CONFIRMADO, $billetera, null, $montoWei);
     }
 
     public static function pendiente(): self

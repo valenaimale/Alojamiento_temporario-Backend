@@ -5,12 +5,9 @@ namespace App\Controllers;
 use App\Autorizacion\Autorizacion;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
-use App\Log\Log;
-use App\Mail\AvisoPagoMail;
 use App\Request\Request;
-use App\Validacion\Devolucion;
+use App\Validacion\CancelacionConDevolucion;
 use App\Validacion\Estadia;
-use App\Validacion\Firmadores;
 use App\Validacion\ValidadorFechas;
 use App\Validacion\VencimientoReserva;
 
@@ -240,62 +237,15 @@ class ReservasController
             return;
         }
 
-        $firmador = Firmadores::configurado();
-        $pdo = Conexion::obtener();
-        $pdo->beginTransaction();
-        try {
-            //Traba la reserva: si llegan dos cancelaciones juntas (o un pago del saldo), la segunda espera y ya la ve cancelada
-            $reserva = $this->reservaParaCancelar($reserva['id'], true);
-            if ($reserva === false || $reserva['estado'] !== 'confirmada' || $this->problemaParaCancelar($reserva) !== null) {
-                $pdo->rollBack();
-                return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
-            }
-            $devolucion = $this->devolucionDe($reserva);
-            $pdo->prepare("UPDATE reservas SET estado = 'cancelada' WHERE id = ?")->execute([$reserva['id']]);
-
-            $pagoId = null;
-            if (bccomp($devolucion['devolucion_wei'], '0', 0) > 0 && bccomp($devolucion['devolucion'], '0', 2) > 0) {
-                $pdo->prepare(
-                    "INSERT INTO pagos (reserva_id, tipo, monto_pesos, monto_wei, pesos_por_eth, billetera, red, tx_hash, estado, creado_en)
-                     VALUES (?, 'devolucion', ?, ?, ?, ?, ?, NULL, 'pendiente', ?)"
-                )->execute([
-                    $reserva['id'], $devolucion['devolucion'], $devolucion['devolucion_wei'], $devolucion['pesos_por_eth'],
-                    strtolower($devolucion['billetera']), $firmador->red(), VencimientoReserva::ahora(),
-                ]);
-                $pagoId = (int) $pdo->lastInsertId();
-            }
-            $pdo->commit();
-        } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            throw $e;//lo atrapa el router y responde 500
+        //La cancelación con devolución es la misma que la automática del saldo vencido (CancelacionConDevolucion).
+        //Al trabar la reserva se vuelve a mirar que siga siendo del huésped y cancelable.
+        $resultado = CancelacionConDevolucion::cancelar((int) $reserva['id'], fn (array $trabada) =>
+            (int) $trabada['huesped_id'] === (int) $_SESSION['usuario']['id'] && $this->problemaParaCancelar($trabada) === null);
+        if ($resultado === null) {
+            return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
         }
-
-        //L2-18: el propietario se entera antes de que salga la devolución
-        AvisoPagoMail::cancelacionAlPropietario(
-            ['id' => $reserva['propietario_id'], 'nombre' => $reserva['propietario_nombre'], 'mail' => $reserva['propietario_mail']],
-            $reserva['unidad_nombre'], $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $devolucion['retencion'], $devolucion['devolucion']
-        );
-
-        $envio = null;
-        if ($pagoId !== null) {
-            try {
-                $envio = $firmador->devolver((int) $reserva['id'], $devolucion['billetera'], $devolucion['devolucion_wei']);
-                $pdo->prepare('UPDATE pagos SET tx_hash = ?, estado = ?, confirmado_en = ? WHERE id = ?')->execute([
-                    strtolower($envio->txHash), $envio->confirmada ? 'confirmado' : 'pendiente',
-                    $envio->confirmada ? VencimientoReserva::ahora() : null, $pagoId,
-                ]);
-            } catch (\Throwable $e) {
-                //la reserva ya está cancelada: la devolución queda pendiente, sin tx_hash, para reintentarla
-                Log::error('No se pudo mandar la devolución', $e, [
-                    'reserva_id' => $reserva['id'], 'pago_id' => $pagoId, 'tx_hash' => $envio?->txHash,
-                ]);
-                $envio = null;
-            }
-        }
+        ['devolucion' => $devolucion, 'pago_id' => $pagoId, 'envio' => $envio] = $resultado;
         $enCamino = $pagoId !== null && ($envio === null || !$envio->confirmada);
-        AvisoPagoMail::cancelacionAlHuesped($_SESSION['usuario'], $reserva['unidad_nombre'], $devolucion['devolucion'], $devolucion['retencion'], $enCamino);
 
         $monto = '$' . number_format((float) $devolucion['devolucion'], 2, ',', '.');
         $ok = match (true) {
@@ -383,15 +333,7 @@ class ReservasController
     //Una pendiente no tiene pagos: no se devuelve nada.
     private function devolucionDe(array $reserva): array
     {
-        $consulta = Conexion::obtener()->prepare(
-            "SELECT tipo, monto_pesos, monto_wei, pesos_por_eth, billetera FROM pagos
-             WHERE reserva_id = ? AND estado = 'confirmado' AND tipo IN ('sena', 'saldo')
-             ORDER BY id"
-        );
-        $consulta->execute([$reserva['id']]);
-        //las reservas anteriores al cobro no tienen fecha_cobro: se calcula como al reservar
-        $reserva['fecha_cobro'] ??= Estadia::fechaCobro(ValidadorFechas::fecha($reserva['fecha_ingreso']))->format('Y-m-d');
-        return Devolucion::calcular($reserva, $consulta->fetchAll(), ValidadorFechas::hoy());
+        return CancelacionConDevolucion::devolucion($reserva);
     }
 
     //Lo que ve el huésped de una devolución (sin la billetera ni el tipo de cambio)
