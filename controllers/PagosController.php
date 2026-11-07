@@ -6,6 +6,7 @@ use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Mail\AvisoPagoMail;
 use App\Request\Request;
+use App\Validacion\CobroDelSaldo;
 use App\Validacion\ResultadoVerificacion;
 use App\Validacion\TipoDeCambio;
 use App\Validacion\ValidadorFechas;
@@ -109,6 +110,11 @@ class PagosController
             }
 
             $confirmado = $resultado->estado === ResultadoVerificacion::CONFIRMADO;
+            //se guarda lo que entró de verdad al contrato (puede ser un poco más que lo pedido): las devoluciones se
+            //calculan sobre eso (decisión #32)
+            if ($confirmado && $resultado->montoWei !== null) {
+                $montoWei = $resultado->montoWei;
+            }
             //un intento fallido se guarda si se sabe quién lo pagó (pagos.billetera es obligatoria);
             //una transacción que ni existe no deja rastro, solo el aviso
             if ($resultado->billetera !== null) {
@@ -149,7 +155,13 @@ class PagosController
         $unidad = $reserva['unidad_nombre'];
         if ($confirmado) {
             if ($tipo === self::SENA) {
-                AvisoPagoMail::senaConfirmada($huesped, $unidad, $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $montoPesos);
+                //decisión #23: desde la seña se le avisa hasta cuándo puede pagar el saldo y qué pasa si no lo paga
+                $limite = $this->limiteDelSaldo($reserva);
+                $saldo = $limite !== null && bccomp($reserva['monto_faltante'], '0', 2) > 0
+                    ? ['monto' => $reserva['monto_faltante'], 'fecha_cobro' => $reserva['fecha_cobro'], 'limite' => $limite,
+                       'retencion' => $reserva['retencion_menos_de_15']]
+                    : null;
+                AvisoPagoMail::senaConfirmada($huesped, $unidad, $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $montoPesos, $saldo);
                 $ok = "Pagaste la seña: tu reserva en $unidad está confirmada";
             } else {
                 AvisoPagoMail::saldoConfirmado($huesped, $unidad, $reserva['fecha_ingreso'], $montoPesos);
@@ -173,9 +185,9 @@ class PagosController
                 : ' Podés pagar de nuevo hasta las ' . VencimientoReserva::horaArgentina($reserva['bloqueo_expira_en']);
             $extra = ['vence_en' => VencimientoReserva::venceEnIso($reserva['estado'], $reserva['bloqueo_expira_en'])];
         } else {
-            AvisoPagoMail::saldoFallido($huesped, $unidad, $resultado->motivo, $reserva['fecha_cobro']);
-            $plazo = ' ' . $this->plazoDelSaldo($reserva['fecha_cobro']);
-            $extra = ['fecha_cobro' => $reserva['fecha_cobro']];
+            AvisoPagoMail::saldoFallido($huesped, $unidad, $resultado->motivo, $this->limiteDelSaldo($reserva));
+            $plazo = ' ' . $this->plazoDelSaldo($reserva);
+            $extra = ['fecha_cobro' => $reserva['fecha_cobro'], 'limite_pago' => $this->limiteDelSaldo($reserva)];
         }
         http_response_code(402);
         echo json_encode([
@@ -206,7 +218,8 @@ class PagosController
 
         $plazo = $tipo === self::SENA
             ? ['vence_en' => VencimientoReserva::venceEnIso($reserva['estado'], $reserva['bloqueo_expira_en'])]
-            : ['fecha_cobro' => $reserva['fecha_cobro'], 'vencido' => $this->saldoVencido($reserva['fecha_cobro'])];
+            : ['fecha_cobro' => $reserva['fecha_cobro'], 'vencido' => $this->saldoVencido($reserva['fecha_cobro']),
+               'limite_pago' => $this->limiteDelSaldo($reserva)];//el último día para pagarlo (decisión #23)
 
         http_response_code(200);
         echo json_encode([
@@ -231,7 +244,7 @@ class PagosController
             return false;
         }
         $consulta = Conexion::obtener()->prepare(
-            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.importe_sena, r.monto_faltante, r.fecha_cobro,
+            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.importe_sena, r.monto_faltante, r.fecha_cobro, r.retencion_menos_de_15,
                     r.fecha_ingreso, r.fecha_egreso, u.nombre AS unidad_nombre
              FROM reservas r JOIN unidades u ON u.id = r.unidad_id
              WHERE r.id = ? AND r.huesped_id = ?' . ($bloquear ? ' FOR UPDATE' : '')
@@ -279,16 +292,22 @@ class PagosController
         return $fechaCobro !== null && $fechaCobro < ValidadorFechas::hoy()->format('Y-m-d');
     }
 
-    //"Tenés tiempo hasta el 05/12/2026." o "El plazo venció el 05/12/2026: pagalo antes de ingresar."
-    private function plazoDelSaldo(?string $fechaCobro): string
+    //El último día para pagar el saldo (decisión #23): el mismo que anuncian los recordatorios y que usa la cancelación
+    //automática (CobroDelSaldo::limiteDePago). null en las reservas viejas sin fecha_cobro.
+    private function limiteDelSaldo(array $reserva): ?string
     {
-        if ($fechaCobro === null) {
+        return $reserva['fecha_cobro'] === null ? null : CobroDelSaldo::limiteDePago($reserva['fecha_cobro'], $reserva['fecha_ingreso']);
+    }
+
+    //"Tenés tiempo hasta el 08/12/2026 inclusive: si no, la reserva se cancela sola."
+    private function plazoDelSaldo(array $reserva): string
+    {
+        $limite = $this->limiteDelSaldo($reserva);
+        if ($limite === null) {
             return 'Podés volver a intentarlo desde tus reservas.';
         }
-        $dia = ValidadorFechas::fecha($fechaCobro)->format('d/m/Y');
-        return $this->saldoVencido($fechaCobro)
-            ? "El plazo venció el $dia: pagalo antes de ingresar."
-            : "Tenés tiempo hasta el $dia.";
+        $dia = ValidadorFechas::fecha($limite)->format('d/m/Y');
+        return "Tenés tiempo hasta el $dia inclusive: si no, la reserva se cancela sola.";
     }
 
     //Responde un error en JSON con su código HTTP

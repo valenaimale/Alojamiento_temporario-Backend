@@ -6,6 +6,9 @@
 //
 //    php scripts/reintentar-devoluciones.php
 //
+//Además confirma las que salieron pero no llegaron a confirmarse en el momento (tienen tx_hash y siguen 'pendiente'):
+//si la red las confirmó, quedan 'confirmado'; si revirtieron o la red ya no las tiene, se les borra el tx_hash para
+//mandarlas de nuevo.
 //Usa el mismo firmador que la app (pagos.firmador) y solo toca las devoluciones de su red.
 //Para no mandar dos veces la misma devolución:
 //  - solo toma las que tienen más de 5 minutos (las recién creadas las está mandando la cancelación);
@@ -31,6 +34,32 @@ if ((int) $pdo->query("SELECT GET_LOCK('reintentar_devoluciones', 0)")->fetchCol
 }
 
 $firmador = Firmadores::configurado();
+
+//1. Las que ya salieron: ¿se confirmaron?
+$enCamino = $pdo->prepare(
+    "SELECT id, reserva_id, tx_hash FROM pagos
+     WHERE tipo = 'devolucion' AND estado = 'pendiente' AND tx_hash IS NOT NULL AND red = ?
+       AND creado_en < UTC_TIMESTAMP() - INTERVAL 5 MINUTE
+     ORDER BY id"
+);
+$enCamino->execute([$firmador->red()]);
+foreach ($enCamino->fetchAll() as $pago) {
+    try {
+        $estado = $firmador->estado($pago['tx_hash']);
+    } catch (\Throwable $e) {
+        Log::error('No se pudo consultar una devolución en camino', $e, ['pago_id' => $pago['id']]);
+        continue;
+    }
+    if ($estado === true) {
+        $pdo->prepare("UPDATE pagos SET estado = 'confirmado', confirmado_en = ? WHERE id = ?")->execute([VencimientoReserva::ahora(), $pago['id']]);
+        echo "Reserva {$pago['reserva_id']}: la devolución {$pago['tx_hash']} se confirmó.\n";
+    } elseif ($estado === false) {
+        $pdo->prepare('UPDATE pagos SET tx_hash = NULL WHERE id = ?')->execute([$pago['id']]);
+        echo "Reserva {$pago['reserva_id']}: la devolución {$pago['tx_hash']} no salió; se vuelve a mandar.\n";
+    }
+}
+
+//2. Las que no salieron: se mandan de nuevo
 $consulta = $pdo->prepare(
     "SELECT id, reserva_id, billetera, monto_wei, monto_pesos FROM pagos
      WHERE tipo = 'devolucion' AND estado = 'pendiente' AND tx_hash IS NULL AND red = ?
@@ -42,6 +71,7 @@ $pendientes = $consulta->fetchAll();
 
 if ($pendientes === []) {
     echo "No hay devoluciones pendientes.\n";
+    $pdo->query("SELECT RELEASE_LOCK('reintentar_devoluciones')");
     exit(0);
 }
 

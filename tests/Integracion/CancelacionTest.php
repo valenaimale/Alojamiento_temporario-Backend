@@ -187,14 +187,61 @@ final class CancelacionTest extends CasoDeIntegracion
     //Corre scripts/reintentar-devoluciones.php contra la base de prueba. Devuelve [código de salida, lo que imprimió].
     private function reintentarDevoluciones(): array
     {
+        return $this->correrScript('reintentar-devoluciones.php');
+    }
+
+    //Corre un script de scripts/ contra la base de prueba. Devuelve [código de salida, lo que imprimió].
+    private function correrScript(string $script): array
+    {
         $db = EntornoDePrueba::datosBase();
         $entorno = array_merge(getenv(), [
             'DB_HOST' => $db['host'], 'DB_PORT' => $db['port'], 'DB_USER' => $db['user'], 'DB_PASS' => $db['pass'], 'DB_NAME' => $db['name'],
         ]);
-        $proceso = proc_open([PHP_BINARY, RAIZ . '/scripts/reintentar-devoluciones.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $tuberias, RAIZ, $entorno);
+        //los logs (stderr) van a un archivo temporal: con dos tuberías, si el script llena la de stderr (por ejemplo,
+        //con los mails que fallan sin Mailpit) mientras el test lee la de stdout, los dos se quedan esperando
+        $errores = tempnam(sys_get_temp_dir(), 'script');
+        $proceso = proc_open([PHP_BINARY, RAIZ . '/scripts/' . $script], [1 => ['pipe', 'w'], 2 => ['file', $errores, 'w']], $tuberias, RAIZ, $entorno);
         $salida = stream_get_contents($tuberias[1]);
-        stream_get_contents($tuberias[2]);
-        return [proc_close($proceso), $salida];
+        $codigo = proc_close($proceso);
+        @unlink($errores);
+        return [$codigo, $salida];
+    }
+
+    // ---------- saldo vencido (decisión #23) ----------
+
+    //Pasado el plazo del saldo (3 días después del cobro) sin pagarlo, el script la cancela sola con el tramo de
+    //menos de 15 días: se retiene el 70 % de la seña ($29.400) y se devuelven $12.600. Las que están a tiempo,
+    //las que pagaron el saldo y las que ya ingresaron no se tocan.
+    public function testElSaldoVencidoCancelaLaReservaSola(): void
+    {
+        $cliente = $this->huesped();
+        $vencida = $this->reservaConfirmada($cliente, 50);
+        $aTiempo = $this->reservaConfirmada($cliente, 60);
+        $pagada = $this->reservaConfirmada($cliente, 70);
+        $this->pagar($cliente, $pagada, 'saldo');
+        $ingresada = $this->reservaConfirmada($cliente, 80);
+        $cambiarCobro = $this->pdo()->prepare('UPDATE reservas SET fecha_cobro = ? WHERE id = ?');
+        $cambiarCobro->execute([$this->fecha('-4 days'), $vencida]);  //el plazo venció ayer
+        $cambiarCobro->execute([$this->fecha('-3 days'), $aTiempo]);  //el plazo vence hoy: todavía puede pagar
+        $cambiarCobro->execute([$this->fecha('-10 days'), $pagada]);
+        $cambiarCobro->execute([$this->fecha('-10 days'), $ingresada]);
+        $this->pdo()->prepare(
+            'INSERT INTO estadias (reserva_id, ingreso_en, ingreso_registrado_en, ingreso_operador_id, ingreso_evento_id)
+             VALUES (?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), ?, ?)'
+        )->execute([$ingresada, $this->propietario['id'], bin2hex(random_bytes(18))]);
+
+        [$codigo, $salida] = $this->correrScript('cancelar-saldos-vencidos.php');
+
+        $this->assertSame(0, $codigo, $salida);
+        $this->assertStringContainsString("Reserva $vencida: cancelada", $salida);
+        $this->assertSame(['cancelada', 'confirmada', 'confirmada', 'confirmada'], array_map([$this, 'estadoDe'], [$vencida, $aTiempo, $pagada, $ingresada]));
+        $devolucion = $this->devolucionesDe($vencida);
+        $this->assertSame([['12600.00', self::BILLETERA, 'confirmado']], array_map(fn ($d) => [$d['monto_pesos'], $d['billetera'], $d['estado']], $devolucion));
+        $this->assertSame([], $this->devolucionesDe($aTiempo));
+
+        //correrlo de nuevo no cancela ni devuelve dos veces
+        $this->assertSame([0, "No hay reservas con el saldo vencido.\n"], $this->correrScript('cancelar-saldos-vencidos.php'));
+        $this->assertCount(1, $this->devolucionesDe($vencida));
     }
 
     // ---------- sin devolución ----------

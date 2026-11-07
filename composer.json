@@ -27,7 +27,9 @@
         "robmorgan/phinx": "^0.16.12",
         "phpmailer/phpmailer": "^7.1",
         "predis/predis": "^3.7",
-        "league/oauth2-google": "^5.0"
+        "league/oauth2-google": "^5.0",
+        "kornrunner/keccak": "^1.1",
+        "simplito/elliptic-php": "^1.0"
     },
     "autoload": {
         "psr-4": {

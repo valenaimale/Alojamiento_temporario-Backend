@@ -32,8 +32,18 @@ return [
         'nombre_remitente' => 'Alojamiento temporario',
     ],
     'pagos' => [                                  //L2-28
-        'verificador' => 'simulado',              //cómo se verifican las transacciones de pago: por ahora solo 'simulado'
-        'firmador'    => 'simulado',              //cómo manda la plataforma las devoluciones al contrato: por ahora solo 'simulado'
+        'verificador' => 'simulado',              //cómo se verifican los pagos: 'simulado' o 'blockchain' (PAGOS_VERIFICADOR)
+        'firmador'    => 'simulado',              //cómo firma la plataforma devolver y liquidar: 'simulado' o 'blockchain' (PAGOS_FIRMADOR)
+    ],
+    'blockchain' => [                             //solo con 'blockchain'
+        'rpc_url' => 'https://sepolia.base.org',  //BLOCKCHAIN_RPC_URL
+        'red'     => 84532,                       //BLOCKCHAIN_RED: Base Sepolia
+    ],
+    'contrato' => [
+        'direccion' => '0xF9d86D0e7c3D2520103fD11e64174C9e6BcFc0F4', //CONTRATO_DIRECCION: PasarelaPago en Base Sepolia
+    ],
+    'plataforma' => [
+        'clave_privada' => '',                    //PLATAFORMA_CLAVE_PRIVADA: NUNCA en el repo, solo como variable de Railway
     ],
     'google' => [                                 //Tarea 4
         'client_id'     => '',
