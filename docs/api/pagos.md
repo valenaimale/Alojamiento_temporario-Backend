@@ -19,7 +19,7 @@ Los precios están en pesos y se cobran en ETH de prueba con un tipo de cambio f
 
 Al reservar se anota `reservas.bloqueo_expira_en` = ahora + `minutos_bloqueo_reserva` (tabla `parametros`, 15 por defecto). Hasta ese momento la reserva pendiente ocupa sus noches. Después **deja de ocuparlas**: la búsqueda, el detalle, el calendario, los bloqueos y la agenda ya no la cuentan, y la API la muestra como `expirada`. En la base se anota `expirada` recién cuando alguien la toca (pagar o cancelar), así que no hace falta un cron. Las pendientes creadas antes de la migración tienen `bloqueo_expira_en` en `NULL` y no vencen.
 
-Al reservar también se anotan el saldo (`monto_faltante` = total − seña) y su `fecha_cobro`: `dias_cobro_saldo` días antes del ingreso, o el día de la reserva si se reservó con menos anticipación. Los usa el cobro del saldo (L2-6). Una unidad sin seña (0 %) confirma la reserva al momento, y todo el total queda como saldo.
+Al reservar también se anotan el saldo (`monto_faltante` = total − seña) y su `fecha_cobro`: `dias_cobro_saldo` días antes del ingreso, o el día de la reserva si se reservó con menos anticipación. Los usa el cobro del saldo (L2-6). La seña es de al menos el 1 % (decisión #52), así que toda reserva se confirma pagando la seña.
 
 El saldo se paga con la reserva confirmada, desde que se confirma hasta la `fecha_cobro`. Pasada esa fecha **se puede seguir pagando**, pero figura `vencido` (RF-26). No se paga antes de la seña, ni en una reserva cancelada o finalizada.
 

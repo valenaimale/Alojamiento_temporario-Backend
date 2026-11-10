@@ -32,7 +32,7 @@ Las decisiones que tomamos al implementar la parte del Rol 2 del plan de la entr
 | 14 | **Vencimiento sin cron:** una pendiente vencida deja de ocupar noches al instante (todas las consultas lo miran), se muestra como `expirada`, y en la base se anota `expirada` recién cuando alguien la toca (pagar o cancelar). | No hace falta un cron en Railway y nunca hay una ventana en la que una reserva vencida bloquee fechas. |
 | 15 | Las pendientes creadas antes de la migración (`bloqueo_expira_en` en NULL) **no vencen**. | No liberamos de golpe fechas de reservas que ya existían. |
 | 16 | Para que la vencida no ocupe, tocamos también `BloqueosController`, `AgendaOperadorController` y `HuespedesReservaController`, con cambios de una o dos líneas. | Si no, el propietario no podía bloquear esas fechas y el operador las veía en la agenda. Son archivos de otros roles: **avisar a sus dueños**. |
-| 17 | Una unidad con **0 % de seña** crea la reserva directamente `confirmada`, sin plazo, y todo el total queda como saldo. | No hay nada que pagar para confirmarla. |
+| 17 | ~~Una unidad con **0 % de seña** crea la reserva directamente `confirmada`.~~ **Reemplazada por la #52:** la seña es de al menos el 1 % y toda reserva nace pendiente. | Con 0 % el contrato no aceptaba el saldo. |
 | 18 | Cancelar una pendiente es un `UPDATE` condicional: solo cambia si sigue pendiente y sin vencer. | Si se paga y se cancela al mismo tiempo, gana uno solo (409 "La reserva cambió mientras la cancelabas"). |
 
 ## Saldo
@@ -100,7 +100,6 @@ Estado al 06/11/2026. Cada historia tiene un comentario con el detalle de lo hec
 
 - Para la entrega final: la demora de la devolución y la excepción del propietario (#39, L2-19).
 - Rol 4: llamar a `Firmadores::configurado()->liquidar(...)` desde `LiquidacionesController` (el firmador ya lo tiene).
-- Reservas con seña del 0 %: el contrato exige seña para `pagarSaldo` (lo detectó Justino). Hay que decidir con el Rol 1.
 
 ## Red real (07/11)
 
@@ -117,10 +116,21 @@ Estado al 06/11/2026. Cada historia tiene un comentario con el detalle de lo hec
 
 `PAGOS_VERIFICADOR=blockchain`, `PAGOS_FIRMADOR=blockchain`, `BLOCKCHAIN_RPC_URL`, `CONTRATO_DIRECCION` y `PLATAFORMA_CLAVE_PRIVADA` (`BLOCKCHAIN_RED` es opcional: 84532 por defecto). Con `simulado` (el valor por defecto) todo sigue funcionando sin red.
 
-### Crons
+### Tareas programadas
 
-| Script | Cada cuánto | Qué hace |
+Las corre `scripts/tareas-programadas.php` desde dos servicios con cron de Railway (#54; los pasos están en `despliegue.md`, "Pagos reales"):
+
+| Grupo | Cada cuánto | Scripts, en orden |
 |---|---|---|
-| `php scripts/cancelar-saldos-vencidos.php` | Una vez por día (por ejemplo, 03:00 UTC) | Cancela las reservas con el saldo vencido y manda la devolución (#23). |
-| `php scripts/reintentar-devoluciones.php` | Cada 10 a 15 minutos | Confirma las devoluciones en camino y reintenta las que no salieron (#36, #50). |
-| `php scripts/enviar-recordatorios.php` | Una vez por día (Rol 4) | Recordatorios del saldo. |
+| `frecuentes` | Cada 10 minutos | `reintentar-devoluciones.php` (confirma las devoluciones en camino y reintenta las que no salieron, #36 y #50) y `generar-liquidaciones.php --guardar` (Rol 4) |
+| `diarias` | Una vez por día, 09:00 UTC (6 de Argentina) | `cancelar-saldos-vencidos.php` (#23) y después `enviar-recordatorios.php --enviar` (Rol 4), así una reserva recién cancelada no recibe recordatorio |
+
+## Activar los pagos reales (10/11)
+
+| # | Decisión | Por qué |
+|---|---|---|
+| 52 | **Decidido (10/11, Rol 1):** la seña de una unidad es de **al menos el 1 %** (`PoliticaController` y el CHECK de la migración `20261110120000`, que sube al 1 % las unidades que tenían menos). Toda reserva nace **pendiente** y se confirma al pagar la seña; reemplaza a la #17. | El contrato rechaza `pagarSaldo` si antes no se pagó la seña (`SinSena`): una reserva sin seña no se podría pagar nunca con ETH. Exigir un mínimo es un cambio chico en el back; cambiar el contrato obliga a desplegar otro. |
+| 53 | **Decidido (10/11):** antes de activar los pagos reales se **borran las reservas simuladas** de producción con `scripts/borrar-reservas-simuladas.php` (sin `--borrar` solo las lista). Son las que tienen algún pago de otra red (31337) y las confirmadas sin una seña confirmada en la red real. | En el contrato no hay nada de ellas: con el firmador real, su devolución o su liquidación fallarían siempre y quedarían pendientes para siempre. Eran datos de prueba. |
+| 54 | Las tareas que tienen que pasar solas corren con `scripts/tareas-programadas.php frecuentes\|diarias`, en **dos servicios con cron de Railway** que usan la misma imagen que el back. Cada script corre en su propio proceso: si uno falla, los otros corren igual. | Un cron de Railway es un servicio cuyo comando arranca, hace su trabajo y termina. Con dos grupos alcanza para las cuatro tareas, y todas son seguras de repetir (candados e índices únicos). |
+| 55 | `scripts/verificar-blockchain.php` controla, sin gastar gas, que el RPC sea de la red configurada, que haya un contrato en `CONTRATO_DIRECCION`, que su dueña (`owner()`) sea la billetera de `PLATAFORMA_CLAVE_PRIVADA` y que esa billetera tenga ETH para el gas. **Nunca muestra la clave**, solo la dirección pública que sale de ella. | Si la clave no es la de la dueña, `devolver` y `liquidar` fallan siempre con `OwnableUnauthorizedAccount`. Conviene saberlo antes de activar, no con la primera cancelación. |
+| 56 | La respuesta de `POST /reservas/cancelar` incluye `devolucion.red` y `devolucion.simulado`. | Con la red 84532 y `simulado: false`, el front enlaza la devolución en BaseScan; con la simulada, no. |

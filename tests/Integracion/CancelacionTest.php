@@ -107,7 +107,8 @@ final class CancelacionTest extends CasoDeIntegracion
         $cuerpo = $respuesta->json();
         $this->assertSame('Cancelaste la reserva: esas noches quedaron libres. Te devolvimos $29.400,00 a tu billetera', $cuerpo['ok']);
         $this->assertMatchesRegularExpression('/^0x[0-9a-f]{64}$/', $cuerpo['devolucion']['tx_hash']);
-        $this->assertSame($devolucion + ['estado' => 'confirmado', 'tx_hash' => $cuerpo['devolucion']['tx_hash']], $cuerpo['devolucion']);
+        //la red de la devolución: con el firmador simulado es la 31337, así que el front no la enlaza en BaseScan
+        $this->assertSame($devolucion + ['estado' => 'confirmado', 'tx_hash' => $cuerpo['devolucion']['tx_hash'], 'red' => 31337, 'simulado' => true], $cuerpo['devolucion']);
         $this->assertSame('cancelada', $this->estadoDe($reservaId));
         $this->assertSame([[
             'monto_pesos' => '29400.00', 'monto_wei' => '294000000000000', 'pesos_por_eth' => '100000000.00',
@@ -246,18 +247,21 @@ final class CancelacionTest extends CasoDeIntegracion
 
     // ---------- sin devolución ----------
 
-    //Sin seña (0 %) y sin saldo pagado no se pagó nada: se cancela sin devolución
-    public function testSinPagosNoHayDevolucion(): void
+    //Con una política que retiene el 100 % de la seña en todos los tramos no hay nada que devolver: se cancela sin
+    //devolución y no se manda nada al contrato
+    public function testSinNadaQueDevolverNoHayDevolucion(): void
     {
-        $this->pdo()->prepare('UPDATE unidades SET porcentaje_sena = 0 WHERE id = ?')->execute([$this->unidadId]);
+        $this->pdo()->prepare('UPDATE unidades SET retencion_mas_de_30 = 100, retencion_de_15_a_30 = 100, retencion_menos_de_15 = 100 WHERE id = ?')
+            ->execute([$this->unidadId]);
         $cliente = $this->huesped();
-        $reservaId = $this->reservar($cliente, 50);//sin seña nace confirmada
+        $reservaId = $this->reservaConfirmada($cliente, 50);
 
         $respuesta = $cliente->post('/reservas/cancelar', ['reserva_id' => $reservaId]);
 
         $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
         $this->assertSame('Cancelaste la reserva: esas noches quedaron libres. Según la política de cancelación, no corresponde devolución', $respuesta->json()['ok']);
-        $this->assertSame(['0.00', null, null], [$respuesta->json()['devolucion']['devolucion'], $respuesta->json()['devolucion']['estado'], $respuesta->json()['devolucion']['tx_hash']]);
+        $devolucion = $respuesta->json()['devolucion'];
+        $this->assertSame(['0.00', null, null, null, null], [$devolucion['devolucion'], $devolucion['estado'], $devolucion['tx_hash'], $devolucion['red'], $devolucion['simulado']]);
         $this->assertSame([], $this->devolucionesDe($reservaId));
         $this->assertSame('cancelada', $this->estadoDe($reservaId));
     }

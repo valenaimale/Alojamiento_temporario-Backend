@@ -52,7 +52,8 @@ class CancelacionConDevolucion
     //$sigueCancelable: recibe la reserva ya trabada y dice si todavía se puede cancelar (si otro pedido la cambió
     //mientras tanto, devuelve false y no se toca nada).
     //$limiteSaldo: null si cancela el huésped; la fecha límite del saldo (AAAA-MM-DD) si es la cancelación automática.
-    //Devuelve null si la reserva cambió, o ['reserva', 'devolucion', 'pago_id', 'envio'].
+    //Devuelve null si la reserva cambió, o ['reserva', 'devolucion', 'pago_id', 'envio', 'red'] ('red': el chain id
+    //del firmador, para saber si la devolución es real o simulada).
     public static function cancelar(int $reservaId, callable $sigueCancelable, ?string $limiteSaldo = null): ?array
     {
         $firmador = Firmadores::configurado();
@@ -116,6 +117,6 @@ class CancelacionConDevolucion
             $reserva['unidad_nombre'], $devolucion['devolucion'], $devolucion['retencion'], $enCamino, $limiteSaldo
         );
 
-        return ['reserva' => $reserva, 'devolucion' => $devolucion, 'pago_id' => $pagoId, 'envio' => $envio];
+        return ['reserva' => $reserva, 'devolucion' => $devolucion, 'pago_id' => $pagoId, 'envio' => $envio, 'red' => $firmador->red()];
     }
 }

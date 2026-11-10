@@ -7,7 +7,8 @@ use App\Database\Conexion;
 use App\Request\Request;
 
 //La política de cancelación y el % de seña de una unidad (US2.8). Es una sola por unidad (no cambia por temporada).
-//La seña es el % del total que paga el huésped al reservar.
+//La seña es el % del total que paga el huésped al reservar: de 1 a 100 (decisión #52 de docs/pagos-decisiones.md:
+//el contrato no acepta el saldo de una reserva sin seña, así que con 0 % la reserva no se podría pagar).
 //La política tiene 3 tramos fijos, medidos en días antes del cobro del saldo: más de 30, de 15 a 30 y menos de 15.
 //Para cada tramo, el propietario elige qué % DE LA SEÑA retiene si el huésped cancela (corrección del profesor:
 //antes era un % del total). Como se cancela antes del cobro del saldo, lo único pagado es la seña: el huésped
@@ -19,6 +20,9 @@ class PoliticaController
 {
     //La seña: un % del total, sin relación de orden con las retenciones
     private const SENA = ['porcentaje_sena' => 'La seña'];
+
+    //La seña mínima (decisión #52): con 0 % el huésped no podría pagar el saldo con el contrato
+    private const SENA_MINIMA = 1;
 
     //Las 3 retenciones (% de la seña), en el orden en que tienen que ir creciendo, con su nombre para los mensajes
     private const RETENCIONES = [
@@ -59,6 +63,9 @@ class PoliticaController
                 return $this->error("$nombre tiene que ser un porcentaje de 0 a 100, con hasta 2 decimales");
             }
             $porcentajes[$campo] = $porcentaje;
+        }
+        if ((float) $porcentajes['porcentaje_sena'] < self::SENA_MINIMA) {
+            return $this->error('La seña tiene que ser de al menos el ' . self::SENA_MINIMA . ' %: sin seña, el huésped no podría pagar el saldo');
         }
 
         //cada retención tiene que ser menor o igual que la siguiente (la misma regla que el CHECK de la base)

@@ -183,6 +183,50 @@ Si un mail no sale, el registro funciona igual: el motivo queda en los logs de R
 
 ---
 
+## Pagos reales (blockchain)
+
+Por defecto los pagos son **simulados** (`PAGOS_VERIFICADOR` y `PAGOS_FIRMADOR` en `simulado`): no se usa la red. Para cobrar con el contrato `PasarelaPago` en Base Sepolia (decisiones #46 a #56 de `pagos-decisiones.md`):
+
+### 1. Variables del servicio del backend
+
+| Variable | Valor |
+|---|---|
+| `BLOCKCHAIN_RPC_URL` | `https://sepolia.base.org` |
+| `CONTRATO_DIRECCION` | `0xF9d86D0e7c3D2520103fD11e64174C9e6BcFc0F4` |
+| `PLATAFORMA_CLAVE_PRIVADA` | La clave de la billetera dueña del contrato. **Solo acá**: nunca en el repo ni en un chat |
+| `BLOCKCHAIN_RED` | Opcional: `84532` por defecto |
+
+### 2. Antes de activar (con `railway ssh`, en el servicio del backend)
+
+```
+php scripts/verificar-blockchain.php                # todo tiene que dar OK (la clave es la de la dueña, hay ETH para el gas)
+php scripts/borrar-reservas-simuladas.php           # lista las reservas de prueba de los pagos simulados
+php scripts/borrar-reservas-simuladas.php --borrar  # las borra (no se puede deshacer)
+```
+
+### 3. Activar
+
+En el servicio del backend: `PAGOS_VERIFICADOR` = `blockchain` y `PAGOS_FIRMADOR` = `blockchain` (literal, en minúsculas). Railway vuelve a desplegar solo. Para volver atrás, se ponen en `simulado`.
+
+### 4. Tareas programadas (dos servicios con cron)
+
+Cada una es un **servicio nuevo** del mismo proyecto, desde el mismo repo, que arranca, corre sus scripts y termina:
+
+1. **New → GitHub Repo →** `Alojamiento_temporario-Backend` (usa el mismo `Dockerfile`).
+2. En **Variables**, las mismas del backend. Lo más simple es referenciarlas: `DB_HOST` = `${{<servicio del backend>.DB_HOST}}`, y lo mismo con las demás (las de la base, las de los mails y las de la red).
+3. En **Settings → Deploy**:
+   - **Custom Start Command:** `php scripts/tareas-programadas.php frecuentes` (o `diarias`). Es obligatorio: sin él arrancaría el servidor web, que nunca termina.
+   - **Cron Schedule:** `*/10 * * * *` para `frecuentes`, y `0 9 * * *` para `diarias` (Railway usa UTC: son las 6 de Argentina).
+4. Sin dominio público: no atienden pedidos web.
+
+Lo que imprime cada corrida queda en los logs del servicio. Si una tarea falla, la corrida termina con error y Railway la marca.
+
+### 5. Probar de punta a punta
+
+Con MetaMask en Base Sepolia y ETH de prueba de un faucet: pagar una seña, ver el evento `PagoRealizado` en BaseScan, cancelar y ver la devolución (`Devolucion`) en BaseScan.
+
+---
+
 ## Limitaciones conocidas
 
 - **Sesiones:** se guardan en archivos dentro del contenedor (una sola réplica). Cada vez que Railway vuelve a desplegar, los usuarios tienen que iniciar sesión de nuevo. Para que sobrevivan, o para usar varias réplicas, se puede agregar un Redis en Railway y cargar `SESIONES_DRIVER=redis`, `REDIS_HOST` y `REDIS_PORT` (ver `escalado-horizontal.md`).

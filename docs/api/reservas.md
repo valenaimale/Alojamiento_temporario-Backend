@@ -2,7 +2,7 @@
 
 Las reservas de la plataforma. Las convenciones generales (URL base, formato de los errores, sesiones) están en el `Readme.md`, sección "API: rutas y contratos".
 
-**Seña:** la reserva se crea **pendiente** y guarda sus noches durante `minutos_bloqueo_reserva` (15 por defecto) mientras el huésped paga la seña ([pagos](pagos.md)). Pagada, pasa a **confirmada**. Si no paga a tiempo, deja de ocupar sus noches y se ve **expirada**. Una unidad sin seña (0 %) confirma la reserva al momento. El saldo llega con la épica L2-6.
+**Seña:** la reserva se crea **pendiente** y guarda sus noches durante `minutos_bloqueo_reserva` (15 por defecto) mientras el huésped paga la seña ([pagos](pagos.md)). Pagada, pasa a **confirmada**. Si no paga a tiempo, deja de ocupar sus noches y se ve **expirada**. Toda reserva tiene seña: es de al menos el 1 % (decisión #52). El saldo llega con la épica L2-6.
 
 **Noches:** una reserva del 5 al 10 ocupa las noches 5, 6, 7, 8 y 9. La fecha de egreso no es una noche: ese día puede entrar otro huésped (RN-08). Las reservas **pendientes (sin vencer), confirmadas y finalizadas** ocupan sus noches contratadas en la búsqueda, el detalle, el calendario y los bloqueos; las canceladas y expiradas, no.
 
@@ -21,7 +21,7 @@ Se guarda la **foto de las condiciones** que el huésped acepta: el total (la su
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `201` | `{"ok": "Reservaste Casa del Bosque: pagá la seña antes de las 17:15 para confirmarla", "reserva": {"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z"}}` | Se reservó. `vence_en` (UTC) es hasta cuándo se puede pagar la seña. Sin seña: `"estado": "confirmada"`, `"vence_en": null` y el mensaje "Reservaste Casa del Bosque: tu reserva está confirmada". |
+| `201` | `{"ok": "Reservaste Casa del Bosque: pagá la seña antes de las 17:15 para confirmarla", "reserva": {"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z"}}` | Se reservó. `vence_en` (UTC) es hasta cuándo se puede pagar la seña. |
 | `401` | `{"error": "No hay sesión iniciada"}` | |
 | `403` | `{"error": "Tenés que verificar tu mail para hacer esto"}` o `{"error": "No tenés permiso para hacer esto"}` | Sin el mail verificado, o es administrador, operador o backoffice. |
 | `404` | `{"error": "No encontramos ese alojamiento"}` | No existe o no está publicada. |
@@ -81,7 +81,7 @@ POST /reservas/cancelar
 | Código | Cuerpo | Cuándo |
 |---|---|---|
 | `200` | `{"ok": "Cancelaste la reserva: esas noches quedaron libres"}` | Una pendiente. |
-| `200` | `{"ok": "Cancelaste la reserva: esas noches quedaron libres. Te devolvimos $29.400,00 a tu billetera", "devolucion": {…lo mismo que la vista previa…, "estado": "confirmado", "tx_hash": "0x…"}}` | Una confirmada. Si la red falló: "La devolución de $29.400,00 está en proceso: te avisamos por mail", con `"estado": "pendiente"` y `"tx_hash": null`. Sin nada pagado (por ejemplo, una seña del 0 %): "Según la política de cancelación, no corresponde devolución", con `"estado": null`. |
+| `200` | `{"ok": "Cancelaste la reserva: esas noches quedaron libres. Te devolvimos $29.400,00 a tu billetera", "devolucion": {…lo mismo que la vista previa…, "estado": "confirmado", "tx_hash": "0x…", "red": 84532, "simulado": false}}` | Una confirmada. `red` y `simulado` dicen dónde salió la devolución: con `84532` y `false` es real y se puede ver en BaseScan; con los pagos simulados, `31337` y `true`. Si la red falló: "La devolución de $29.400,00 está en proceso: te avisamos por mail", con `"estado": "pendiente"` y `"tx_hash": null`. Si no hay nada que devolver (la política retiene toda la seña): "Según la política de cancelación, no corresponde devolución", con `estado`, `tx_hash`, `red` y `simulado` en `null`. |
 | `404` | `{"error": "No encontramos esa reserva"}` | No existe, no es suya o el id no es válido. |
 | `409` | `{"error": "Esa reserva ya estaba cancelada"}`, `{"error": "Esa reserva ya venció sin pagar la seña: sus noches ya están libres"}`, `{"error": "La estadía ya empezó: no se puede cancelar desde la app"}`, `{"error": "Esa estadía ya terminó"}` o `{"error": "La reserva cambió mientras la cancelabas: actualizá la página"}` (se pagó o canceló al mismo tiempo) | |
 
