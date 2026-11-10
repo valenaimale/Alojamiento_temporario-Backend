@@ -10,10 +10,11 @@ use App\Validacion\CancelacionConDevolucion;
 use App\Validacion\Estadia;
 use App\Validacion\ValidadorFechas;
 use App\Validacion\VencimientoReserva;
+use App\Validacion\VerificadorBlockchain;
 
 //Las reservas de la plataforma (Épica 4). La reserva se crea 'pendiente' y guarda sus noches durante
 //minutos_bloqueo_reserva, mientras el huésped paga la seña (PagosController). Pagada, pasa a 'confirmada';
-//si no paga a tiempo, deja de ocupar y se ve 'expirada' (VencimientoReserva). Sin seña (0 %), se confirma al reservar.
+//si no paga a tiempo, deja de ocupar y se ve 'expirada' (VencimientoReserva). La seña es de al menos el 1 % (decisión #52).
 //Las reglas de las fechas, el precio y las noches ocupadas están en Estadia: las mismas que ve el huésped en el detalle.
 class ReservasController
 {
@@ -77,10 +78,14 @@ class ReservasController
             //"Ahora" en UTC como el servidor, calculado en PHP (la base local puede tener otra zona horaria).
             $ahora = VencimientoReserva::ahora();
             $sena = Estadia::sena($estadia['precio_total'], $unidad['porcentaje_sena']);
-            //sin seña no hay nada que pagar: se confirma ya y no vence
-            $sinSena = (float) $sena === 0.0;
-            $estado = $sinSena ? 'confirmada' : 'pendiente';
-            $expiraEn = $sinSena ? null : VencimientoReserva::vencimientoDesdeAhora();
+            //Toda reserva nace pendiente y se confirma al pagar la seña (decisión #52: la seña es de al menos el 1 %).
+            //Una seña de $0 no se podría pagar con el contrato, que rechaza los pagos sin ETH.
+            if (bccomp($sena, '0', 2) <= 0) {
+                $pdo->rollBack();
+                return $this->error('El total de la estadía es demasiado bajo para cobrar la seña', 422);
+            }
+            $estado = 'pendiente';
+            $expiraEn = VencimientoReserva::vencimientoDesdeAhora();
             $pdo->prepare(
                 'INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado,
                                        importe_total, porcentaje_sena, importe_sena, monto_faltante, fecha_cobro,
@@ -117,9 +122,7 @@ class ReservasController
 
         http_response_code(201);
         echo json_encode([
-            'ok'      => $sinSena
-                ? "Reservaste {$unidad['nombre']}: tu reserva está confirmada"
-                : "Reservaste {$unidad['nombre']}: pagá la seña antes de las " . VencimientoReserva::horaArgentina($expiraEn) . ' para confirmarla',
+            'ok'      => "Reservaste {$unidad['nombre']}: pagá la seña antes de las " . VencimientoReserva::horaArgentina($expiraEn) . ' para confirmarla',
             'reserva' => [
                 'id'            => $reservaId,
                 'estado'        => $estado,
@@ -244,7 +247,7 @@ class ReservasController
         if ($resultado === null) {
             return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
         }
-        ['devolucion' => $devolucion, 'pago_id' => $pagoId, 'envio' => $envio] = $resultado;
+        ['devolucion' => $devolucion, 'pago_id' => $pagoId, 'envio' => $envio, 'red' => $red] = $resultado;
         $enCamino = $pagoId !== null && ($envio === null || !$envio->confirmada);
 
         $monto = '$' . number_format((float) $devolucion['devolucion'], 2, ',', '.');
@@ -259,6 +262,9 @@ class ReservasController
             'devolucion' => $this->datosDevolucion($devolucion) + [
                 'estado'  => $pagoId === null ? null : ($envio !== null && $envio->confirmada ? 'confirmado' : 'pendiente'),
                 'tx_hash' => $envio?->txHash,
+                //la red de la devolución: con 84532 (Base Sepolia) el front enlaza la transacción en BaseScan
+                'red'      => $pagoId === null ? null : $red,
+                'simulado' => $pagoId === null ? null : $red !== VerificadorBlockchain::RED_BASE_SEPOLIA,
             ],
         ]);
     }

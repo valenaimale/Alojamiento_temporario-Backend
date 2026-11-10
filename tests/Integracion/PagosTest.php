@@ -95,17 +95,17 @@ final class PagosTest extends CasoDeIntegracion
         $this->assertEqualsWithDelta(15, $minutos, 1, "vence_en: {$reserva['vence_en']}");
     }
 
-    //Una unidad sin seña (0 %) no tiene nada que pagar: la reserva queda confirmada y no vence
-    public function testSinSenaLaReservaQuedaConfirmada(): void
+    //Con la seña mínima del 1 % (decisión #52), toda reserva nace pendiente y tiene una seña que pagar
+    public function testConLaSenaMinimaLaReservaNacePendiente(): void
     {
-        $this->pdo()->prepare('UPDATE unidades SET porcentaje_sena = 0 WHERE id = ?')->execute([$this->unidadId]);
+        $this->pdo()->prepare('UPDATE unidades SET porcentaje_sena = 1 WHERE id = ?')->execute([$this->unidadId]);
 
         $reservaId = $this->reservar($this->huesped());
 
         $fila = $this->filaReserva($reservaId);
-        $this->assertSame('confirmada', $fila['estado']);
-        $this->assertNull($fila['bloqueo_expira_en']);
-        $this->assertSame('210000.00', $fila['monto_faltante']);//todo es saldo
+        $this->assertSame('pendiente', $fila['estado']);
+        $this->assertNotNull($fila['bloqueo_expira_en']);
+        $this->assertSame('207900.00', $fila['monto_faltante']);//$210.000 menos la seña de $2.100
     }
 
     //El saldo y su fecha de cobro quedan anotados al reservar: dias_cobro_saldo (5) antes del ingreso,

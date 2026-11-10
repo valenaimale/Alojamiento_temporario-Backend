@@ -3,7 +3,7 @@
 namespace Tests\Integracion;
 
 //La política de cancelación y el % de seña de una unidad (US2.8): verla y cambiarla,
-//con la regla seña <= retención de más de 30 <= de 15 a 30 <= de menos de 15.
+//con la regla retención de más de 30 <= de 15 a 30 <= de menos de 15, y la seña de al menos el 1 % (decisión #52).
 final class PoliticaTest extends CasoDeIntegracion
 {
     //Un propietario con una unidad (con la política por defecto: 20, 30, 50, 70) y su sesión iniciada: [cliente, id de la unidad]
@@ -51,7 +51,7 @@ final class PoliticaTest extends CasoDeIntegracion
         ]], $respuesta->json());
     }
 
-    //Guardar: acepta números y texto, retenciones iguales entre sí y los extremos 0 y 100
+    //Guardar: acepta números y texto, retenciones iguales entre sí, los extremos 0 y 100 y la seña mínima del 1 %
     public function testGuardaLaPolitica(): void
     {
         [$cliente, $unidadId] = $this->propietarioConUnidad();
@@ -68,10 +68,27 @@ final class PoliticaTest extends CasoDeIntegracion
         $this->assertSame($esperada, $respuesta->json()['politica']);
         $this->assertSame($esperada, $this->guardada($unidadId));
 
-        $todoCero = $cliente->post('/unidades/politica', $this->politica($unidadId, [
-            'porcentaje_sena' => 0, 'retencion_mas_de_30' => 0, 'retencion_de_15_a_30' => 0, 'retencion_menos_de_15' => 0,
+        $minimos = $cliente->post('/unidades/politica', $this->politica($unidadId, [
+            'porcentaje_sena' => 1, 'retencion_mas_de_30' => 0, 'retencion_de_15_a_30' => 0, 'retencion_menos_de_15' => 0,
         ]));
-        $this->assertSame(200, $todoCero->codigo, $todoCero->cuerpo);
+        $this->assertSame(200, $minimos->codigo, $minimos->cuerpo);
+    }
+
+    //La seña es de al menos el 1 % (decisión #52): con 0 % el contrato no aceptaría el saldo. No se guarda nada,
+    //y la base tampoco la acepta (CHECK de la migración 20261110120000)
+    public function testLaSenaEsDeAlMenosElUnoPorCiento(): void
+    {
+        [$cliente, $unidadId] = $this->propietarioConUnidad();
+
+        foreach ([0, '0.99'] as $sena) {
+            $respuesta = $cliente->post('/unidades/politica', $this->politica($unidadId, ['porcentaje_sena' => $sena]));
+            $this->assertSame(422, $respuesta->codigo, (string) $sena);
+            $this->assertSame('La seña tiene que ser de al menos el 1 %: sin seña, el huésped no podría pagar el saldo', $respuesta->json()['error']);
+        }
+        $this->assertSame('20.00', $this->guardada($unidadId)['porcentaje_sena']);
+
+        $this->expectException(\PDOException::class);
+        $this->pdo()->prepare('UPDATE unidades SET porcentaje_sena = 0 WHERE id = ?')->execute([$unidadId]);
     }
 
     //Las retenciones son un % de la seña (corrección del profesor): la seña puede ser mayor que cualquier retención,

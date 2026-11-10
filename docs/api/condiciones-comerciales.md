@@ -151,10 +151,11 @@ POST /unidades/politica
 {"unidad_id": 5, "porcentaje_sena": 25, "retencion_mas_de_30": 25, "retencion_de_15_a_30": 40, "retencion_menos_de_15": 100}
 ```
 
-Los 4 porcentajes son obligatorios: cada uno de 0 a 100, con hasta 2 decimales.
+Los 4 porcentajes son obligatorios: cada uno de 0 a 100, con hasta 2 decimales. La seña, además, es de **al menos el 1 %** (decisión #52 de `pagos-decisiones.md`: sin seña, el contrato no acepta el saldo).
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
 | `200` | `{"ok": "Guardamos la política de cancelación y la seña", "politica": {"porcentaje_sena": "25.00", ...}}` | Se guardó. |
 | `422` | `{"error": "La seña tiene que ser un porcentaje de 0 a 100, con hasta 2 decimales"}` (uno por cada campo) | Un porcentaje falta o es inválido. |
+| `422` | `{"error": "La seña tiene que ser de al menos el 1 %: sin seña, el huésped no podría pagar el saldo"}` | La seña es menor que 1. |
 | `422` | `{"error": "La retención de más de 30 días no puede ser mayor que la retención de 15 a 30 días"}` (uno por cada desigualdad) | No se cumple la regla. |
