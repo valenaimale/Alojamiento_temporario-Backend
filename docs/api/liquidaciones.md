@@ -30,7 +30,7 @@ El IVA y la comisión de la plataforma salen de `parametros` (`iva` = 21, `comis
 
 Cuando el **huésped ingresa**, no cuando se va: es el momento en que el contrato libera la plata que tenía retenida (plan de la entrega del 80 %, paso 0, punto 3). En la práctica: toda reserva `confirmada` o `finalizada` que tenga su fila en `estadias`.
 
-También se liquidan las **reservas canceladas en las que la política retuvo parte de la seña** (decisión **#57**), una vez que la devolución se confirmó en la red: se reparten igual que una estadía, sobre lo retenido (seña y saldo confirmados menos la devolución). Vienen con `"motivo": "cancelacion"`, `importe_cobrado` es lo retenido y nunca quedan `retenida_por_deuda`. Si se devolvió todo, no hay liquidación.
+También se liquidan las **reservas canceladas en las que la política retuvo parte de lo pagado** (decisión **#57**), una vez que la devolución se confirmó en la red y pasaron las **48 hs de la excepción** del propietario, o antes si ya la dio (#64). Si dio una excepción, sale de su parte: `excepcion` es lo que se le devuelve al huésped en la misma transacción, y `importe_propietario` ya la tiene descontada (#65). Se reparten igual que una estadía, sobre lo retenido (seña y saldo confirmados menos la devolución). Vienen con `"motivo": "cancelacion"`, `importe_cobrado` es lo retenido y nunca quedan `retenida_por_deuda`. Si se devolvió todo, no hay liquidación.
 
 El importe cobrado es la suma de los pagos **confirmados** de tipo `sena` y `saldo` de esa reserva. Si es menor que el total de la reserva, la liquidación se calcula igual pero queda en **`retenida_por_deuda`** y la respuesta trae `faltante` con lo que falta cobrar: es **RN-16**, *"no se liquida lo que todavía no se cobró"*.
 

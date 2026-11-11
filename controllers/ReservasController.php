@@ -8,6 +8,8 @@ use App\Database\Conexion;
 use App\Request\Request;
 use App\Validacion\CancelacionConDevolucion;
 use App\Validacion\Estadia;
+use App\Validacion\ExcepcionDeCancelacion;
+use App\Validacion\Liquidacion;
 use App\Validacion\ValidadorFechas;
 use App\Validacion\VencimientoReserva;
 use App\Validacion\VerificadorBlockchain;
@@ -145,7 +147,8 @@ class ReservasController
 
         $consulta = Conexion::obtener()->prepare(
             'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
-                    r.monto_faltante, r.fecha_cobro, u.id AS unidad_id, u.nombre AS unidad_nombre, l.nombre AS localidad, l.provincia, f.url AS foto_principal
+                    r.monto_faltante, r.fecha_cobro, r.cancelada_por, r.motivo_cancelacion, r.excepcion,
+                    u.id AS unidad_id, u.nombre AS unidad_nombre, l.nombre AS localidad, l.provincia, f.url AS foto_principal
              FROM reservas r
              JOIN unidades u ON u.id = r.unidad_id
              JOIN localidades l ON l.id = u.localidad_id
@@ -169,6 +172,12 @@ class ReservasController
                 'saldo'             => $fila['monto_faltante'],
                 'fecha_cobro'       => $fila['fecha_cobro'],
                 'puede_pagar_saldo' => $estado === 'confirmada' && $fila['monto_faltante'] !== null && bccomp($fila['monto_faltante'], '0', 2) > 0,
+                //quién la canceló y por qué (#63), y la excepción que le dio el propietario (#65); null si no está cancelada
+                'cancelacion'       => $estado !== 'cancelada' ? null : [
+                    'por'       => $fila['cancelada_por'],
+                    'motivo'    => $fila['motivo_cancelacion'],
+                    'excepcion' => $fila['excepcion'],
+                ],
                 'alojamiento'    => [
                     'id'             => (int) $fila['unidad_id'],
                     'nombre'         => $fila['unidad_nombre'],
@@ -228,11 +237,7 @@ class ReservasController
 
         if (VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']) === 'pendiente') {
             //UPDATE condicional: si llegan dos pedidos juntos, o se paga la seña al mismo tiempo, solo cambia si sigue pendiente
-            $consulta = Conexion::obtener()->prepare(
-                "UPDATE reservas SET estado = 'cancelada' WHERE id = ? AND " . VencimientoReserva::pendienteVigente()
-            );
-            $consulta->execute([$reserva['id']]);
-            if ($consulta->rowCount() === 0) {
+            if (CancelacionConDevolucion::marcarCancelada((int) $reserva['id'], 'huesped', null, VencimientoReserva::pendienteVigente()) === 0) {
                 return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
             }
             http_response_code(200);
@@ -285,15 +290,41 @@ class ReservasController
              WHERE r.unidad_id = ? AND " . VencimientoReserva::ocupaNoches('r') . " AND r.fecha_egreso >= ?
              ORDER BY r.fecha_ingreso, r.id"
         );
-        $consulta->execute([$unidad['id'], ValidadorFechas::hoy()->format('Y-m-d')]);
+        $hoy = ValidadorFechas::hoy()->format('Y-m-d');
+        $consulta->execute([$unidad['id'], $hoy]);
 
         $reservas = [];
         foreach ($consulta->fetchAll() as $fila) {
-            $reservas[] = $this->datosDe($fila) + ['huesped' => $fila['huesped']];
+            $reservas[] = $this->datosDe($fila) + [
+                'huesped'        => $fila['huesped'],
+                //solo el propietario cancela (#66): una pendiente sin vencer o una confirmada antes del ingreso
+                'puede_cancelar' => $unidad['es_propietario'] && ($fila['estado'] === 'pendiente' || $fila['fecha_ingreso'] > $hoy),
+            ];
+        }
+
+        //Al propietario, además, las que canceló el huésped (o la plataforma) en las últimas 48 hs, para darle una
+        //excepción (#64). El administrador no las ve: no puede darla.
+        $canceladas = [];
+        if ($unidad['es_propietario']) {
+            $consulta = Conexion::obtener()->prepare(
+                "SELECT r.id, r.estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
+                        r.cancelada_en, r.cancelada_por, r.excepcion, r.excepcion_en, h.nombre AS huesped,
+                        EXISTS (SELECT 1 FROM liquidaciones q WHERE q.reserva_id = r.id) AS liquidada
+                 FROM reservas r
+                 JOIN usuarios h ON h.id = r.huesped_id
+                 WHERE r.unidad_id = ? AND r.estado = 'cancelada' AND r.cancelada_por IN ('huesped', 'plataforma')
+                   AND r.cancelada_en > UTC_TIMESTAMP() - INTERVAL " . Liquidacion::HORAS_EXCEPCION . " HOUR
+                 ORDER BY r.cancelada_en DESC"
+            );
+            $consulta->execute([$unidad['id']]);
+            foreach ($consulta->fetchAll() as $fila) {
+                $canceladas[] = $this->datosDe($fila) + ['huesped' => $fila['huesped'], 'cancelada_por' => $fila['cancelada_por'],
+                    'cancelada_en' => str_replace(' ', 'T', $fila['cancelada_en']) . 'Z', 'excepcion' => ExcepcionDeCancelacion::estado($fila)];
+            }
         }
 
         http_response_code(200);
-        echo json_encode(['reservas' => $reservas]);
+        echo json_encode(['reservas' => $reservas, 'canceladas' => $canceladas]);
     }
 
     //Los datos de una reserva como los devuelve la API (los mismos en todas las listas)
@@ -323,16 +354,7 @@ class ReservasController
     //Se cancela una pendiente sin vencer o una confirmada antes del día del ingreso.
     private function problemaParaCancelar(array $reserva): ?array
     {
-        $estado = VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']);
-        return match (true) {
-            $estado === 'cancelada'  => ['Esa reserva ya estaba cancelada', 409],
-            $estado === 'expirada'   => ['Esa reserva ya venció sin pagar la seña: sus noches ya están libres', 409],
-            $estado === 'finalizada' => ['Esa estadía ya terminó', 409],
-            $estado === 'confirmada' && $reserva['fecha_ingreso'] <= ValidadorFechas::hoy()->format('Y-m-d')
-                                     => ['La estadía ya empezó: no se puede cancelar desde la app', 409],
-            in_array($estado, ['pendiente', 'confirmada'], true) => null,
-            default                  => ['Esa reserva no se puede cancelar', 409],
-        };
+        return CancelacionConDevolucion::problema($reserva);
     }
 
     //Cuánto se retiene y cuánto se devuelve si se cancela hoy (Devolucion), con los pagos confirmados de la reserva.

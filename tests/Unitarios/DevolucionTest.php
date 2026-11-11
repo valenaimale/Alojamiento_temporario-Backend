@@ -59,14 +59,26 @@ final class DevolucionTest extends TestCase
         ], $resultado);
     }
 
-    //Con el saldo pagado, el saldo se devuelve entero: el huésped nunca pierde más que la seña
-    public function testElSaldoPagadoSeDevuelveEntero(): void
+    //Con el saldo pagado no se devuelve nada (decisión #62, reemplaza a la #31): solo una excepción del propietario
+    public function testConElSaldoPagadoNoSeDevuelveNada(): void
     {
         $pagos = [$this->pago('sena', '42000.00', '420000000000000'), $this->pago('saldo', '168000.00', '1680000000000000')];
 
         $resultado = Devolucion::calcular($this->reserva(), $pagos, new \DateTimeImmutable('2026-12-01'));
 
-        $this->assertSame(['70.00', '29400.00', '180600.00', '1806000000000000'], [
+        $this->assertSame(['100.00', '210000.00', '0.00', '0'], [
+            $resultado['porcentaje_retencion'], $resultado['retencion'], $resultado['devolucion'], $resultado['devolucion_wei'],
+        ]);
+    }
+
+    //Si cancela el propietario se devuelve todo lo que pagó, seña y saldo, sin importar el tramo (decisión #63)
+    public function testSiCancelaElPropietarioSeDevuelveTodo(): void
+    {
+        $pagos = [$this->pago('sena', '42000.00', '420000000000000'), $this->pago('saldo', '168000.00', '1680000000000000')];
+
+        $resultado = Devolucion::total($this->reserva(), $pagos, new \DateTimeImmutable('2026-12-01'));
+
+        $this->assertSame(['0.00', '0.00', '210000.00', '2100000000000000'], [
             $resultado['porcentaje_retencion'], $resultado['retencion'], $resultado['devolucion'], $resultado['devolucion_wei'],
         ]);
     }

@@ -268,13 +268,16 @@ final class ReservasTest extends CasoDeIntegracion
                 'id' => $cancelada, 'estado' => 'cancelada', 'ingreso' => $this->fecha('+30 days'), 'egreso' => $this->fecha('+32 days'),
                 'noches' => 2, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00',
                 'vence_en' => null, 'puede_pagar' => false, 'puede_cancelar' => false,
-                'saldo' => null, 'fecha_cobro' => null, 'puede_pagar_saldo' => false, 'alojamiento' => $alojamiento,
+                'saldo' => null, 'fecha_cobro' => null, 'puede_pagar_saldo' => false,
+                'cancelacion' => ['por' => null, 'motivo' => null, 'excepcion' => null],//cancelada antes de anotar quién
+                'alojamiento' => $alojamiento,
             ],
             [
                 'id' => $proxima, 'estado' => 'pendiente', 'ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+13 days'),
                 'noches' => 3, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00',
                 'vence_en' => $creada['vence_en'], 'puede_pagar' => true, 'puede_cancelar' => true,
-                'saldo' => '168000.00', 'fecha_cobro' => $this->fecha('+5 days'), 'puede_pagar_saldo' => false, 'alojamiento' => $alojamiento,
+                'saldo' => '168000.00', 'fecha_cobro' => $this->fecha('+5 days'), 'puede_pagar_saldo' => false,
+                'cancelacion' => null, 'alojamiento' => $alojamiento,
             ],
         ]], $respuesta->json());
     }
@@ -350,10 +353,13 @@ final class ReservasTest extends CasoDeIntegracion
 
             $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
             $this->assertSame([$enCurso, $lejana], array_column($respuesta->json()['reservas'], 'id'));
+            $esPropietario = $mail === $this->propietario['mail'];
             $this->assertSame([
                 'id' => $lejana, 'estado' => 'confirmada', 'ingreso' => $this->fecha('+20 days'), 'egreso' => $this->fecha('+22 days'),
                 'noches' => 2, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00', 'huesped' => 'Juan',
+                'puede_cancelar' => $esPropietario,//solo el propietario cancela (#66)
             ], $respuesta->json()['reservas'][1]);
+            $this->assertSame([], $respuesta->json()['canceladas']);
         }
     }
 

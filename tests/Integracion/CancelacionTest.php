@@ -134,8 +134,8 @@ final class CancelacionTest extends CasoDeIntegracion
         }
     }
 
-    //Con el saldo pagado, el saldo se devuelve entero: solo se retiene parte de la seña
-    public function testConElSaldoPagadoSeDevuelveEntero(): void
+    //Con el saldo pagado no se devuelve nada (decisión #62): se retiene todo, y queda anotado que canceló el huésped
+    public function testConElSaldoPagadoNoSeDevuelveNada(): void
     {
         $cliente = $this->huesped();
         $reservaId = $this->reservaConfirmada($cliente, 10);
@@ -146,10 +146,13 @@ final class CancelacionTest extends CasoDeIntegracion
         $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
         $devolucion = $respuesta->json()['devolucion'];
         $this->assertSame(
-            [['sena' => '42000.00', 'saldo' => '168000.00'], '29400.00', '180600.00', '1806000000000000'],
-            [$devolucion['pagado'], $devolucion['retencion'], $devolucion['devolucion'], $devolucion['devolucion_wei']]
+            [['sena' => '42000.00', 'saldo' => '168000.00'], '210000.00', '0.00', null],
+            [$devolucion['pagado'], $devolucion['retencion'], $devolucion['devolucion'], $devolucion['tx_hash']]
         );
-        $this->assertSame('180600.00', $this->devolucionesDe($reservaId)[0]['monto_pesos']);
+        $this->assertSame([], $this->devolucionesDe($reservaId));
+        $this->assertSame(['huesped', 1], array_values($this->pdo()->query(
+            "SELECT cancelada_por, cancelada_en IS NOT NULL FROM reservas WHERE id = $reservaId"
+        )->fetch(\PDO::FETCH_NUM)));
     }
 
     //Si no se puede mandar la devolución, la reserva queda cancelada igual y la devolución pendiente, para reintentarla

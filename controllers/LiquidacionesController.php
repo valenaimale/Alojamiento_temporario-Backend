@@ -46,6 +46,7 @@ class LiquidacionesController
                 'comision_plataforma'            => $fila['comision_plataforma'],
                 'administrador'                  => $this->administradorDe($fila),
                 'comision_administrador'         => $fila['comision_administrador'],
+                'excepcion'                      => $fila['excepcion'],//lo que le devolvió al huésped de su parte (#65)
                 'importe_propietario'            => $fila['importe_propietario'],
                 'faltante'                       => $this->faltante($fila),
                 'billetera'                      => $fila['propietario_billetera'],
@@ -216,7 +217,7 @@ class LiquidacionesController
             "SELECT q.id, q.reserva_id, q.estado, q.cobra_iva, q.creado_en, q.liquidada_en, q.administrador_id,
                     q.importe_cobrado, q.porcentaje_iva, q.importe_iva, q.base_comisiones,
                     q.porcentaje_comision_plataforma, q.comision_plataforma,
-                    q.porcentaje_comision_administrador, q.comision_administrador, q.importe_propietario,
+                    q.porcentaje_comision_administrador, q.comision_administrador, q.excepcion, q.importe_propietario,
                     r.estado AS reserva_estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total,
                     t.tx_hash, t.red AS tx_red,
                     u.id AS unidad_id, u.nombre AS unidad, l.nombre AS localidad, l.provincia,
@@ -275,6 +276,7 @@ class LiquidacionesController
             'porcentaje_comision_plataforma' => $fila['porcentaje_comision_plataforma'],
             'comision_plataforma'            => $fila['comision_plataforma'],
             'comision_administrador'         => $fila['comision_administrador'],
+            'excepcion'                      => $fila['excepcion'],//lo que le devolvió al huésped de su parte (#65)
             'importe_propietario'            => $fila['importe_propietario'],
             'faltante'                       => $this->faltante($fila),
             'faltan_billeteras'              => $this->faltanBilleteras($fila),

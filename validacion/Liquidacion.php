@@ -18,17 +18,27 @@ use App\Database\Conexion;
 //el 7,5 % es 750. Al final se vuelve a texto con dos decimales, como lo guarda la base.
 class Liquidacion
 {
-    //Lo que quedó cobrado de una reserva, en pesos: la seña y el saldo confirmados, menos las devoluciones confirmadas.
-    //En una estadía es todo lo que pagó el huésped; en una cancelada, lo que retuvo la política (decisión #57).
+    //Lo que quedó cobrado de una reserva, en pesos: la seña y el saldo confirmados, menos las devoluciones (confirmadas o
+    //en camino). En una estadía es todo lo que pagó el huésped; en una cancelada, lo que retuvo la política (#57).
     private const COBRADO = "(SELECT COALESCE(SUM(CASE WHEN g.tipo = 'devolucion' THEN -g.monto_pesos ELSE g.monto_pesos END), 0)
                               FROM pagos g
-                              WHERE g.reserva_id = r.id AND g.estado = 'confirmado' AND g.tipo IN ('sena', 'saldo', 'devolucion'))";
+                              WHERE g.reserva_id = r.id AND ((g.tipo IN ('sena', 'saldo') AND g.estado = 'confirmado')
+                                                             OR (g.tipo = 'devolucion' AND g.estado <> 'fallido')))";
+
+    //Las horas que tiene el propietario para darle una excepción al huésped que canceló (decisión #64)
+    public const HORAS_EXCEPCION = 48;
+
+    //Una cancelada se puede liquidar cuando su devolución ya se confirmó (si no, no se sabe cuánto queda en el contrato)
+    //y ya no se espera la excepción del propietario (#64): la canceló él, la excepción ya se dio, pasaron las 48 hs,
+    //o se canceló antes de que existiera la excepción (cancelada_en en NULL).
+    private const CANCELADA_LISTA = "(NOT EXISTS (SELECT 1 FROM pagos d WHERE d.reserva_id = r.id AND d.tipo = 'devolucion' AND d.estado = 'pendiente')
+                                     AND (r.cancelada_por = 'propietario' OR r.cancelada_en IS NULL OR r.excepcion IS NOT NULL
+                                          OR r.cancelada_en <= UTC_TIMESTAMP() - INTERVAL " . self::HORAS_EXCEPCION . " HOUR))";
 
     //Qué reservas corresponde liquidar, de la más vieja a la más nueva:
     //  - las estadías en las que el huésped ya ingresó. Es cuando el contrato libera la plata que tenía retenida
     //    (plan de la entrega del 80 %, paso 0, punto 3): no se espera al egreso, porque la plata ya es del propietario;
-    //  - las canceladas en las que la política retuvo parte de la seña (decisión #57), una vez que la devolución ya
-    //    se confirmó en la red: hasta entonces no se sabe cuánto queda en el contrato.
+    //  - las canceladas en las que se retuvo algo (decisión #57), cuando están listas (CANCELADA_LISTA).
     public static function reservasSinLiquidar(): array
     {
         $consulta = Conexion::obtener()->query(
@@ -38,53 +48,49 @@ class Liquidacion
              LEFT JOIN liquidaciones q ON q.reserva_id = r.id
              WHERE q.reserva_id IS NULL
                AND ((r.estado IN ('confirmada', 'finalizada') AND e.reserva_id IS NOT NULL)
-                    OR (r.estado = 'cancelada' AND " . self::COBRADO . " > 0
-                        AND NOT EXISTS (SELECT 1 FROM pagos d WHERE d.reserva_id = r.id AND d.tipo = 'devolucion' AND d.estado = 'pendiente')))
+                    OR (r.estado = 'cancelada' AND " . self::COBRADO . " > 0 AND " . self::CANCELADA_LISTA . "))
              ORDER BY COALESCE(e.ingreso_en, r.fecha_ingreso), r.id"
         );
         return array_map('intval', $consulta->fetchAll(\PDO::FETCH_COLUMN));
     }
 
+    //Lo que se retuvo de una reserva cancelada y lo máximo que el propietario puede devolverle al huésped como
+    //excepción (#65): lo que le tocaría a él en la liquidación, así el administrador y la plataforma cobran siempre
+    //su comisión. Devuelve ['retenido' => '25500.00', 'maximo' => '19762.50'], o null si la reserva no existe.
+    public static function retenidoYMaximo(int $reservaId): ?array
+    {
+        $datos = self::datos($reservaId);
+        if ($datos === false) {
+            return null;
+        }
+        $centavos = self::aCentesimas((string) $datos['cobrado']);
+        if ($centavos <= 0) {
+            return ['retenido' => '0.00', 'maximo' => '0.00'];
+        }
+        return ['retenido' => self::aPesos($centavos), 'maximo' => self::repartoDe($datos)['importe_propietario']];
+    }
+
     //Calcula y guarda la liquidación de una reserva. Devuelve su id, o null si no correspondía
-    //(la reserva no existe, el huésped nunca ingresó, se canceló sin retener nada o ya estaba liquidada).
-    //Una cancelada se reparte igual que una estadía (decisión #57), pero sobre lo que se retuvo.
+    //(la reserva no existe, el huésped nunca ingresó, se canceló sin retener nada, la cancelada todavía no está lista
+    //o ya estaba liquidada). Una cancelada se reparte igual que una estadía (decisión #57), pero sobre lo que se retuvo,
+    //y si el propietario le dio una excepción al huésped, sale de su parte (#65).
     //Es idempotente: el índice único de reserva_id garantiza que una estadía se liquide una sola vez,
     //aunque el script y el backoffice la pidan al mismo tiempo.
     public static function generar(int $reservaId): ?int
     {
         $pdo = Conexion::obtener();
-
-        //La condición fiscal y los porcentajes se leen AHORA y se guardan en la liquidación: si el propietario
-        //cambia de categoría o renegocia la comisión, las liquidaciones ya hechas no se mueven.
-        //Si la unidad dejó de tener administrador, no hay comisión que pagarle (el LEFT JOIN la deja en NULL).
-        $consulta = $pdo->prepare(
-            "SELECT r.estado, r.importe_total, u.propietario_id, p.cobra_iva,
-                    a.administrador_id, a.porcentaje_comision,
-                    " . self::COBRADO . " AS cobrado,
-                    EXISTS (SELECT 1 FROM pagos d WHERE d.reserva_id = r.id AND d.tipo = 'devolucion' AND d.estado = 'pendiente') AS devolucion_en_camino
-             FROM reservas r
-             JOIN unidades u ON u.id = r.unidad_id
-             JOIN propietarios p ON p.usuario_id = u.propietario_id
-             LEFT JOIN estadias e ON e.reserva_id = r.id
-             LEFT JOIN administraciones a ON a.unidad_id = u.id
-             WHERE r.id = ? AND ((r.estado IN ('confirmada', 'finalizada') AND e.reserva_id IS NOT NULL) OR r.estado = 'cancelada')"
-        );
-        $consulta->execute([$reservaId]);
-        $datos = $consulta->fetch();
+        $datos = self::datos($reservaId);
         $cancelada = $datos !== false && $datos['estado'] === 'cancelada';
-        //una cancelada se liquida solo si retuvo algo y su devolución ya salió (si no, no se sabe cuánto queda)
-        if ($datos === false || ($cancelada && (self::aCentesimas((string) $datos['cobrado']) <= 0 || $datos['devolucion_en_camino']))) {
+        if ($datos === false || ($cancelada && (self::aCentesimas((string) $datos['cobrado']) <= 0 || !$datos['lista']))) {
             return null;
         }
 
         $cobraIva = (bool) $datos['cobra_iva'];
-        $reparto = self::calcular(
-            (string) $datos['cobrado'],
-            $cobraIva,
-            self::parametro('iva'),
-            self::parametro('comision_plataforma'),
-            $datos['porcentaje_comision'] === null ? null : (string) $datos['porcentaje_comision']
-        );
+        $reparto = self::repartoDe($datos);
+        //la excepción sale de la parte del propietario, nunca de más (si cambió un porcentaje, se recorta)
+        $excepcion = $datos['excepcion'] === null ? 0 : min(self::aCentesimas((string) $datos['excepcion']), self::aCentesimas($reparto['importe_propietario']));
+        $reparto['excepcion'] = self::aPesos($excepcion);
+        $reparto['importe_propietario'] = self::aPesos(self::aCentesimas($reparto['importe_propietario']) - $excepcion);
 
         //RN-16, "no se liquida lo que todavía no se cobró": si falta parte del saldo, la liquidación se calcula
         //igual pero queda retenida, y el propietario ve cuánto falta.
@@ -101,9 +107,9 @@ class Liquidacion
                 'INSERT INTO liquidaciones (reserva_id, propietario_id, administrador_id, cobra_iva,
                                             importe_cobrado, porcentaje_iva, importe_iva, base_comisiones,
                                             porcentaje_comision_plataforma, comision_plataforma,
-                                            porcentaje_comision_administrador, comision_administrador,
+                                            porcentaje_comision_administrador, comision_administrador, excepcion,
                                             importe_propietario, estado, creado_en)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $insercion->execute([
                 $reservaId,
@@ -118,6 +124,7 @@ class Liquidacion
                 $reparto['comision_plataforma'],
                 $reparto['porcentaje_comision_administrador'],
                 $reparto['comision_administrador'],
+                $reparto['excepcion'],
                 $reparto['importe_propietario'],
                 $estado,
                 //"Ahora" en UTC calculado en PHP, como en el resto del back: la base local puede tener otra zona horaria
@@ -131,6 +138,40 @@ class Liquidacion
         }
 
         return (int) $pdo->lastInsertId();
+    }
+
+    //Lo que hace falta para liquidar una reserva, o false si no se puede liquidar (no existe, o no es una estadía con
+    //ingreso ni una cancelada). 'lista': si es una cancelada, si ya está lista para liquidarse (CANCELADA_LISTA).
+    //La condición fiscal y los porcentajes se leen AHORA y se guardan en la liquidación: si el propietario
+    //cambia de categoría o renegocia la comisión, las liquidaciones ya hechas no se mueven.
+    //Si la unidad dejó de tener administrador, no hay comisión que pagarle (el LEFT JOIN la deja en NULL).
+    private static function datos(int $reservaId): array|false
+    {
+        $consulta = Conexion::obtener()->prepare(
+            "SELECT r.estado, r.importe_total, r.excepcion, u.propietario_id, p.cobra_iva,
+                    a.administrador_id, a.porcentaje_comision,
+                    " . self::COBRADO . " AS cobrado, " . self::CANCELADA_LISTA . " AS lista
+             FROM reservas r
+             JOIN unidades u ON u.id = r.unidad_id
+             JOIN propietarios p ON p.usuario_id = u.propietario_id
+             LEFT JOIN estadias e ON e.reserva_id = r.id
+             LEFT JOIN administraciones a ON a.unidad_id = u.id
+             WHERE r.id = ? AND ((r.estado IN ('confirmada', 'finalizada') AND e.reserva_id IS NOT NULL) OR r.estado = 'cancelada')"
+        );
+        $consulta->execute([$reservaId]);
+        return $consulta->fetch();
+    }
+
+    //El reparto de lo cobrado con los porcentajes de hoy (calcular), para la fila que devuelve datos()
+    private static function repartoDe(array $datos): array
+    {
+        return self::calcular(
+            self::aPesos(self::aCentesimas((string) $datos['cobrado'])),
+            (bool) $datos['cobra_iva'],
+            self::parametro('iva'),
+            self::parametro('comision_plataforma'),
+            $datos['porcentaje_comision'] === null ? null : (string) $datos['porcentaje_comision']
+        );
     }
 
     //El reparto de un importe cobrado, con los porcentajes como texto ("21", "7.5", "15.00").

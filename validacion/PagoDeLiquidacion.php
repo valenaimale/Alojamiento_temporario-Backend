@@ -21,6 +21,9 @@ use App\Log\Log;
 //contrato, en la proporción de los pesos (Liquidacion::repartirWei): nunca se pide más de lo que hay.
 class PagoDeLiquidacion
 {
+    //Los tipos de pago que salen con liquidar(): las partes de la liquidación y la excepción al huésped (#65)
+    public const TIPOS = "'liquidacion', 'excepcion'";
+
     //Paga la liquidación $liquidacionId. Devuelve ['codigo' => HTTP, 'mensaje' => texto, 'tx_hash' => ?string]:
     //200 pagada, 202 salió y falta que se confirme, 404 no existe, 409 no se puede pagar (y por qué),
     //503 la red falló (queda pendiente y la reintenta el script).
@@ -32,12 +35,14 @@ class PagoDeLiquidacion
         try {
             //Traba la liquidación: si el backoffice y el cron la pagan a la vez, el segundo espera y ve los pagos del primero
             $consulta = $pdo->prepare(
-                'SELECT q.id, q.reserva_id, q.estado, q.administrador_id, q.importe_propietario, q.comision_administrador,
-                        q.comision_plataforma, p.billetera AS propietario_billetera, a.billetera AS administrador_billetera
+                "SELECT q.id, q.reserva_id, q.estado, q.administrador_id, q.importe_propietario, q.comision_administrador,
+                        q.comision_plataforma, q.excepcion, p.billetera AS propietario_billetera, a.billetera AS administrador_billetera,
+                        (SELECT s.billetera FROM pagos s WHERE s.reserva_id = q.reserva_id AND s.tipo = 'sena' AND s.estado = 'confirmado'
+                          ORDER BY s.id LIMIT 1) AS huesped_billetera
                  FROM liquidaciones q
                  JOIN propietarios p ON p.usuario_id = q.propietario_id
                  LEFT JOIN administradores a ON a.usuario_id = q.administrador_id
-                 WHERE q.id = ? FOR UPDATE'
+                 WHERE q.id = ? FOR UPDATE"
             );
             $consulta->execute([$liquidacionId]);
             $liquidacion = $consulta->fetch();
@@ -58,10 +63,10 @@ class PagoDeLiquidacion
             $partes = self::partes($liquidacion, $disponible, $firmador->direccion());
             $insercion = $pdo->prepare(
                 "INSERT INTO pagos (reserva_id, tipo, monto_pesos, monto_wei, pesos_por_eth, billetera, red, tx_hash, estado, creado_en)
-                 VALUES (?, 'liquidacion', ?, ?, ?, ?, ?, NULL, 'pendiente', ?)"
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'pendiente', ?)"
             );
             foreach ($partes as $billetera => $parte) {
-                $insercion->execute([$reservaId, $parte['pesos'], $parte['wei'], $pesosPorEth, $billetera, $firmador->red(), VencimientoReserva::ahora()]);
+                $insercion->execute([$reservaId, $parte['tipo'], $parte['pesos'], $parte['wei'], $pesosPorEth, $billetera, $firmador->red(), VencimientoReserva::ahora()]);
             }
             $pdo->commit();
         } catch (\Throwable $e) {
@@ -90,7 +95,7 @@ class PagoDeLiquidacion
         $pdo = Conexion::obtener();
         $consulta = $pdo->prepare(
             "SELECT id, billetera, monto_wei FROM pagos
-             WHERE reserva_id = ? AND tipo = 'liquidacion' AND estado = 'pendiente' AND tx_hash IS NULL AND red = ?
+             WHERE reserva_id = ? AND tipo IN (" . self::TIPOS . ") AND estado = 'pendiente' AND tx_hash IS NULL AND red = ?
              ORDER BY id"
         );
         $consulta->execute([$reservaId, $firmador->red()]);
@@ -117,7 +122,7 @@ class PagoDeLiquidacion
     public static function confirmar(int $reservaId, string $txHash): void
     {
         Conexion::obtener()->prepare(
-            "UPDATE pagos SET estado = 'confirmado', confirmado_en = ? WHERE tipo = 'liquidacion' AND estado = 'pendiente' AND tx_hash = ?"
+            "UPDATE pagos SET estado = 'confirmado', confirmado_en = ? WHERE tipo IN (" . self::TIPOS . ") AND estado = 'pendiente' AND tx_hash = ?"
         )->execute([VencimientoReserva::ahora(), $txHash]);
         self::marcarPagada($reservaId);
     }
@@ -160,7 +165,11 @@ class PagoDeLiquidacion
             return self::resultado(409, "$quien: hasta que la carguen, lo que cobró esta estadía sigue retenido en el contrato");
         }
         //Si ya hay pagos de esta liquidación, ya salió (o la está mandando otro pedido): no se manda dos veces
-        $consulta = Conexion::obtener()->prepare("SELECT COUNT(*) FROM pagos WHERE reserva_id = ? AND tipo = 'liquidacion'");
+        //Si el propietario le dio una excepción al huésped, hace falta saber a qué billetera mandársela
+        if (bccomp((string) $liquidacion['excepcion'], '0', 2) > 0 && $liquidacion['huesped_billetera'] === null) {
+            return self::resultado(409, 'No encontramos la billetera con la que pagó el huésped: no se le puede mandar la excepción');
+        }
+        $consulta = Conexion::obtener()->prepare('SELECT COUNT(*) FROM pagos WHERE reserva_id = ? AND tipo IN (' . self::TIPOS . ')');
         $consulta->execute([$reservaId]);
         if ((int) $consulta->fetchColumn() > 0) {
             return self::resultado(409, 'Esa liquidación ya se está pagando: se confirma en unos minutos');
@@ -178,14 +187,15 @@ class PagoDeLiquidacion
                        AND e.tipo IN ('sena', 'saldo') ORDER BY e.id LIMIT 1) AS pesos_por_eth
              FROM pagos
              WHERE reserva_id = ? AND red = ?
-               AND ((tipo IN ('sena', 'saldo') AND estado = 'confirmado') OR (tipo IN ('devolucion', 'liquidacion') AND estado <> 'fallido'))"
+               AND ((tipo IN ('sena', 'saldo') AND estado = 'confirmado') OR (tipo IN ('devolucion', " . self::TIPOS . ") AND estado <> 'fallido'))"
         );
         $consulta->execute([$reservaId, $red, $reservaId, $red]);
         $fila = $consulta->fetch();
         return [(string) $fila['disponible'], (string) $fila['pesos_por_eth']];
     }
 
-    //Los pagos a anotar, por billetera: ['0x…' => ['pesos' => '363533.05', 'wei' => '…']].
+    //Los pagos a anotar, por billetera: ['0x…' => ['tipo' => 'liquidacion', 'pesos' => '363533.05', 'wei' => '…']].
+    //La excepción del propietario (#65) va al huésped, a la billetera que pagó la seña, como pago de tipo 'excepcion'.
     //Si dos partes van a la misma billetera (por ejemplo, el propietario es su propio administrador), se suman:
     //el índice único (tx_hash, billetera) no deja anotar dos pagos de la misma transacción a la misma billetera.
     //Las partes en 0 no se mandan: el contrato rechaza los montos en 0.
@@ -195,11 +205,13 @@ class PagoDeLiquidacion
             'propietario'   => (string) $liquidacion['importe_propietario'],
             'administrador' => (string) $liquidacion['comision_administrador'],
             'plataforma'    => (string) $liquidacion['comision_plataforma'],
+            'huesped'       => (string) $liquidacion['excepcion'],
         ];
         $billeteras = [
             'propietario'   => $liquidacion['propietario_billetera'],
             'administrador' => $liquidacion['administrador_billetera'],
             'plataforma'    => $plataforma,
+            'huesped'       => $liquidacion['huesped_billetera'],
         ];
         $partes = [];
         foreach (Liquidacion::repartirWei($disponibleWei, $importes) as $quien => $wei) {
@@ -207,7 +219,11 @@ class PagoDeLiquidacion
                 continue;
             }
             $billetera = strtolower((string) $billeteras[$quien]);
-            $partes[$billetera] ??= ['pesos' => '0', 'wei' => '0'];
+            $tipo = $quien === 'huesped' ? 'excepcion' : 'liquidacion';
+            $partes[$billetera] ??= ['tipo' => $tipo, 'pesos' => '0', 'wei' => '0'];
+            if ($partes[$billetera]['tipo'] !== $tipo) {
+                $partes[$billetera]['tipo'] = 'liquidacion';//el huésped es también otra parte: va como liquidación
+            }
             $partes[$billetera]['pesos'] = bcadd($partes[$billetera]['pesos'], $importes[$quien], 2);
             $partes[$billetera]['wei'] = bcadd($partes[$billetera]['wei'], $wei, 0);
         }
