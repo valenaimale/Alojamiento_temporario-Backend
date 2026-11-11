@@ -41,7 +41,7 @@ $fallidas = 0;
 //1. Las que ya salieron: ¿se confirmaron?
 $enCamino = $pdo->prepare(
     "SELECT DISTINCT reserva_id, tx_hash FROM pagos
-     WHERE tipo = 'liquidacion' AND estado = 'pendiente' AND tx_hash IS NOT NULL AND red = ?
+     WHERE tipo IN (" . PagoDeLiquidacion::TIPOS . ") AND estado = 'pendiente' AND tx_hash IS NOT NULL AND red = ?
        AND creado_en < UTC_TIMESTAMP() - INTERVAL 5 MINUTE
      ORDER BY reserva_id"
 );
@@ -57,7 +57,7 @@ foreach ($enCamino->fetchAll() as $envio) {
         PagoDeLiquidacion::confirmar((int) $envio['reserva_id'], $envio['tx_hash']);
         echo "Reserva {$envio['reserva_id']}: la liquidación {$envio['tx_hash']} se confirmó.\n";
     } elseif ($estado === false) {
-        $pdo->prepare("UPDATE pagos SET tx_hash = NULL WHERE tipo = 'liquidacion' AND tx_hash = ?")->execute([$envio['tx_hash']]);
+        $pdo->prepare("UPDATE pagos SET tx_hash = NULL WHERE tipo IN (" . PagoDeLiquidacion::TIPOS . ") AND tx_hash = ?")->execute([$envio['tx_hash']]);
         echo "Reserva {$envio['reserva_id']}: la liquidación {$envio['tx_hash']} no salió; se vuelve a mandar.\n";
     }
 }
@@ -65,7 +65,7 @@ foreach ($enCamino->fetchAll() as $envio) {
 //2. Las que no salieron: se mandan de nuevo
 $sinMandar = $pdo->prepare(
     "SELECT DISTINCT reserva_id FROM pagos
-     WHERE tipo = 'liquidacion' AND estado = 'pendiente' AND tx_hash IS NULL AND red = ?
+     WHERE tipo IN (" . PagoDeLiquidacion::TIPOS . ") AND estado = 'pendiente' AND tx_hash IS NULL AND red = ?
        AND creado_en < UTC_TIMESTAMP() - INTERVAL 5 MINUTE
      ORDER BY reserva_id"
 );
@@ -87,7 +87,7 @@ foreach ($sinMandar->fetchAll(\PDO::FETCH_COLUMN) as $reservaId) {
 $nuevas = $pdo->query(
     "SELECT q.id, q.reserva_id FROM liquidaciones q
      WHERE q.estado = 'pendiente'
-       AND NOT EXISTS (SELECT 1 FROM pagos g WHERE g.reserva_id = q.reserva_id AND g.tipo = 'liquidacion')
+       AND NOT EXISTS (SELECT 1 FROM pagos g WHERE g.reserva_id = q.reserva_id AND g.tipo IN (" . PagoDeLiquidacion::TIPOS . "))
      ORDER BY q.id"
 )->fetchAll();
 if ($nuevas === []) {

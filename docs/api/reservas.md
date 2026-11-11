@@ -35,7 +35,7 @@ Se guarda la **foto de las condiciones** que el huésped acepta: el total (la su
 GET /reservas/mias
 ```
 
-Las reservas del usuario logueado (huésped o propietario), **todas** (también las canceladas y expiradas), de la más nueva a la más vieja según el ingreso. `puede_pagar` es `true` solo para las pendientes sin vencer; `puede_cancelar`, para las pendientes sin vencer y las confirmadas antes del día del ingreso, y `vence_en` dice hasta cuándo se paga la seña (`null` en las demás). `saldo` es lo que falta pagar (`"0.00"` cuando ya está pago), `fecha_cobro` hasta cuándo se paga, y `puede_pagar_saldo` es `true` en las confirmadas con saldo (se paga con `GET /pagos/saldo`, ver `pagos.md`). Las reservas anteriores al cobro pueden tener `saldo` y `fecha_cobro` en `null`. Una pendiente vencida aparece con `"estado": "expirada"`. La dirección exacta no se muestra todavía: se le va a dar al huésped cuando la reserva esté confirmada (pagada).
+Las reservas del usuario logueado (huésped o propietario), **todas** (también las canceladas y expiradas), de la más nueva a la más vieja según el ingreso. En las canceladas, `cancelacion` dice quién canceló (`huesped`, `propietario` o `plataforma`; `null` en las de antes), el `motivo` si fue el propietario y la `excepcion` que le dio el propietario, en pesos; en las demás es `null`. `puede_pagar` es `true` solo para las pendientes sin vencer; `puede_cancelar`, para las pendientes sin vencer y las confirmadas antes del día del ingreso, y `vence_en` dice hasta cuándo se paga la seña (`null` en las demás). `saldo` es lo que falta pagar (`"0.00"` cuando ya está pago), `fecha_cobro` hasta cuándo se paga, y `puede_pagar_saldo` es `true` en las confirmadas con saldo (se paga con `GET /pagos/saldo`, ver `pagos.md`). Las reservas anteriores al cobro pueden tener `saldo` y `fecha_cobro` en `null`. Una pendiente vencida aparece con `"estado": "expirada"`. La dirección exacta no se muestra todavía: se le va a dar al huésped cuando la reserva esté confirmada (pagada).
 
 | Código | Cuerpo |
 |---|---|
@@ -47,7 +47,7 @@ Las reservas del usuario logueado (huésped o propietario), **todas** (también 
 Se cancela una reserva **pendiente** (sin vencer) o **confirmada**, antes del día del ingreso. Las noches quedan libres.
 
 - **Pendiente:** todavía no pagó nada, así que no hay devolución.
-- **Confirmada:** se aplica la política que el huésped aceptó al reservar. Se retiene el % **de la seña** del tramo, según cuántos días faltan hasta la `fecha_cobro`: más de 30, de 15 a 30, o menos de 15 (también si el cobro ya pasó). Se devuelve el resto de la seña, más **el saldo entero** si ya lo pagó: el huésped nunca pierde más que la seña. Las cuentas se hacen sobre los pagos confirmados, en wei (`validacion/Devolucion.php`).
+- **Confirmada:** se aplica la política que el huésped aceptó al reservar. Se retiene el % **de la seña** del tramo, según cuántos días faltan hasta la `fecha_cobro`: más de 30, de 15 a 30, o menos de 15 (también si el cobro ya pasó), y se devuelve el resto de la seña. **Si ya pagó el saldo, no se devuelve nada** (decisión #62): el propietario puede darle una excepción en las 48 hs siguientes. Las cuentas se hacen sobre los pagos confirmados, en wei (`validacion/Devolucion.php`).
 
 La plataforma manda la devolución al contrato con `devolver(reservaId, huesped, monto)` a la billetera que pagó la seña (`FirmadorPagos`: hoy `FirmadorSimulado`, que se elige con `pagos.firmador` o `PAGOS_FIRMADOR`). Queda en `pagos` con `tipo = devolucion`. El orden es este:
 
@@ -85,17 +85,63 @@ POST /reservas/cancelar
 | `404` | `{"error": "No encontramos esa reserva"}` | No existe, no es suya o el id no es válido. |
 | `409` | `{"error": "Esa reserva ya estaba cancelada"}`, `{"error": "Esa reserva ya venció sin pagar la seña: sus noches ya están libres"}`, `{"error": "La estadía ya empezó: no se puede cancelar desde la app"}`, `{"error": "Esa estadía ya terminó"}` o `{"error": "La reserva cambió mientras la cancelabas: actualizá la página"}` (se pagó o canceló al mismo tiempo) | |
 
+## Cancela el propietario (decisión #63)
+
+```
+POST /unidades/reservas/cancelar
+{"reserva_id": 12, "motivo": "Se rompió el termotanque"}
+```
+
+Solo el **propietario** de la unidad (el administrador recibe `403`). Se cancela una pendiente sin vencer o una confirmada antes del día del ingreso, con un **motivo de 5 a 500 caracteres**, que le llega al huésped por mail. Se le devuelve **todo lo que pagó**, seña y saldo, a la billetera con la que pagó la seña: misma devolución, mismo reintento y mismos estados que cuando cancela el huésped.
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"ok": "Cancelaste la reserva: esas noches quedaron libres y le avisamos al huésped"}` | Una pendiente: no hay nada que devolver |
+| `200` | `{"ok": "Cancelaste la reserva: … le devolvemos $210.000,00 al huésped (todo lo que pagó)", "devolucion": {"pagado": {"sena": "42000.00", "saldo": "168000.00"}, "devolucion": "210000.00", "estado": "confirmado", "tx_hash": "0x…", "red": 84532, "simulado": false}}` | Una confirmada |
+| `422` | `{"error": "Contale al huésped por qué cancelás (de 5 a 500 caracteres)"}` | Falta el motivo |
+| `404` | `{"error": "No encontramos esa reserva"}` | No existe o es de una unidad de otro |
+| `409` | Los mismos de `POST /reservas/cancelar` | Ya cancelada, vencida, empezada o terminada |
+
+## La excepción del propietario (L2-19, decisiones #64 a #66)
+
+Cuando el **huésped** cancela (o la plataforma, por el saldo vencido) y la política retiene algo, el propietario tiene **48 hs** para devolverle al huésped lo que quiera **de su parte** de lo retenido: el administrador y la plataforma cobran siempre su comisión. Se da una sola vez. Le llega al huésped en los minutos siguientes, en la misma transacción `liquidar` que le paga al propietario lo que queda ([liquidaciones](liquidaciones.md)). Mientras corren las 48 hs, la cancelada no se liquida.
+
+```
+GET /unidades/reservas/excepcion?reserva_id=12
+```
+
+```json
+{"reserva_id": 12, "retenido": "12600.00", "maximo": "11655.00", "hasta": "2026-11-14T15:00:00Z",
+ "excepcion": null, "puede": true, "motivo": null}
+```
+
+`maximo` es lo que le toca al propietario de lo retenido. Si `puede` es `false`, `motivo` dice por qué ("Pasaron las 48 hs para dar una excepción", "Ya le diste una excepción a esta reserva", "Solo se puede dar una excepción cuando cancela el huésped", …).
+
+```
+POST /unidades/reservas/excepcion
+{"reserva_id": 12, "monto": "5000"}
+```
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"ok": "Listo: le devolvemos $5.000,00 al huésped. Le llega en los próximos minutos, junto con tu liquidación"}` | |
+| `422` | `{"error": "Podés devolver hasta $11.655,00: es lo que te toca a vos de lo retenido (…)"}` o el del monto inválido | |
+| `409` | `{"error": "<el motivo de arriba>"}` | Ya no se puede |
+| `404` | `{"error": "No encontramos esa reserva"}` | |
+
 ## Reservas de una unidad (propietario y administrador)
 
 ```
 GET /unidades/reservas?id=5
 ```
 
-Las reservas **en curso y próximas** de la unidad (pendientes, confirmadas y finalizadas con egreso contratado de hoy en adelante), de la más cercana a la más lejana. Las ven el propietario y el administrador asignado; para cualquier otro la unidad "no existe" (`404`). Del huésped va **solo el nombre**.
+Las reservas **en curso y próximas** de la unidad (pendientes, confirmadas y finalizadas con egreso contratado de hoy en adelante), de la más cercana a la más lejana. Las ven el propietario y el administrador asignado; para cualquier otro la unidad "no existe" (`404`). Del huésped va **solo el nombre**. `puede_cancelar` es `true` solo para el propietario (#66).
+
+`canceladas` (solo para el propietario; para el administrador, `[]`): las que canceló el huésped o la plataforma en las últimas 48 hs, cada una con `cancelada_por`, `cancelada_en` y `excepcion` (lo mismo que `GET /unidades/reservas/excepcion`).
 
 | Código | Cuerpo |
 |---|---|
-| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "huesped": "Juan"}]}` (o `[]`) |
+| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "huesped": "Juan", "puede_cancelar": true}], "canceladas": []}` |
 
 ## Agenda del operador (RF-10)
 

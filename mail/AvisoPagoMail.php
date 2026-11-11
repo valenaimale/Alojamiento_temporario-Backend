@@ -102,9 +102,37 @@ class AvisoPagoMail
             $porSaldoVencido ? "Se canceló una reserva en $unidad por falta de pago del saldo" : "Un huésped canceló su reserva en $unidad",
             ($porSaldoVencido ? 'El huésped no pagó el saldo a tiempo. ' : '') . "Se canceló la reserva de $unidad del " . self::dia($ingreso) . ' al ' . self::dia($egreso)
                 . '. Esas noches quedaron libres. Según la política de cancelación, se retienen ' . self::pesos($retencion)
-                . ' de la seña y se le devuelven ' . self::pesos($devolucion) . ' al huésped.',
+                . ' y se le devuelven ' . self::pesos($devolucion) . ' al huésped.'
+                //decisión #64: el propietario tiene 48 hs para devolverle parte de lo retenido
+                . (bccomp($retencion, '0', 2) > 0
+                    ? ' Si querés, en las próximas 48 hs podés devolverle al huésped parte o todo lo que te toca de lo retenido, desde las reservas de tu unidad.'
+                    : ''),
             '/vistas/homes/index-propietario.html',
             'Ver mis alojamientos'
+        );
+    }
+
+    //"El propietario canceló tu reserva en Cabaña del Mar" (decisión #63): se le devuelve todo lo que pagó.
+    //$enCamino: si la devolución todavía no salió (la red falló y queda para reintentar).
+    public static function cancelacionDelPropietario(array $huesped, string $unidad, string $ingreso, string $egreso, string $motivo, string $devolucion, bool $enCamino): void
+    {
+        $texto = "El propietario de $unidad canceló tu reserva del " . self::dia($ingreso) . ' al ' . self::dia($egreso) . ". Motivo: $motivo. ";
+        $texto .= bccomp($devolucion, '0', 2) > 0
+            ? 'Te devolvemos todo lo que pagaste, ' . self::pesos($devolucion) . ', a la billetera con la que pagaste.'
+                . ($enCamino ? ' La devolución está en proceso: puede tardar un poco en llegarte.' : '')
+            : 'Todavía no habías pagado nada, así que no hay nada que devolverte.';
+        self::avisar($huesped, "El propietario canceló tu reserva en $unidad", $texto . ' Lamentamos las molestias.');
+    }
+
+    //"Te devolvemos $X más por tu reserva cancelada en Cabaña del Mar" (decisión #64): la excepción del propietario.
+    //Le llega con la liquidación de la reserva, en los próximos minutos.
+    public static function excepcionAlHuesped(array $huesped, string $unidad, string $monto): void
+    {
+        self::avisar(
+            $huesped,
+            "Te devolvemos " . self::pesos($monto) . " más por tu reserva cancelada en $unidad",
+            "El propietario de $unidad decidió devolverte " . self::pesos($monto) . ' de lo que se había retenido por tu cancelación.'
+                . ' Te llega a la billetera con la que pagaste en los próximos minutos.'
         );
     }
 

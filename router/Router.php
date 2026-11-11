@@ -160,6 +160,9 @@ class Router {
         $this->register('POST@/reservas/cancelar', 'ReservasController@cancelar');
         $this->register('GET@/reservas/cancelacion', 'ReservasController@cancelacion');//Rol 2: cuánto se devuelve si cancela
         $this->register('GET@/unidades/reservas', 'ReservasController@deLaUnidad');
+        $this->register('POST@/unidades/reservas/cancelar', 'CancelacionPropietarioController@cancelar');//cancela el propietario (#63)
+        $this->register('GET@/unidades/reservas/excepcion', 'CancelacionPropietarioController@verExcepcion');//excepción (#64, L2-19)
+        $this->register('POST@/unidades/reservas/excepcion', 'CancelacionPropietarioController@darExcepcion');
         $this->register('GET@/operador/agenda', 'AgendaOperadorController@ver');
         $this->register('POST@/operador/estadias/registrar', 'EstadiasController@registrar');
         $this->register('GET@/reservas/huespedes', 'HuespedesReservaController@ver');
