@@ -99,7 +99,7 @@ Estado al 06/11/2026. Cada historia tiene un comentario con el detalle de lo hec
 ## Pendiente del Rol 2
 
 - Para la entrega final: la demora de la devolución y la excepción del propietario (#39, L2-19).
-- Rol 4: llamar a `Firmadores::configurado()->liquidar(...)` desde `LiquidacionesController` (el firmador ya lo tiene).
+- ~~Rol 4: llamar a `liquidar(...)` desde `LiquidacionesController`.~~ Hecho (#58 a #61).
 
 ## Red real (07/11)
 
@@ -122,7 +122,7 @@ Las corre `scripts/tareas-programadas.php` desde dos servicios con cron de Railw
 
 | Grupo | Cada cuánto | Scripts, en orden |
 |---|---|---|
-| `frecuentes` | Cada 10 minutos | `reintentar-devoluciones.php` (confirma las devoluciones en camino y reintenta las que no salieron, #36 y #50) y `generar-liquidaciones.php --guardar` (Rol 4) |
+| `frecuentes` | Cada 10 minutos | `reintentar-devoluciones.php` (confirma las devoluciones en camino y reintenta las que no salieron, #36 y #50), `generar-liquidaciones.php --guardar` (Rol 4; también las canceladas, #57) y `pagar-liquidaciones.php` (manda `liquidar`, #60) |
 | `diarias` | Una vez por día, 09:00 UTC (6 de Argentina) | `cancelar-saldos-vencidos.php` (#23) y después `enviar-recordatorios.php --enviar` (Rol 4), así una reserva recién cancelada no recibe recordatorio |
 
 ## Activar los pagos reales (10/11)
@@ -134,3 +134,15 @@ Las corre `scripts/tareas-programadas.php` desde dos servicios con cron de Railw
 | 54 | Las tareas que tienen que pasar solas corren con `scripts/tareas-programadas.php frecuentes\|diarias`, en **dos servicios con cron de Railway** que usan la misma imagen que el back. Cada script corre en su propio proceso: si uno falla, los otros corren igual. | Un cron de Railway es un servicio cuyo comando arranca, hace su trabajo y termina. Con dos grupos alcanza para las cuatro tareas, y todas son seguras de repetir (candados e índices únicos). |
 | 55 | `scripts/verificar-blockchain.php` controla, sin gastar gas, que el RPC sea de la red configurada, que haya un contrato en `CONTRATO_DIRECCION`, que su dueña (`owner()`) sea la billetera de `PLATAFORMA_CLAVE_PRIVADA` y que esa billetera tenga ETH para el gas. **Nunca muestra la clave**, solo la dirección pública que sale de ella. | Si la clave no es la de la dueña, `devolver` y `liquidar` fallan siempre con `OwnableUnauthorizedAccount`. Conviene saberlo antes de activar, no con la primera cancelación. |
 | 56 | La respuesta de `POST /reservas/cancelar` incluye `devolucion.red` y `devolucion.simulado`. | Con la red 84532 y `simulado: false`, el front enlaza la devolución en BaseScan; con la simulada, no. |
+
+## Liquidar con el contrato (11/11)
+
+En la prueba de punta a punta del 11/11 la seña retenida de una cancelación quedó en el contrato sin camino para salir, y el saldo de una estadía tampoco le llegaba a nadie: el back calculaba las liquidaciones pero nunca llamaba a `liquidar`.
+
+| # | Decisión | Por qué |
+|---|---|---|
+| 57 | **Decidido (11/11, Rol 1):** también se liquidan las **reservas canceladas en las que la política retuvo parte de la seña** (también las del saldo vencido, #23), **igual que una estadía**: IVA si el propietario lo discrimina, comisión de la plataforma y del administrador, sobre lo retenido (seña y saldo confirmados menos la devolución confirmada). Se liquidan recién cuando la devolución se confirmó en la red. Nunca quedan `retenida_por_deuda`, y la respuesta las marca con `"motivo": "cancelacion"`. | La seña retenida compensa al propietario por las noches que no pudo vender. Hasta que la devolución se confirma no se sabe cuánto queda en el contrato. |
+| 58 | **Decidido (11/11, Rol 1):** la comisión de la plataforma se manda, con el mismo `liquidar`, a **la billetera de la plataforma** (la dueña del contrato, la que sale de `PLATAFORMA_CLAVE_PRIVADA`). | Así a la reserva no le queda nada en el contrato, y no hace falta otra variable. Lo que queda en el contrato solo se puede sacar con `devolver` o `liquidar`. |
+| 59 | Se reparte en wei **lo que le queda a la reserva en el contrato** (lo que entró menos lo que salió), en la proporción de los pesos de la liquidación. Cada parte se redondea para abajo y los restos (unos pocos wei) van a la plataforma, o al propietario si la plataforma no cobra comisión (`Liquidacion::repartirWei`). | Nunca se le pide al contrato más de lo que hay (`FondosInsuficientes`), y no quedan restos trabados. |
+| 60 | Una liquidación se paga con **una sola transacción** `liquidar` con todas las partes, y se anota un pago `liquidacion` por billetera, con el mismo `tx_hash` (si dos partes van a la misma billetera, se suman). La paga solo el cron de las tareas frecuentes (`scripts/pagar-liquidaciones.php`), o el backoffice con `POST /liquidaciones/pagar`; los dos usan `PagoDeLiquidacion`. Queda `pagada` cuando la transacción se confirma en un bloque. | Mismo orden que las devoluciones (#35): primero se anota y después se manda; si la red falla, el script la vuelve a mandar. Si se cayera a la mitad, el contrato no deja sacar más de lo que entró. |
+| 61 | Las respuestas de liquidaciones y comisiones traen `motivo` (`estadia` o `cancelacion`) y `transaccion` (`tx_hash`, `red` y `simulado`, o `null` si todavía no salió). | El propietario y el administrador ven en BaseScan la transferencia que recibieron. |

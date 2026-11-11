@@ -1,8 +1,9 @@
 <?php
 
-//Calcula y guarda las liquidaciones de las estadías en las que el huésped ya ingresó y que todavía
-//no se liquidaron (RF-09, RF-13 y RF-19). Hace lo mismo que POST /liquidaciones/generar, pero por consola,
-//para poder dejarlo en un cron de Railway y no depender de que alguien entre al backoffice.
+//Calcula y guarda las liquidaciones de las estadías en las que el huésped ya ingresó, y de las reservas canceladas
+//en las que se retuvo parte de la seña (decisión #57), que todavía no se liquidaron (RF-09, RF-13 y RF-19).
+//Hace lo mismo que POST /liquidaciones/generar, pero por consola, para poder dejarlo en un cron de Railway y no
+//depender de que alguien entre al backoffice. Pagarlas (mandar el ETH) es el paso siguiente: pagar-liquidaciones.php.
 //
 //Desde la raíz del backend:
 //

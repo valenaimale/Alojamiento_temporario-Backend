@@ -46,6 +46,13 @@ class FirmadorBlockchain implements FirmadorPagos
         return (int) Config::obtener('blockchain.red', VerificadorBlockchain::RED_BASE_SEPOLIA);
     }
 
+    //La dirección pública que sale de PLATAFORMA_CLAVE_PRIVADA (la dueña del contrato), en minúsculas
+    public function direccion(): string
+    {
+        $this->firma ??= new FirmaEthereum($this->clavePrivada);
+        return strtolower($this->firma->direccion());
+    }
+
     public function devolver(int $reservaId, string $billetera, string $montoWei): EnvioTransaccion
     {
         if (!ClienteRpc::esDireccion($billetera)) {

@@ -6,7 +6,9 @@ use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Request\Request;
 use App\Validacion\Liquidacion;
+use App\Validacion\PagoDeLiquidacion;
 use App\Validacion\ValidadorFechas;
+use App\Validacion\VerificadorBlockchain;
 
 //Las liquidaciones de cada estadía: lo que cobra el propietario (RF-13), lo que cobra el administrador
 //por su comisión (RF-09) y el comprobante sin valor fiscal de cada uno (RF-19, RN-25).
@@ -30,8 +32,10 @@ class LiquidacionesController
             $liquidaciones[] = [
                 'id'                             => (int) $fila['id'],
                 'estado'                         => $fila['estado'],
+                'motivo'                         => $this->motivo($fila),
                 'creado_en'                      => $this->momento($fila['creado_en']),
                 'liquidada_en'                   => $this->momento($fila['liquidada_en']),
+                'transaccion'                    => $this->transaccion($fila),
                 'reserva'                        => $this->reservaDe($fila),
                 'cobra_iva'                      => (bool) $fila['cobra_iva'],
                 'importe_cobrado'                => $fila['importe_cobrado'],
@@ -43,7 +47,7 @@ class LiquidacionesController
                 'administrador'                  => $this->administradorDe($fila),
                 'comision_administrador'         => $fila['comision_administrador'],
                 'importe_propietario'            => $fila['importe_propietario'],
-                'faltante'                       => Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado']),
+                'faltante'                       => $this->faltante($fila),
                 'billetera'                      => $fila['propietario_billetera'],
                 'faltan_billeteras'              => $this->faltanBilleteras($fila),
             ];
@@ -66,14 +70,16 @@ class LiquidacionesController
             $comisiones[] = [
                 'id'                => (int) $fila['id'],
                 'estado'            => $fila['estado'],
+                'motivo'            => $this->motivo($fila),
                 'creado_en'         => $this->momento($fila['creado_en']),
                 'liquidada_en'      => $this->momento($fila['liquidada_en']),
+                'transaccion'       => $this->transaccion($fila),
                 'reserva'           => $this->reservaDe($fila),
                 'propietario'       => $fila['propietario'],
                 'base_comisiones'   => $fila['base_comisiones'],
                 'porcentaje'        => $fila['porcentaje_comision_administrador'],
                 'comision'          => $fila['comision_administrador'],
-                'faltante'          => Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado']),
+                'faltante'          => $this->faltante($fila),
                 'billetera'         => $fila['administrador_billetera'],
                 'faltan_billeteras' => $this->faltanBilleteras($fila),
             ];
@@ -144,12 +150,10 @@ class LiquidacionesController
         ]);
     }
 
-    //POST /liquidaciones/pagar: {"liquidacion_id"}. El backoffice registra que ya se le transfirió al propietario
-    //y al administrador. Una liquidación retenida por deuda no se puede pagar (RN-16), y tampoco una cuyo
-    //propietario o administrador no cargó su billetera de cobro (#44).
-    //PENDIENTE: cuando esté el firmador real de la plataforma (Rol 2), acá va la llamada a liquidar() del
-    //contrato y los pagos de tipo 'liquidacion' con su tx_hash. Los destinatarios son propietarios.billetera y
-    //administradores.billetera, que es lo que se controla más abajo. Hoy solo se registra el cambio de estado.
+    //POST /liquidaciones/pagar: {"liquidacion_id"}. El backoffice paga una liquidación: la plataforma llama a
+    //liquidar() del contrato y cada uno recibe su parte en su billetera (PagoDeLiquidacion, decisiones #58 a #61).
+    //Normalmente no hace falta: el cron de las tareas frecuentes paga solo las pendientes (scripts/pagar-liquidaciones.php).
+    //No se paga una retenida por deuda (RN-16) ni una cuyo propietario o administrador no cargó su billetera (#44).
     public function pagar()
     {
         Autorizacion::requiere('backoffice');
@@ -158,78 +162,50 @@ class LiquidacionesController
         $id = is_bool($datos['liquidacion_id'] ?? null)
             ? false
             : filter_var($datos['liquidacion_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        $liquidacion = false;
-        if ($id !== false) {
-            //las billeteras se leen ACÁ y no se copian en la liquidación: la plata va a la billetera que la
-            //persona tenga cargada cuando se le transfiere, no a la que tenía el día en que se calculó
-            $consulta = Conexion::obtener()->prepare(
-                'SELECT q.estado, q.administrador_id,
-                        p.billetera AS propietario_billetera, a.billetera AS administrador_billetera
-                 FROM liquidaciones q
-                 JOIN propietarios p ON p.usuario_id = q.propietario_id
-                 LEFT JOIN administradores a ON a.usuario_id = q.administrador_id
-                 WHERE q.id = ?'
-            );
-            $consulta->execute([$id]);
-            $liquidacion = $consulta->fetch();
-        }
-        if ($liquidacion === false) {
+        if ($id === false) {
             return $this->error('No encontramos esa liquidación', 404);
         }
-        if ($liquidacion['estado'] === 'pagada') {
-            return $this->error('Esa liquidación ya estaba pagada', 409);
-        }
-        if ($liquidacion['estado'] === 'retenida_por_deuda') {
-            return $this->error('Esa liquidación está retenida: todavía no se cobró toda la estadía', 409);
-        }
 
-        //Sin billetera no se liquida: el ETH se queda en el contrato hasta que la carguen (#44).
-        //Nunca se le manda a otra billetera, porque eso mezclaría su plata con la de la plataforma.
-        $faltan = $this->faltanBilleteras($liquidacion);
-        if ($faltan !== []) {
-            return $this->error($this->avisoDeBilleteraFaltante($faltan), 409);
+        $resultado = PagoDeLiquidacion::pagar($id);
+        if ($resultado['codigo'] >= 400) {
+            return $this->error($resultado['mensaje'], $resultado['codigo']);
         }
-
-        //"Ahora" en UTC calculado en PHP, como en el resto del back: la base local puede tener otra zona horaria.
-        //UPDATE condicional: si llegan dos pedidos juntos, solo el primero la paga.
-        $consulta = Conexion::obtener()->prepare(
-            "UPDATE liquidaciones SET estado = 'pagada', liquidada_en = ? WHERE id = ? AND estado = 'pendiente'"
-        );
-        $consulta->execute([$this->ahora(), $id]);
-        if ($consulta->rowCount() === 0) {
-            return $this->error('Esa liquidación ya estaba pagada', 409);
-        }
-
-        http_response_code(200);
-        echo json_encode(['ok' => 'Liquidación pagada']);
+        http_response_code($resultado['codigo']);
+        echo json_encode(['ok' => $resultado['mensaje'], 'tx_hash' => $resultado['tx_hash']]);
     }
 
     //Quiénes de esta liquidación todavía no cargaron su billetera de cobro (#42 y #44 de docs/pagos-decisiones.md).
     //Mientras falte alguna, la liquidación queda pendiente: liquidar() del contrato le manda a cada uno su parte
     //a SU billetera, y no hay a dónde mandarla. El ETH sigue retenido en el contrato, que es lo seguro.
-    //Devuelve ['propietario'], ['administrador'], los dos, o un array vacío si se puede liquidar.
     private function faltanBilleteras(array $fila): array
     {
-        $faltan = [];
-        if ($fila['propietario_billetera'] === null) {
-            $faltan[] = 'propietario';
-        }
-        //en una unidad de autogestión no hay administrador: no hay comisión que transferirle
-        if ($fila['administrador_id'] !== null && $fila['administrador_billetera'] === null) {
-            $faltan[] = 'administrador';
-        }
-        return $faltan;
+        return PagoDeLiquidacion::faltanBilleteras($fila);
     }
 
-    //El motivo que ve el backoffice cuando intenta pagar una liquidación sin billeteras cargadas
-    private function avisoDeBilleteraFaltante(array $faltan): string
+    //Por qué se liquida: 'estadia' (el huésped ingresó) o 'cancelacion' (lo que retuvo la política, decisión #57)
+    private function motivo(array $fila): string
     {
-        $quien = match (true) {
-            $faltan === ['propietario']   => 'El propietario todavía no cargó su billetera de cobro',
-            $faltan === ['administrador'] => 'El administrador todavía no cargó su billetera de cobro',
-            default                       => 'El propietario y el administrador todavía no cargaron su billetera de cobro',
-        };
-        return "$quien: hasta que la carguen, lo que cobró esta estadía sigue retenido en el contrato";
+        return $fila['reserva_estado'] === 'cancelada' ? 'cancelacion' : 'estadia';
+    }
+
+    //Cuánto falta cobrar (RN-16), o null. Una cancelada no debe nada: se liquida lo que se retuvo.
+    private function faltante(array $fila): ?string
+    {
+        return Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado'], $fila['reserva_estado'] === 'cancelada');
+    }
+
+    //La transacción de liquidar() que la pagó, para verla en BaseScan, o null si todavía no salió.
+    //'simulado': true si salió en la red de prueba local (no existe en ningún explorador).
+    private function transaccion(array $fila): ?array
+    {
+        if ($fila['tx_hash'] === null) {
+            return null;
+        }
+        return [
+            'tx_hash'  => $fila['tx_hash'],
+            'red'      => (int) $fila['tx_red'],
+            'simulado' => (int) $fila['tx_red'] !== VerificadorBlockchain::RED_BASE_SEPOLIA,
+        ];
     }
 
     //Las liquidaciones que cumplen la condición, con su reserva, su unidad y los datos fiscales de las partes,
@@ -241,7 +217,8 @@ class LiquidacionesController
                     q.importe_cobrado, q.porcentaje_iva, q.importe_iva, q.base_comisiones,
                     q.porcentaje_comision_plataforma, q.comision_plataforma,
                     q.porcentaje_comision_administrador, q.comision_administrador, q.importe_propietario,
-                    r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total,
+                    r.estado AS reserva_estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total,
+                    t.tx_hash, t.red AS tx_red,
                     u.id AS unidad_id, u.nombre AS unidad, l.nombre AS localidad, l.provincia,
                     h.nombre AS huesped,
                     pu.nombre AS propietario, pu.dni AS propietario_dni,
@@ -260,6 +237,8 @@ class LiquidacionesController
              JOIN propietarios p ON p.usuario_id = q.propietario_id
              LEFT JOIN usuarios au ON au.id = q.administrador_id
              LEFT JOIN administradores a ON a.usuario_id = q.administrador_id
+             LEFT JOIN (SELECT reserva_id, MAX(tx_hash) AS tx_hash, MAX(red) AS red FROM pagos
+                        WHERE tipo = 'liquidacion' AND estado = 'confirmado' GROUP BY reserva_id) t ON t.reserva_id = q.reserva_id
              WHERE $condicion
              ORDER BY q.creado_en DESC, q.id DESC"
         );
@@ -274,8 +253,10 @@ class LiquidacionesController
             'para'                           => 'propietario',
             'numero'                         => (int) $fila['id'],
             'estado'                         => $fila['estado'],
+            'motivo'                         => $this->motivo($fila),
             'creado_en'                      => $this->momento($fila['creado_en']),
             'liquidada_en'                   => $this->momento($fila['liquidada_en']),
+            'transaccion'                    => $this->transaccion($fila),
             'reserva'                        => $this->reservaDe($fila),
             'propietario'                    => [
                 'nombre'           => $fila['propietario'],
@@ -295,7 +276,7 @@ class LiquidacionesController
             'comision_plataforma'            => $fila['comision_plataforma'],
             'comision_administrador'         => $fila['comision_administrador'],
             'importe_propietario'            => $fila['importe_propietario'],
-            'faltante'                       => Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado']),
+            'faltante'                       => $this->faltante($fila),
             'faltan_billeteras'              => $this->faltanBilleteras($fila),
             'sin_valor_fiscal'               => true,
         ];
@@ -308,8 +289,10 @@ class LiquidacionesController
             'para'              => 'administrador',
             'numero'            => (int) $fila['id'],
             'estado'            => $fila['estado'],
+            'motivo'            => $this->motivo($fila),
             'creado_en'         => $this->momento($fila['creado_en']),
             'liquidada_en'      => $this->momento($fila['liquidada_en']),
+            'transaccion'       => $this->transaccion($fila),
             'reserva'           => $this->reservaDe($fila),
             'propietario'       => ['nombre' => $fila['propietario']],
             'administrador'     => [
@@ -324,7 +307,7 @@ class LiquidacionesController
             ],
             'base_comisiones'   => $fila['base_comisiones'],
             'comision'          => $fila['comision_administrador'],
-            'faltante'          => Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado']),
+            'faltante'          => $this->faltante($fila),
             'faltan_billeteras' => $this->faltanBilleteras($fila),
             'sin_valor_fiscal'  => true,
         ];
@@ -369,12 +352,6 @@ class LiquidacionesController
     private function momento(?string $fecha): ?string
     {
         return $fecha === null ? null : str_replace(' ', 'T', $fecha) . 'Z';
-    }
-
-    //"Ahora" en UTC, calculado en PHP
-    private function ahora(): string
-    {
-        return (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
     }
 
     //Responde un error en JSON con su código HTTP

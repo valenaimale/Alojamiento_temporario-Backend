@@ -217,6 +217,7 @@ Cada una es un **servicio nuevo** del mismo proyecto, desde el mismo repo, que a
 3. En **Settings → Deploy**:
    - **Custom Start Command:** `php scripts/tareas-programadas.php frecuentes` (o `diarias`). Es obligatorio: sin él arrancaría el servidor web, que nunca termina.
    - **Cron Schedule:** `*/10 * * * *` para `frecuentes`, y `0 9 * * *` para `diarias` (Railway usa UTC: son las 6 de Argentina).
+   - `frecuentes` reintenta las devoluciones, genera las liquidaciones y las **paga** con `liquidar` del contrato; `diarias` cancela los saldos vencidos y manda los recordatorios. La lista está en `scripts/tareas-programadas.php`.
 4. Sin dominio público: no atienden pedidos web.
 
 Lo que imprime cada corrida queda en los logs del servicio. Si una tarea falla, la corrida termina con error y Railway la marca.

@@ -150,6 +150,44 @@ final class LiquidacionTest extends TestCase
         $this->assertNull(Liquidacion::faltante('400000.00', '400000.01'));
     }
 
+    //Una cancelada no debe nada: se liquida lo que se retuvo, aunque sea mucho menos que el total (decisión #57)
+    public function testUnaCanceladaNoTieneFaltante(): void
+    {
+        $this->assertNull(Liquidacion::faltante('400000.00', '24000.00', true));
+    }
+
+    //El reparto en wei sigue la proporción de los pesos, y entre todos da exactamente lo disponible (decisión #59)
+    public function testRepartirWeiSumaExactamenteLoDisponible(): void
+    {
+        $wei = Liquidacion::repartirWei('1000000000000001', ['propietario' => '700.00', 'administrador' => '200.00', 'plataforma' => '100.00']);
+
+        $this->assertSame(['propietario' => '700000000000000', 'administrador' => '200000000000000', 'plataforma' => '100000000000001'], $wei);
+    }
+
+    //Los restos del redondeo van a la plataforma, nunca de más: cada parte se redondea para abajo
+    public function testRepartirWeiRedondeaParaAbajoYElRestoVaALaPlataforma(): void
+    {
+        $wei = Liquidacion::repartirWei('10', ['propietario' => '1.00', 'administrador' => '1.00', 'plataforma' => '1.00']);
+
+        $this->assertSame(['propietario' => '3', 'administrador' => '3', 'plataforma' => '4'], $wei);
+    }
+
+    //Si la plataforma no cobra comisión, el resto va al propietario: así no queda nada trabado en el contrato
+    public function testSinComisionDeLaPlataformaElRestoVaAlPropietario(): void
+    {
+        $wei = Liquidacion::repartirWei('10', ['propietario' => '2.00', 'administrador' => '1.00', 'plataforma' => '0.00']);
+
+        $this->assertSame(['propietario' => '7', 'administrador' => '3', 'plataforma' => '0'], $wei);
+    }
+
+    //Sin nada disponible no se reparte nada
+    public function testSinNadaDisponibleTodoDaCero(): void
+    {
+        $wei = Liquidacion::repartirWei('0', ['propietario' => '700.00', 'administrador' => '0.00', 'plataforma' => '100.00']);
+
+        $this->assertSame(['propietario' => '0', 'administrador' => '0', 'plataforma' => '0'], $wei);
+    }
+
     //"425000.00" → 42500000, para comparar importes como enteros en los tests
     private function centavos(string $monto): int
     {

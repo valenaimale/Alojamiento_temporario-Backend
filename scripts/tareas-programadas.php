@@ -20,7 +20,8 @@ if (php_sapi_name() !== 'cli') {
 const TAREAS = [
     'frecuentes' => [
         ['reintentar-devoluciones.php', []],           //confirma o vuelve a mandar las devoluciones pendientes
-        ['generar-liquidaciones.php', ['--guardar']],  //liquida las estadías con el ingreso registrado
+        ['generar-liquidaciones.php', ['--guardar']],  //calcula las liquidaciones: estadías con ingreso y canceladas con retención
+        ['pagar-liquidaciones.php', []],               //las paga con liquidar() del contrato (después de las devoluciones)
     ],
     'diarias' => [
         ['cancelar-saldos-vencidos.php', []],           //primero cancela: así una cancelada no recibe recordatorio

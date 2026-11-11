@@ -7,9 +7,17 @@ namespace App\Validacion;
 //Para probar qué pasa si la red falla: a una billetera que termina en "dead" no le puede mandar nada (lanza una excepción).
 class FirmadorSimulado implements FirmadorPagos
 {
+    //Una billetera de la plataforma inventada, que nadie controla (en la red simulada no se manda nada)
+    public const DIRECCION = '0x0000000000000000000000000000000000031337';
+
     public function red(): int
     {
         return VerificadorSimulado::RED;
+    }
+
+    public function direccion(): string
+    {
+        return self::DIRECCION;
     }
 
     public function devolver(int $reservaId, string $billetera, string $montoWei): EnvioTransaccion
