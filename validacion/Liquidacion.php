@@ -18,24 +18,36 @@ use App\Database\Conexion;
 //el 7,5 % es 750. Al final se vuelve a texto con dos decimales, como lo guarda la base.
 class Liquidacion
 {
-    //Qué reservas corresponde liquidar: aquellas en las que el huésped ya ingresó.
-    //Es cuando el contrato libera la plata que tenía retenida (plan de la entrega del 80 %, paso 0, punto 3):
-    //no se espera al egreso, porque la plata ya es del propietario desde que el huésped entró.
+    //Lo que quedó cobrado de una reserva, en pesos: la seña y el saldo confirmados, menos las devoluciones confirmadas.
+    //En una estadía es todo lo que pagó el huésped; en una cancelada, lo que retuvo la política (decisión #57).
+    private const COBRADO = "(SELECT COALESCE(SUM(CASE WHEN g.tipo = 'devolucion' THEN -g.monto_pesos ELSE g.monto_pesos END), 0)
+                              FROM pagos g
+                              WHERE g.reserva_id = r.id AND g.estado = 'confirmado' AND g.tipo IN ('sena', 'saldo', 'devolucion'))";
+
+    //Qué reservas corresponde liquidar, de la más vieja a la más nueva:
+    //  - las estadías en las que el huésped ya ingresó. Es cuando el contrato libera la plata que tenía retenida
+    //    (plan de la entrega del 80 %, paso 0, punto 3): no se espera al egreso, porque la plata ya es del propietario;
+    //  - las canceladas en las que la política retuvo parte de la seña (decisión #57), una vez que la devolución ya
+    //    se confirmó en la red: hasta entonces no se sabe cuánto queda en el contrato.
     public static function reservasSinLiquidar(): array
     {
         $consulta = Conexion::obtener()->query(
             "SELECT r.id
              FROM reservas r
-             JOIN estadias e ON e.reserva_id = r.id
+             LEFT JOIN estadias e ON e.reserva_id = r.id
              LEFT JOIN liquidaciones q ON q.reserva_id = r.id
-             WHERE r.estado IN ('confirmada', 'finalizada') AND q.reserva_id IS NULL
-             ORDER BY e.ingreso_en, r.id"
+             WHERE q.reserva_id IS NULL
+               AND ((r.estado IN ('confirmada', 'finalizada') AND e.reserva_id IS NOT NULL)
+                    OR (r.estado = 'cancelada' AND " . self::COBRADO . " > 0
+                        AND NOT EXISTS (SELECT 1 FROM pagos d WHERE d.reserva_id = r.id AND d.tipo = 'devolucion' AND d.estado = 'pendiente')))
+             ORDER BY COALESCE(e.ingreso_en, r.fecha_ingreso), r.id"
         );
         return array_map('intval', $consulta->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     //Calcula y guarda la liquidación de una reserva. Devuelve su id, o null si no correspondía
-    //(la reserva no existe, el huésped nunca ingresó o ya estaba liquidada).
+    //(la reserva no existe, el huésped nunca ingresó, se canceló sin retener nada o ya estaba liquidada).
+    //Una cancelada se reparte igual que una estadía (decisión #57), pero sobre lo que se retuvo.
     //Es idempotente: el índice único de reserva_id garantiza que una estadía se liquide una sola vez,
     //aunque el script y el backoffice la pidan al mismo tiempo.
     public static function generar(int $reservaId): ?int
@@ -46,20 +58,22 @@ class Liquidacion
         //cambia de categoría o renegocia la comisión, las liquidaciones ya hechas no se mueven.
         //Si la unidad dejó de tener administrador, no hay comisión que pagarle (el LEFT JOIN la deja en NULL).
         $consulta = $pdo->prepare(
-            "SELECT r.importe_total, u.propietario_id, p.cobra_iva,
+            "SELECT r.estado, r.importe_total, u.propietario_id, p.cobra_iva,
                     a.administrador_id, a.porcentaje_comision,
-                    (SELECT COALESCE(SUM(g.monto_pesos), 0) FROM pagos g
-                      WHERE g.reserva_id = r.id AND g.estado = 'confirmado' AND g.tipo IN ('sena', 'saldo')) AS cobrado
+                    " . self::COBRADO . " AS cobrado,
+                    EXISTS (SELECT 1 FROM pagos d WHERE d.reserva_id = r.id AND d.tipo = 'devolucion' AND d.estado = 'pendiente') AS devolucion_en_camino
              FROM reservas r
              JOIN unidades u ON u.id = r.unidad_id
              JOIN propietarios p ON p.usuario_id = u.propietario_id
-             JOIN estadias e ON e.reserva_id = r.id
+             LEFT JOIN estadias e ON e.reserva_id = r.id
              LEFT JOIN administraciones a ON a.unidad_id = u.id
-             WHERE r.id = ? AND r.estado IN ('confirmada', 'finalizada')"
+             WHERE r.id = ? AND ((r.estado IN ('confirmada', 'finalizada') AND e.reserva_id IS NOT NULL) OR r.estado = 'cancelada')"
         );
         $consulta->execute([$reservaId]);
         $datos = $consulta->fetch();
-        if ($datos === false) {
+        $cancelada = $datos !== false && $datos['estado'] === 'cancelada';
+        //una cancelada se liquida solo si retuvo algo y su devolución ya salió (si no, no se sabe cuánto queda)
+        if ($datos === false || ($cancelada && (self::aCentesimas((string) $datos['cobrado']) <= 0 || $datos['devolucion_en_camino']))) {
             return null;
         }
 
@@ -77,7 +91,8 @@ class Liquidacion
         //Desde la decisión #25 de docs/pagos-decisiones.md (no se registra el ingreso sin el saldo pago) esto
         //casi no debería pasar: queda como red de seguridad para las estadías registradas antes de esa regla
         //y para cualquier caso en el que lo cobrado no llegue al total de la reserva.
-        $estado = self::aCentesimas((string) $datos['cobrado']) < self::aCentesimas((string) $datos['importe_total'])
+        //Una cancelada nunca está en deuda: lo que se retuvo es todo lo que le corresponde.
+        $estado = !$cancelada && self::aCentesimas((string) $datos['cobrado']) < self::aCentesimas((string) $datos['importe_total'])
             ? 'retenida_por_deuda'
             : 'pendiente';
 
@@ -160,11 +175,40 @@ class Liquidacion
     }
 
     //Cuánto falta cobrar de una reserva, como texto, o null si está todo cobrado.
-    //Es el motivo por el que una liquidación queda retenida (RN-16).
-    public static function faltante(string $importeTotal, string $importeCobrado): ?string
+    //Es el motivo por el que una liquidación queda retenida (RN-16). Una cancelada no debe nada ($cancelada).
+    public static function faltante(string $importeTotal, string $importeCobrado, bool $cancelada = false): ?string
     {
         $falta = self::aCentesimas($importeTotal) - self::aCentesimas($importeCobrado);
-        return $falta > 0 ? self::aPesos($falta) : null;
+        return !$cancelada && $falta > 0 ? self::aPesos($falta) : null;
+    }
+
+    //Reparte en wei lo que le queda a la reserva en el contrato ($disponibleWei), en la misma proporción que los pesos
+    //de la liquidación (decisión #59). $importes: ['propietario' => '363533.05', 'administrador' => ..., 'plataforma' => ...],
+    //que suman el importe cobrado. Cada parte se redondea para abajo y lo que sobra del redondeo (unos pocos wei) va a la
+    //plataforma (o al propietario, si la plataforma no cobra comisión), así la suma da exactamente $disponibleWei:
+    //el contrato nunca recibe un pedido de más, y no quedan restos trabados en él.
+    //Devuelve las mismas claves con su monto en wei, como texto.
+    public static function repartirWei(string $disponibleWei, array $importes): array
+    {
+        $total = 0;
+        foreach ($importes as $importe) {
+            $total += self::aCentesimas((string) $importe);
+        }
+        if ($total <= 0 || bccomp($disponibleWei, '0', 0) <= 0) {
+            return array_map(fn () => '0', $importes);
+        }
+        $resto = self::aCentesimas((string) ($importes['plataforma'] ?? '0')) > 0 ? 'plataforma' : 'propietario';
+        $repartido = '0';
+        $wei = [];
+        foreach ($importes as $quien => $importe) {
+            if ($quien === $resto) {
+                continue;
+            }
+            $wei[$quien] = bcdiv(bcmul($disponibleWei, (string) self::aCentesimas((string) $importe), 0), (string) $total, 0);
+            $repartido = bcadd($repartido, $wei[$quien], 0);
+        }
+        $wei[$resto] = bcsub($disponibleWei, $repartido, 0);
+        return array_merge(array_map(fn () => '0', $importes), $wei);//en el mismo orden que $importes
     }
 
     //Un parámetro global de la plataforma, como texto. Si falta, la liquidación no se puede calcular.

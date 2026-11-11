@@ -307,7 +307,169 @@ final class LiquidacionesTest extends CasoDeIntegracion
         $this->assertSame(404, $backoffice->post('/liquidaciones/pagar', ['liquidacion_id' => 'hola'])->codigo);
     }
 
+    // ---------- Pagar con el contrato (decisiones #57 a #61) ----------
+
+    //Pagar manda UNA transacción liquidar() con las tres partes: cada una a su billetera, en wei, en la proporción de
+    //los pesos, y entre todas exactamente lo que entró al contrato para esa reserva
+    public function testPagarMandaLiquidarConElRepartoEnWei(): void
+    {
+        $escena = $this->escena(['cobra_iva' => true, 'comision' => 10, 'precio' => 85000]);
+        $this->generar();
+        $id = $this->liquidacionesDe($escena['propietario']['mail'])[0]['id'];
+
+        $respuesta = $this->sesionDeBackoffice()->post('/liquidaciones/pagar', ['liquidacion_id' => $id]);
+
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertMatchesRegularExpression('/^0x[0-9a-f]{64}$/', $respuesta->json()['tx_hash']);
+        $pagos = $this->pagosDeLiquidacion($escena['reserva']);
+        $this->assertSame([
+            [$this->billeteraDe('propietarios', $escena['propietario']['id']), '363533.05', '3635330500000000'],
+            [$this->billeteraDe('administradores', $escena['administrador']['id']), '35123.97', '351239700000000'],
+            ['0x0000000000000000000000000000000000031337', '26342.98', '263429800000000'],//la plataforma (firmador simulado)
+        ], array_map(fn ($p) => [$p['billetera'], $p['monto_pesos'], $p['monto_wei']], $pagos));
+        $this->assertSame([$respuesta->json()['tx_hash']], array_values(array_unique(array_column($pagos, 'tx_hash'))));
+        $this->assertSame(['confirmado'], array_values(array_unique(array_column($pagos, 'estado'))));
+
+        $liquidacion = $this->liquidacionesDe($escena['propietario']['mail'])[0];
+        $this->assertSame('pagada', $liquidacion['estado']);
+        $this->assertSame('estadia', $liquidacion['motivo']);
+        $this->assertSame(['tx_hash' => $respuesta->json()['tx_hash'], 'red' => 31337, 'simulado' => true], $liquidacion['transaccion']);
+    }
+
+    //Si el propietario es también el administrador (la misma billetera), su parte y su comisión van juntas:
+    //una transacción no puede tener dos pagos a la misma billetera
+    public function testLasPartesDeLaMismaBilleteraSeSuman(): void
+    {
+        $escena = $this->escena(['comision' => 10]);
+        $this->pdo()->prepare('UPDATE administradores SET billetera = ? WHERE usuario_id = ?')
+            ->execute([$this->billeteraDe('propietarios', $escena['propietario']['id']), $escena['administrador']['id']]);
+        $this->generar();
+        $id = $this->liquidacionesDe($escena['propietario']['mail'])[0]['id'];
+
+        $this->assertSame(200, $this->sesionDeBackoffice()->post('/liquidaciones/pagar', ['liquidacion_id' => $id])->codigo);
+
+        $pagos = $this->pagosDeLiquidacion($escena['reserva']);
+        $this->assertCount(2, $pagos);
+        $this->assertSame('425000.00', bcadd($pagos[0]['monto_pesos'], $pagos[1]['monto_pesos'], 2));
+        $this->assertSame('4250000000000000', bcadd($pagos[0]['monto_wei'], $pagos[1]['monto_wei'], 0));
+    }
+
+    //Una cancelada en la que la política retuvo parte de la seña se liquida sobre lo retenido, igual que una estadía
+    //(decisión #57): no está en deuda y se puede pagar
+    public function testUnaCanceladaConRetencionSeLiquidaSobreLoRetenido(): void
+    {
+        $escena = $this->escenaCancelada('59500.00');//de una seña de $85.000 se devuelve el 70 %
+
+        $this->generar();
+
+        $liquidacion = $this->liquidacionesDe($escena['propietario']['mail'])[0];
+        $this->assertSame('cancelacion', $liquidacion['motivo']);
+        $this->assertSame('pendiente', $liquidacion['estado']);
+        $this->assertSame('25500.00', $liquidacion['importe_cobrado']);
+        $this->assertSame('1912.50', $liquidacion['comision_plataforma']);   //7,5 %
+        $this->assertSame('3825.00', $liquidacion['comision_administrador']); //15 %
+        $this->assertSame('19762.50', $liquidacion['importe_propietario']);
+        $this->assertNull($liquidacion['faltante']);
+
+        $this->assertSame(200, $this->sesionDeBackoffice()->post('/liquidaciones/pagar', ['liquidacion_id' => $liquidacion['id']])->codigo);
+        //sale exactamente lo que quedó en el contrato: la seña menos la devolución
+        $this->assertSame('255000000000000', array_reduce($this->pagosDeLiquidacion($escena['reserva']), fn ($s, $p) => bcadd($s, $p['monto_wei'], 0), '0'));
+    }
+
+    //Mientras la devolución no se confirma, no se sabe cuánto queda en el contrato: todavía no se liquida
+    public function testUnaCanceladaConLaDevolucionEnCaminoTodaviaNoSeLiquida(): void
+    {
+        $escena = $this->escenaCancelada('59500.00', 'pendiente');
+
+        $this->generar();
+        $this->assertSame([], $this->liquidacionesDe($escena['propietario']['mail']));
+
+        $this->pdo()->prepare(
+            "UPDATE pagos SET estado = 'confirmado', tx_hash = ?, confirmado_en = UTC_TIMESTAMP() WHERE reserva_id = ? AND tipo = 'devolucion'"
+        )->execute(['0x' . bin2hex(random_bytes(32)), $escena['reserva']]);
+        $this->generar();
+        $this->assertCount(1, $this->liquidacionesDe($escena['propietario']['mail']));
+    }
+
+    //Si se devolvió toda la seña (por ejemplo, la política no retenía nada), no hay nada que liquidar
+    public function testUnaCanceladaSinRetencionNoSeLiquida(): void
+    {
+        $escena = $this->escenaCancelada('85000.00');
+
+        $this->generar();
+
+        $this->assertSame([], $this->liquidacionesDe($escena['propietario']['mail']));
+    }
+
+    //El cron de las tareas frecuentes (scripts/pagar-liquidaciones.php) paga solo las pendientes, sin el backoffice
+    public function testElScriptPagaLasLiquidacionesPendientes(): void
+    {
+        $escena = $this->escena(['comision' => null]);
+        $this->generar();
+
+        [$codigo, $salida] = $this->correrScript('pagar-liquidaciones.php');
+
+        $this->assertSame(0, $codigo, $salida);
+        $this->assertStringContainsString("Reserva {$escena['reserva']}: Liquidación pagada", $salida);
+        $this->assertSame('pagada', $this->liquidacionesDe($escena['propietario']['mail'])[0]['estado']);
+        $this->assertCount(2, $this->pagosDeLiquidacion($escena['reserva']));//propietario y plataforma, sin administrador
+
+        //una segunda corrida no la vuelve a pagar
+        $this->correrScript('pagar-liquidaciones.php');
+        $this->assertCount(2, $this->pagosDeLiquidacion($escena['reserva']));
+    }
+
     // ---------- Ayudas de este test ----------
+
+    //Una reserva con la seña pagada que se canceló antes de ingresar, con la devolución de $devolucion
+    //('confirmado', o 'pendiente' si todavía no salió). Devuelve la escena.
+    private function escenaCancelada(string $devolucion, string $estado = 'confirmado'): array
+    {
+        $escena = $this->escena(['pagar_saldo' => false, 'registrar_ingreso' => false]);
+        $this->pdo()->prepare("UPDATE reservas SET estado = 'cancelada' WHERE id = ?")->execute([$escena['reserva']]);
+        $this->pdo()->prepare(
+            "INSERT INTO pagos (reserva_id, tipo, monto_pesos, monto_wei, pesos_por_eth, billetera, red, tx_hash, estado, confirmado_en)
+             VALUES (?, 'devolucion', ?, ?, '100000000', ?, 31337, ?, ?, ?)"
+        )->execute([
+            $escena['reserva'], $devolucion, bcmul($devolucion, '10000000000', 0), '0x' . bin2hex(random_bytes(20)),
+            $estado === 'confirmado' ? '0x' . bin2hex(random_bytes(32)) : null, $estado,
+            $estado === 'confirmado' ? gmdate('Y-m-d H:i:s') : null,
+        ]);
+        return $escena;
+    }
+
+    //Los pagos de tipo 'liquidacion' de la reserva, en el orden en que se anotaron
+    private function pagosDeLiquidacion(int $reservaId): array
+    {
+        $consulta = $this->pdo()->prepare(
+            "SELECT billetera, monto_pesos, monto_wei, tx_hash, estado FROM pagos WHERE reserva_id = ? AND tipo = 'liquidacion' ORDER BY id"
+        );
+        $consulta->execute([$reservaId]);
+        return $consulta->fetchAll();
+    }
+
+    //La billetera de cobro de un propietario o administrador, en minúsculas (como la anota el pago)
+    private function billeteraDe(string $tabla, int $usuarioId): string
+    {
+        $consulta = $this->pdo()->prepare("SELECT billetera FROM {$tabla} WHERE usuario_id = ?");
+        $consulta->execute([$usuarioId]);
+        return strtolower((string) $consulta->fetchColumn());
+    }
+
+    //Corre un script de scripts/ contra la base de prueba. Devuelve [código de salida, lo que imprimió].
+    private function correrScript(string $script): array
+    {
+        $db = \Tests\Soporte\EntornoDePrueba::datosBase();
+        $entorno = array_merge(getenv(), [
+            'DB_HOST' => $db['host'], 'DB_PORT' => $db['port'], 'DB_USER' => $db['user'], 'DB_PASS' => $db['pass'], 'DB_NAME' => $db['name'],
+        ]);
+        $errores = tempnam(sys_get_temp_dir(), 'script');//los logs a un archivo, para no trabar las tuberías
+        $proceso = proc_open([PHP_BINARY, RAIZ . "/scripts/$script"], [1 => ['pipe', 'w'], 2 => ['file', $errores, 'w']], $tuberias, RAIZ, $entorno);
+        $salida = stream_get_contents($tuberias[1]);
+        $codigo = proc_close($proceso);
+        @unlink($errores);
+        return [$codigo, $salida];
+    }
 
     //Arma una estadía lista para liquidar: propietaria, administradora (opcional), operadora, huésped, unidad
     //publicada con precios, reserva de 5 noches ya terminada, la seña y el saldo pagados y el ingreso registrado.
