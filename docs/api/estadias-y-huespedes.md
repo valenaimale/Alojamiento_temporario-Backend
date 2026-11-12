@@ -4,7 +4,7 @@ Implementación del 31/10/2026. Requiere la migración `20261031190000_agregar_e
 
 ## Registrar ingreso y egreso
 
-`POST /operador/estadias/registrar`, sesión de operador asignado actualmente a la unidad:
+`POST /operador/estadias/registrar`. Lo pueden usar el **operador** asignado a la unidad, el **propietario** de la unidad o el **administrador** asignado (decisión #67). Cualquier otro rol recibe `403`, y una unidad que no es suya, `404`.
 
 ```json
 {
@@ -19,7 +19,10 @@ Implementación del 31/10/2026. Requiere la migración `20261031190000_agregar_e
 
 - `tipo`: `ingreso` o `egreso`. El identificador UUID se genera una sola vez al confirmar; cada reintento conserva identificador, hora y contenido.
 - Solo reservas `confirmada`. Una pendiente nunca se confirma mediante este endpoint.
-- Ingreso dentro del rango contratado, desde la fecha de ingreso incluida hasta antes de la fecha de egreso, con día de Argentina. Egreso requiere ingreso registrado y no puede ser anterior.
+- El ingreso no puede ser anterior a la fecha de ingreso (día de Argentina). El límite de arriba es el plazo de 24 hs desde el horario de check-in (ver abajo). El egreso requiere el ingreso registrado y no puede ser anterior.
+- **Plazo del ingreso:** se rechaza si al momento del hecho (`ocurrido_en`) **o** al momento de recibirlo ya venció el plazo. Así, una hora vieja enviada por el dispositivo no permite saltearse un plazo vencido.
+- **Saldo:** el ingreso exige el saldo pagado (decisión #25). Se verifica con la reserva bloqueada, igual que el pago.
+- **Extensiones:** los movimientos se registran en la reserva original. Si se manda el `reserva_id` de una extensión, responde `409`. Al registrar el egreso, la original y sus extensiones confirmadas pasan juntas a `finalizada`.
 - Hora UTC ISO 8601 sin milisegundos; no admite más de cinco minutos hacia el futuro. Se guarda también hora UTC de recepción y usuario que registró cada hecho.
 - Estado de unidad opcional, hasta 500 caracteres; notas opcionales, hasta 1000. No requiere seleccionar un estado comercial ni generar cargos por daños.
 - Respuesta `200`: `ok` y `estadia` con `ingreso_en`, `egreso_en`, `estado_ingreso`, `notas_ingreso`, `estado_egreso`, `notas_egreso`. Cada fecha se devuelve en UTC con `Z`.
@@ -27,7 +30,17 @@ Implementación del 31/10/2026. Requiere la migración `20261031190000_agregar_e
 - Egreso cambia la reserva a `finalizada`. No altera importes, condiciones ni fechas contratadas. Las noches contratadas continúan ocupadas aunque el egreso sea anticipado; no se simula cancelación parcial ni devolución.
 - Sin sesión `401`; rol incorrecto `403`; reserva inexistente o unidad ajena `404`; datos inválidos `422`; transición inválida o conflicto `409`.
 
-`GET /operador/agenda` agrega `estadia`, `puede_registrar_ingreso` y `puede_registrar_egreso`. Incluye reservas futuras, estadías abiertas aunque el egreso previsto haya pasado y egresos registrados hoy. Nunca incluye importes, DNI ni el libro de huéspedes. La agenda no supone que alguien llegó solo porque pasó la fecha prevista.
+Los `409` de La 25 traen un `codigo` para que el front sepa qué mostrar:
+
+| Cuerpo | Cuándo |
+|---|---|
+| `{"error": "Falta pagar el saldo", "codigo": "SALDO_PENDIENTE"}` | Ingreso con saldo pendiente. |
+| `{"error": "No se pudo verificar el saldo de esta reserva. Consultá al administrador.", "codigo": "SALDO_NO_INFORMADO"}` | Ingreso de una reserva sin `monto_faltante` (dato viejo). |
+| `{"error": "Venció el plazo de 24 horas para registrar el ingreso", "codigo": "PLAZO_INGRESO_VENCIDO"}` | Ingreso fuera de plazo. |
+| `{"error": "Registrá el movimiento en la reserva original"}` | El `reserva_id` es de una extensión. |
+| `{"error": "El ingreso no puede ocurrir antes de la fecha de la reserva"}` | Ingreso antes del día de ingreso. |
+
+`GET /operador/agenda` agrega `estadia`, `puede_registrar_ingreso` y `puede_registrar_egreso` (y, desde La 25, `egreso_original`, `extensiones`, `limite_ingreso`, `saldo_pagado` y `unidad.hora_check_in`: ver [reservas](reservas.md#agenda-del-operador-rf-10)). Incluye reservas futuras, estadías abiertas aunque el egreso previsto haya pasado y egresos registrados hoy. Nunca incluye importes, DNI ni el libro de huéspedes. La agenda no supone que alguien llegó solo porque pasó la fecha prevista.
 
 El frontend conserva borradores y movimientos sin enviar en localStorage, separados por usuario. Antes de enviarlos comprueba la misma sesión. Ante red caída o error del servidor mantiene el evento y reintenta al volver la conexión o mediante un botón. Un rechazo definitivo queda para revisión y no entra en un bucle automático. Esto permite continuar con una agenda ya abierta; no implementa la aplicación completa sin conexión ni recupera datos si se borra el almacenamiento del navegador.
 
@@ -70,6 +83,6 @@ Lectura: titular, propietario de la unidad y administrador actualmente asignado.
 
 ## Alcance pendiente
 
-La confirmación por pago de la seña está en [pagos](pagos.md) (con verificador simulado); el saldo sigue pendiente. La integración futura debe validar el libro antes del pago según la definición del producto. No hay edición destructiva de movimientos ya registrados, no-show, liberación anticipada, correcciones excepcionales del libro fuera de plazo ni reglas económicas por daños; requieren el flujo correspondiente y acuerdo del equipo. El cierre de RF aquí corresponde al alcance del archivo de avance: marcar llegada/salida con hora/notas y cargar quiénes se alojan.
+Los pagos de la seña y del saldo están en [pagos](pagos.md), y el no-show en [reservas](reservas.md#no-show-decisión-67). La integración futura debe validar el libro antes del pago según la definición del producto. No hay edición destructiva de movimientos ya registrados, liberación anticipada, correcciones excepcionales del libro fuera de plazo ni reglas económicas por daños; requieren el flujo correspondiente y acuerdo del equipo. El cierre de RF aquí corresponde al alcance del archivo de avance: marcar llegada/salida con hora/notas y cargar quiénes se alojan.
 
 Pruebas: `tests/Integracion/EstadiasYLibroTest.php`, `AgendaOperadorTest.php`, `RequestTest.php`; regresión de reservas, bloqueos y búsqueda. Evidencia visual y CSV sintético en la carpeta de seguimiento de Entrega 4.
