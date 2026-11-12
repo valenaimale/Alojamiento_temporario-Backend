@@ -167,7 +167,7 @@ Los archivos están en el repo:
    | `REDIS_URL` | `${{Redis.REDIS_URL}}` (una referencia: Railway pone la URL interna con la contraseña, y la actualiza sola si cambia) |
 
    Los dos crons (`tareas-frecuentes` y `tareas-diarias`) **no** necesitan Redis: no usan sesiones.
-3. En el servicio del back → **Settings → Deploy → Replicas**: `2`.
+3. En el servicio del back → **Settings → Scale**: la cantidad de instancias de la región, de `1` a `2`, y aplicar los cambios (*Deploy*).
 4. Probar:
    - `https://<back>/estado` varias veces: `"sesiones": "redis"`, y `"replica"` va cambiando entre dos nombres.
    - Iniciar sesión en el front y navegar: en F12 → *Network*, el header `X-Replica` cambia entre peticiones, y la sesión no se corta.
@@ -176,7 +176,7 @@ Al pasar a Redis, las sesiones que estaban en archivos se pierden una vez: los u
 
 Las réplicas además ayudan con la carga: cada una corre `php -S`, que atiende de a una petición por vez; con dos, se atienden dos a la vez.
 
-**El front: Vercel.** Son archivos estáticos que Vercel sirve desde su red de servidores (CDN) en muchas regiones: ya están replicados, sin configurar nada.
+**El front: Vercel.** No tiene réplicas configuradas por nosotros: Vercel no ofrece elegir una cantidad de réplicas para un sitio estático. Lo que hace es copiar los archivos del front a su red de servidores (CDN) y servirlos desde el más cercano a cada usuario: si uno falla, responde otro. El front no tiene estado propio (no guarda sesiones ni datos), así que cualquier copia sirve igual.
 
 **Lo que quedaría para un sistema real:**
 - Redis con réplicas propias (o un servicio administrado con alta disponibilidad): hoy, si Redis se cae, nadie puede iniciar sesión (el back responde 503 con un mensaje genérico, ver "Pruebas para mostrar").
