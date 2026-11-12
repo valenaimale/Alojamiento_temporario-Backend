@@ -167,11 +167,19 @@ Las reservas **en curso y próximas** (pendientes y confirmadas con egreso de ho
 
 | Código | Cuerpo |
 |---|---|
-| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "huesped": "Juan", "unidad": {"id": 5, "nombre": "Casa del Bosque", "direccion": "Los Alerces 450", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires"}}]}` (o `[]`) |
+| `200` | `{"reservas": [{"id": 12, "estado": "confirmada", "ingreso": "2026-12-05", "egreso": "2026-12-12", "egreso_original": "2026-12-10", "extensiones": [{"id": 31, "ingreso": "2026-12-10", "egreso": "2026-12-12", "noches": 2, "estado": "confirmada"}], "limite_ingreso": "2026-12-06T17:00:00Z", "noches": 7, "personas": 2, "huesped": "Juan", "estadia": null, "saldo_pagado": true, "puede_registrar_ingreso": true, "puede_registrar_egreso": false, "unidad": {"id": 5, "nombre": "Casa del Bosque", "hora_check_in": "14:00", "direccion": "Los Alerces 450", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires"}}]}` (o `[]`) |
 
-**La 25 (rama `estadias-y-extension-front`):**
-- Cada reserva confirmada sin ingreso trae `limite_ingreso`: hasta cuándo se puede registrar el ingreso, en UTC (`PlazoIngreso::limiteIso`). Pasado ese momento, la reserva pasa a no-show.
-- Si la estadía tiene una extensión confirmada, `egreso` es la fecha de salida de la extensión, y `extendida` es `true`.
+Qué significa cada campo nuevo (La 25):
+
+| Campo | Qué es |
+|---|---|
+| `egreso` | La salida **real** de la estadía: si tiene extensiones confirmadas o finalizadas, es la salida de la última. `noches` se cuenta hasta esta fecha. |
+| `egreso_original` | La salida de la reserva original, sin extensiones. Si es igual a `egreso`, no se extendió. |
+| `extensiones` | Las extensiones **confirmadas o finalizadas** de la reserva (decisión #70), de la más temprana a la más tardía. Las extensiones nunca aparecen como reservas sueltas en la agenda: el ingreso y el egreso se registran en la original. |
+| `limite_ingreso` | Hasta cuándo se puede registrar el ingreso, en UTC (`PlazoIngreso::limiteIso`): el horario de check-in del día del ingreso, más 24 hs. Pasado ese momento la reserva pasa a no-show. Es `null` si el ingreso ya se registró. |
+| `saldo_pagado` | `true` si la reserva no debe nada (`monto_faltante` en 0). Sin el saldo pago no se puede registrar el ingreso (decisión #25). |
+| `puede_registrar_ingreso` | `true` si está confirmada, sin ingreso, con el saldo pago, ya es el día del ingreso y no venció `limite_ingreso`. |
+| `unidad.hora_check_in` | El horario de check-in de la unidad, `"HH:MM"` en hora de Argentina. |
 
 ## No-show (decisión #67)
 
@@ -183,7 +191,7 @@ Si nadie lo registró, `php scripts/marcar-no-shows.php` (en las tareas frecuent
 - El propietario tiene **48 hs** desde `no_show_en` para dar una excepción, con `GET` y `POST /unidades/reservas/excepcion`, igual que en una cancelación.
 - Las noches se liberan: un no-show no ocupa noches.
 - Lo retenido se liquida a las 48 hs, o antes si el propietario da la excepción.
-- `POST /operador/estadias/registrar` con `tipo: ingreso` responde `409` si ya pasó el plazo o la reserva es un no-show.
+- `POST /operador/estadias/registrar` con `tipo: ingreso` responde `409` con `"codigo": "PLAZO_INGRESO_VENCIDO"` si ya pasó el plazo, y `409` si la reserva es un no-show (ya no está confirmada). Los detalles están en [estadías y libro de huéspedes](estadias-y-huespedes.md).
 
 ## Extender la estadía (decisión #70)
 
