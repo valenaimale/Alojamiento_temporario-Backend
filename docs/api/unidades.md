@@ -125,6 +125,7 @@ Todo lo editable de la unidad y sus fotos, para la página `datos-unidad.html`. 
 | `deposito_garantia` | Texto con 2 decimales, o `null` si no tiene depósito. |
 | `es_propietario` | `true` si quien la ve es el propietario; `false` si es el administrador (el front le muestra solo el depósito). |
 | `fotos` | Ordenadas por `orden`: la primera (`orden` 0) es la principal. Vacía si no tiene. |
+| `hora_check_in` | **La 25 (rama `estadias-y-extension-front`):** el horario de check-in, `"HH:MM"` en hora de Argentina (`"14:00"` por defecto). Desde esa hora del día del ingreso hay 24 hs para registrar el ingreso; si no, la reserva pasa a no-show (decisiones #67 y #68). Se carga en el alta (`POST /unidades/crear`) y al editar (`POST /unidades/editar`), opcional en los dos (si no viene, queda como está o en 14:00). Inválido: `422` `{"error": "El horario de check-in tiene que tener el formato HH:MM"}`. |
 
 ## Editar los datos
 

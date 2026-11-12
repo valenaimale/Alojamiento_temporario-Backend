@@ -184,6 +184,13 @@ class Router {
         $this->register('GET@/pagos/saldo', 'PagosController@saldo');
         $this->register('POST@/pagos/confirmar', 'PagosController@confirmar');
         // ---------- fin Pagos ----------
+
+        // ---------- La 25, entrega del 14/11 (decisiones #67 a #72) ----------
+        $this->register('GET@/unidades/descuentos', 'DescuentosController@ver');//rama descuentos (US2.10)
+        $this->register('POST@/unidades/descuentos', 'DescuentosController@guardar');
+        $this->register('GET@/reservas/extension', 'ExtensionesController@cotizar');//rama extension-back (US7.1)
+        $this->register('POST@/reservas/extender', 'ExtensionesController@extender');
+        // ---------- fin La 25 ----------
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){
