@@ -17,7 +17,7 @@ Los precios están en pesos y se cobran en ETH de prueba con un tipo de cambio f
 
 ## Plazo para pagar
 
-Al reservar se anota `reservas.bloqueo_expira_en` = ahora + `minutos_bloqueo_reserva` (tabla `parametros`, 15 por defecto). Hasta ese momento la reserva pendiente ocupa sus noches. Después **deja de ocuparlas**: la búsqueda, el detalle, el calendario, los bloqueos y la agenda ya no la cuentan, y la API la muestra como `expirada`. En la base se anota `expirada` recién cuando alguien la toca (pagar o cancelar), así que no hace falta un cron. Las pendientes creadas antes de la migración tienen `bloqueo_expira_en` en `NULL` y no vencen.
+Al reservar se anota `reservas.bloqueo_expira_en` = ahora + `minutos_bloqueo_reserva` (tabla `parametros`, **10** desde el 14/11). Hasta ese momento la reserva pendiente ocupa sus noches. Después **deja de ocuparlas**: la búsqueda, el detalle, el calendario, los bloqueos y la agenda ya no la cuentan, y la API la muestra como `expirada`. En la base la anota `expirada` el script `marcar-expiradas.php`, en las tareas frecuentes (cada 10 minutos), o antes, si el huésped intenta pagarla. El propietario nunca la ve; el huésped sí, en Mis reservas, como expirada. Las pendientes viejas sin vencimiento (`bloqueo_expira_en` en `NULL`) las expiró la migración del 14/11.
 
 Al reservar también se anotan el saldo (`monto_faltante` = total − seña) y su `fecha_cobro`: `dias_cobro_saldo` días antes del ingreso, o el día de la reserva si se reservó con menos anticipación. Los usa el cobro del saldo (L2-6). La seña es de al menos el 1 % (decisión #52), así que toda reserva se confirma pagando la seña.
 

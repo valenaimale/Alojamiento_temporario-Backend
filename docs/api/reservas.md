@@ -2,7 +2,7 @@
 
 Las reservas de la plataforma. Las convenciones generales (URL base, formato de los errores, sesiones) están en el `Readme.md`, sección "API: rutas y contratos".
 
-**Seña:** la reserva se crea **pendiente** y guarda sus noches durante `minutos_bloqueo_reserva` (15 por defecto) mientras el huésped paga la seña ([pagos](pagos.md)). Pagada, pasa a **confirmada**. Si no paga a tiempo, deja de ocupar sus noches y se ve **expirada**. Toda reserva tiene seña: es de al menos el 1 % (decisión #52). El saldo llega con la épica L2-6.
+**Seña:** la reserva se crea **pendiente** y guarda sus noches durante `minutos_bloqueo_reserva` (10 minutos) mientras el huésped paga la seña ([pagos](pagos.md)). Pagada, pasa a **confirmada**. Si no paga a tiempo, deja de ocupar sus noches y se ve **expirada**. Toda reserva tiene seña: es de al menos el 1 % (decisión #52). El saldo llega con la épica L2-6.
 
 **Noches:** una reserva del 5 al 10 ocupa las noches 5, 6, 7, 8 y 9. La fecha de egreso no es una noche: ese día puede entrar otro huésped (RN-08). Las reservas **pendientes (sin vencer), confirmadas y finalizadas** ocupan sus noches contratadas en la búsqueda, el detalle, el calendario y los bloqueos; las canceladas y expiradas, no.
 
@@ -122,10 +122,10 @@ GET /unidades/reservas/excepcion?reserva_id=12
 
 ```json
 {"reserva_id": 12, "retenido": "12600.00", "maximo": "11655.00", "hasta": "2026-11-14T15:00:00Z",
- "excepcion": null, "puede": true, "motivo": null}
+ "excepcion": null, "renuncio": false, "puede": true, "motivo": null}
 ```
 
-`maximo` es lo que le toca al propietario de lo retenido. Si `puede` es `false`, `motivo` dice por qué ("Pasaron las 48 hs para dar una excepción", "Ya le diste una excepción a esta reserva", "Solo se puede dar una excepción cuando cancela el huésped", …).
+`maximo` es lo que le toca al propietario de lo retenido. Si `puede` es `false`, `motivo` dice por qué ("Pasaron las 48 hs para dar una excepción", "Ya le diste una excepción a esta reserva", "Ya decidiste no devolverle nada al huésped", "Solo se puede dar una excepción cuando cancela el huésped", …).
 
 ```
 POST /unidades/reservas/excepcion
@@ -138,6 +138,21 @@ POST /unidades/reservas/excepcion
 | `422` | `{"error": "Podés devolver hasta $11.655,00: es lo que te toca a vos de lo retenido (…)"}` o el del monto inválido | |
 | `409` | `{"error": "<el motivo de arriba>"}` | Ya no se puede |
 | `404` | `{"error": "No encontramos esa reserva"}` | |
+
+### No devolver nada (decisión #73)
+
+Si el propietario no quiere devolver nada, lo puede decidir en lugar de esperar las 48 hs: se aplica la política de cancelación tal cual y la cancelada **se liquida enseguida**. Después ya no puede dar una excepción, y `GET` responde `"renuncio": true`.
+
+```
+POST /unidades/reservas/excepcion/renunciar
+{"reserva_id": 12}
+```
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"ok": "Listo: se aplica la política de cancelación. Tu parte de lo retenido te llega en los próximos minutos"}` | |
+| `409` | `{"error": "<el motivo de arriba>"}` | Ya no se puede (ya decidió, pasaron las 48 hs, no la canceló el huésped, …) |
+| `404` | `{"error": "No encontramos esa reserva"}` | No existe o es de otro propietario |
 
 ## Reservas de una unidad (propietario y administrador)
 

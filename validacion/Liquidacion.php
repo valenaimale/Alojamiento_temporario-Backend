@@ -29,10 +29,11 @@ class Liquidacion
     public const HORAS_EXCEPCION = 48;
 
     //Una cancelada se puede liquidar cuando su devolución ya se confirmó (si no, no se sabe cuánto queda en el contrato)
-    //y ya no se espera la excepción del propietario (#64): la canceló él, la excepción ya se dio, pasaron las 48 hs,
-    //o se canceló antes de que existiera la excepción (cancelada_en en NULL).
+    //y ya no se espera la excepción del propietario (#64): la canceló él, ya decidió (dio la excepción o decidió no
+    //devolver nada: en los dos casos excepcion_en tiene la fecha), pasaron las 48 hs, o se canceló antes de que
+    //existiera la excepción (cancelada_en en NULL).
     private const CANCELADA_LISTA = "(NOT EXISTS (SELECT 1 FROM pagos d WHERE d.reserva_id = r.id AND d.tipo = 'devolucion' AND d.estado = 'pendiente')
-                                     AND (r.cancelada_por = 'propietario' OR r.cancelada_en IS NULL OR r.excepcion IS NOT NULL
+                                     AND (r.cancelada_por = 'propietario' OR r.cancelada_en IS NULL OR r.excepcion_en IS NOT NULL
                                           OR r.cancelada_en <= UTC_TIMESTAMP() - INTERVAL " . self::HORAS_EXCEPCION . " HOUR))";
 
     //Qué reservas corresponde liquidar, de la más vieja a la más nueva:

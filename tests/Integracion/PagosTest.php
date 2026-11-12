@@ -53,6 +53,21 @@ final class PagosTest extends CasoDeIntegracion
     }
 
     //Le vence el plazo para pagar la seña a una reserva
+    //Corre un script de scripts/ contra la base de prueba. Devuelve [código de salida, lo que imprimió].
+    private function correrScript(string $script): array
+    {
+        $db = \Tests\Soporte\EntornoDePrueba::datosBase();
+        $entorno = array_merge(getenv(), [
+            'DB_HOST' => $db['host'], 'DB_PORT' => $db['port'], 'DB_USER' => $db['user'], 'DB_PASS' => $db['pass'], 'DB_NAME' => $db['name'],
+        ]);
+        $errores = tempnam(sys_get_temp_dir(), 'script');//los logs van a un archivo, para no trabar la tubería de stdout
+        $proceso = proc_open([PHP_BINARY, RAIZ . '/scripts/' . $script], [1 => ['pipe', 'w'], 2 => ['file', $errores, 'w']], $tuberias, RAIZ, $entorno);
+        $salida = stream_get_contents($tuberias[1]);
+        $codigo = proc_close($proceso);
+        @unlink($errores);
+        return [$codigo, $salida];
+    }
+
     private function vencer(int $reservaId): void
     {
         $this->pdo()->prepare('UPDATE reservas SET bloqueo_expira_en = UTC_TIMESTAMP() - INTERVAL 1 MINUTE WHERE id = ?')->execute([$reservaId]);
@@ -79,7 +94,7 @@ final class PagosTest extends CasoDeIntegracion
 
     // ---------- reservar ----------
 
-    //La reserva nace pendiente, con el plazo para pagar la seña (minutos_bloqueo_reserva: 15)
+    //La reserva nace pendiente, con el plazo para pagar la seña (minutos_bloqueo_reserva: 10)
     public function testLaReservaNacePendienteConPlazoParaPagar(): void
     {
         $respuesta = $this->huesped()->post('/reservas/crear', [
@@ -92,7 +107,7 @@ final class PagosTest extends CasoDeIntegracion
         $this->assertSame('pendiente', $reserva['estado']);
         $this->assertStringStartsWith('Reservaste Cabaña del Mar: pagá la seña antes de las ', $respuesta->json()['ok']);
         $minutos = (strtotime($reserva['vence_en']) - time()) / 60;
-        $this->assertEqualsWithDelta(15, $minutos, 1, "vence_en: {$reserva['vence_en']}");
+        $this->assertEqualsWithDelta(10, $minutos, 1, "vence_en: {$reserva['vence_en']}");
     }
 
     //Con la seña mínima del 1 % (decisión #52), toda reserva nace pendiente y tiene una seña que pagar
@@ -356,6 +371,23 @@ final class PagosTest extends CasoDeIntegracion
             'unidad_id' => $this->unidadId, 'ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+13 days'),
             'personas' => 2, 'acepta_politica' => true,
         ])->codigo);
+    }
+
+    //El script de las tareas frecuentes anota 'expirada' solo en las pendientes vencidas, y se puede repetir
+    public function testElScriptAnotaLasExpiradas(): void
+    {
+        $cliente = $this->huesped();
+        $vencida = $this->reservar($cliente);
+        $vigente = $this->huesped()->post('/reservas/crear', [
+            'unidad_id' => $this->unidadId, 'ingreso' => $this->fecha('+20 days'), 'egreso' => $this->fecha('+23 days'),
+            'personas' => 2, 'acepta_politica' => true,
+        ])->json()['reserva']['id'];
+        $this->vencer($vencida);
+
+        $this->assertSame([0, "Reservas expiradas sin pagar la seña: 1.\n"], $this->correrScript('marcar-expiradas.php'));
+        $this->assertSame(['expirada', 'pendiente'], [$this->filaReserva($vencida)['estado'], $this->filaReserva($vigente)['estado']]);
+        $this->assertSame([0, "Reservas expiradas sin pagar la seña: 0.\n"], $this->correrScript('marcar-expiradas.php'));
+        $this->assertSame('expirada', $cliente->get('/reservas/mias')->json()['reservas'][0]['estado']);
     }
 
     //Una pendiente vencida tampoco frena los bloqueos del propietario ni aparece en las reservas de la unidad
