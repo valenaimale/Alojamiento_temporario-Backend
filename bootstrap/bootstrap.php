@@ -93,7 +93,10 @@ header('X-Replica: ' . gethostname());
 $driverSesiones = getenv('SESIONES_DRIVER') ?: Config::obtener('sesiones.driver');
 if ($driverSesiones === 'redis') {
     $duracionSesion = (int) Config::obtener('sesiones.redis.duracion_segundos');
-    $redis = new \Predis\Client([
+    //En producción (Railway), REDIS_URL trae todo junto, con la contraseña: redis://default:<clave>@<host>:<puerto>.
+    //Sin REDIS_URL (docker-compose y desarrollo), host y puerto por separado, sin contraseña.
+    $urlRedis = getenv('REDIS_URL') ?: '';
+    $redis = new \Predis\Client($urlRedis !== '' ? $urlRedis : [
         'host' => getenv('REDIS_HOST') ?: Config::obtener('sesiones.redis.host'),
         'port' => (int) (getenv('REDIS_PORT') ?: Config::obtener('sesiones.redis.port')),
     ]);
