@@ -11,8 +11,8 @@ final class EstadiasYLibroTest extends CasoDeIntegracion
         $admin = $this->crearAdministradorEnBase();
         $unidad = $this->crearUnidadEnBase($propietario['id'], ['operador_id' => $operador['id']]);
         $this->asignarAdministradorEnBase($unidad, $admin['id']);
-        $this->pdo()->prepare("INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado, importe_total, porcentaje_sena, importe_sena, monto_faltante, retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15, politica_aceptada_en) VALUES (?, ?, ?, ?, 2, ?, 240000, 20, 48000, 0, 30, 50, 70, UTC_TIMESTAMP())")
-            ->execute([$unidad, $titular['id'], $this->fecha($ingreso), $this->fecha('+10 days'), $estado]);
+        $this->pdo()->prepare("INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado, importe_total, porcentaje_sena, importe_sena, monto_faltante, retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15, politica_aceptada_en, no_show_en) VALUES (?, ?, ?, ?, 2, ?, 240000, 20, 48000, 0, 30, 50, 70, UTC_TIMESTAMP(), ?)")
+            ->execute([$unidad, $titular['id'], $this->fecha($ingreso), $this->fecha('+10 days'), $estado, $estado === 'no_show' ? (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s') : null]);
         $reserva = (int) $this->pdo()->lastInsertId();
         return compact('operador', 'titular', 'propietario', 'admin', 'unidad', 'reserva');
     }
@@ -49,6 +49,7 @@ final class EstadiasYLibroTest extends CasoDeIntegracion
         $agenda = $c->get('/operador/agenda');
         $this->assertSame(200, $agenda->codigo, $agenda->cuerpo);
         $this->assertSame($out['ocurrido_en'], $agenda->json()['reservas'][0]['estadia']['egreso_en']);
+        $this->assertNull($agenda->json()['reservas'][0]['limite_ingreso']);
         $this->assertStringNotContainsString('importe', $agenda->cuerpo);
         $this->assertStringNotContainsString('documento', $agenda->cuerpo);
         // Un egreso temprano no libera por sorpresa las noches contratadas.
@@ -122,9 +123,17 @@ final class EstadiasYLibroTest extends CasoDeIntegracion
             $this->pdo()->prepare('UPDATE reservas SET fecha_egreso = ? WHERE id = ?')->execute([$limite->format('Y-m-d'), $s['reserva']]);
             $this->pdo()->prepare('UPDATE unidades SET hora_check_in = ? WHERE id = ?')->execute([$limite->format('H:i'), $s['unidad']]);
             $evento = $this->movimiento($s['reserva'], 'ingreso', $limite->modify("$segundos seconds")->format(DATE_ATOM));
-            $r = $this->iniciarSesion($s['operador']['mail'])->post('/operador/estadias/registrar', $evento);
+            $c = $this->iniciarSesion($s['operador']['mail']);
+            $agenda = $c->get('/operador/agenda');
+            $this->assertSame(200, $agenda->codigo, $agenda->cuerpo);
+            $this->assertSame($limite->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z'), $agenda->json()['reservas'][0]['limite_ingreso']);
+            $this->assertTrue($agenda->json()['reservas'][0]['puede_registrar_ingreso']);
+            $r = $c->post('/operador/estadias/registrar', $evento);
             $this->assertSame($esperado, $r->codigo, $r->cuerpo);
-            if ($esperado === 409) $this->assertSame('PLAZO_INGRESO_VENCIDO', $r->json()['codigo']);
+            if ($esperado === 409) {
+                $this->assertSame('PLAZO_INGRESO_VENCIDO', $r->json()['codigo']);
+                $this->assertSame(0, (int) $this->pdo()->query('SELECT COUNT(*) FROM estadias WHERE reserva_id = ' . $s['reserva'])->fetchColumn());
+            }
         }
     }
 
@@ -161,32 +170,41 @@ final class EstadiasYLibroTest extends CasoDeIntegracion
     public function testEgresoFinalizaOriginalYExtensionesConfirmadasEnUnSoloMovimiento(): void
     {
         $s = $this->escenario('-3 days');
-        $this->pdo()->prepare('UPDATE reservas SET fecha_egreso = ? WHERE id = ?')->execute([$this->fecha('-1 day'), $s['reserva']]);
-        $this->registrarIngresoEnBase($s['reserva'], $this->fecha('-3 days') . 'T18:00:00Z', $s['operador']['id']);
         $extensiones = [];
-        foreach (['confirmada', 'pendiente', 'expirada'] as $estado) {
-            $this->pdo()->prepare("INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado, importe_total, porcentaje_sena, importe_sena, monto_faltante, retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15, politica_aceptada_en, extiende_reserva_id) VALUES (?, ?, ?, ?, 2, ?, 60000, 100, 60000, 0, 30, 50, 70, UTC_TIMESTAMP(), ?)")
-                ->execute([$s['unidad'], $s['titular']['id'], $this->fecha('-1 day'), $this->fecha(), $estado, $s['reserva']]);
-            $extensiones[$estado] = (int) $this->pdo()->lastInsertId();
+        try {
+            $this->pdo()->prepare('UPDATE reservas SET fecha_egreso = ? WHERE id = ?')->execute([$this->fecha('-1 day'), $s['reserva']]);
+            $this->registrarIngresoEnBase($s['reserva'], $this->fecha('-3 days') . 'T18:00:00Z', $s['operador']['id']);
+            foreach (['confirmada', 'pendiente', 'expirada'] as $estado) {
+                $this->pdo()->prepare("INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado, importe_total, porcentaje_sena, importe_sena, monto_faltante, retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15, politica_aceptada_en, extiende_reserva_id) VALUES (?, ?, ?, ?, 2, ?, 60000, 100, 60000, 0, 30, 50, 70, UTC_TIMESTAMP(), ?)")
+                    ->execute([$s['unidad'], $s['titular']['id'], $this->fecha('-1 day'), $this->fecha(), $estado, $s['reserva']]);
+                $extensiones[$estado] = (int) $this->pdo()->lastInsertId();
+            }
+            $c = $this->iniciarSesion($s['operador']['mail']);
+            $this->assertSame(409, $c->post('/operador/estadias/registrar', $this->movimiento($extensiones['confirmada']))->codigo);
+            $agenda = $c->get('/operador/agenda')->json()['reservas'];
+            $this->assertCount(1, $agenda);
+            $this->assertSame($this->fecha(), $agenda[0]['egreso']);
+            $this->assertSame($this->fecha('-1 day'), $agenda[0]['egreso_original']);
+            $this->assertSame([$extensiones['confirmada']], array_column($agenda[0]['extensiones'], 'id'));
+            $evento = $this->movimiento($s['reserva'], 'egreso');
+            $r = $c->post('/operador/estadias/registrar', $evento);
+            $this->assertSame(200, $r->codigo, $r->cuerpo);
+            $this->assertSame($r->json(), $c->post('/operador/estadias/registrar', $evento)->json());
+            foreach ([$s['reserva'], $extensiones['confirmada']] as $id) {
+                $this->assertSame('finalizada', $this->pdo()->query("SELECT estado FROM reservas WHERE id = $id")->fetchColumn());
+            }
+            foreach (['pendiente', 'expirada'] as $estado) {
+                $this->assertSame($estado, $this->pdo()->query('SELECT estado FROM reservas WHERE id = ' . $extensiones[$estado])->fetchColumn());
+            }
+            $this->assertSame(1, (int) $this->pdo()->query('SELECT COUNT(*) FROM estadias WHERE reserva_id IN (' . implode(', ', [$s['reserva'], ...array_values($extensiones)]) . ')')->fetchColumn());
+        } finally {
+            // La base se comparte con otros tests; estos vínculos pertenecen solo a este escenario.
+            $this->pdo()->prepare('DELETE FROM estadias WHERE reserva_id = ?')->execute([$s['reserva']]);
+            foreach ($extensiones as $id) {
+                $this->pdo()->prepare('DELETE FROM reservas WHERE id = ?')->execute([$id]);
+            }
+            $this->pdo()->prepare('DELETE FROM reservas WHERE id = ?')->execute([$s['reserva']]);
         }
-        $c = $this->iniciarSesion($s['operador']['mail']);
-        $this->assertSame(409, $c->post('/operador/estadias/registrar', $this->movimiento($extensiones['confirmada']))->codigo);
-        $agenda = $c->get('/operador/agenda')->json()['reservas'];
-        $this->assertCount(1, $agenda);
-        $this->assertSame($this->fecha(), $agenda[0]['egreso']);
-        $this->assertSame($this->fecha('-1 day'), $agenda[0]['egreso_original']);
-        $this->assertSame([$extensiones['confirmada']], array_column($agenda[0]['extensiones'], 'id'));
-        $evento = $this->movimiento($s['reserva'], 'egreso');
-        $r = $c->post('/operador/estadias/registrar', $evento);
-        $this->assertSame(200, $r->codigo, $r->cuerpo);
-        $this->assertSame($r->json(), $c->post('/operador/estadias/registrar', $evento)->json());
-        foreach ([$s['reserva'], $extensiones['confirmada']] as $id) {
-            $this->assertSame('finalizada', $this->pdo()->query("SELECT estado FROM reservas WHERE id = $id")->fetchColumn());
-        }
-        foreach (['pendiente', 'expirada'] as $estado) {
-            $this->assertSame($estado, $this->pdo()->query('SELECT estado FROM reservas WHERE id = ' . $extensiones[$estado])->fetchColumn());
-        }
-        $this->assertSame(1, (int) $this->pdo()->query('SELECT COUNT(*) FROM estadias WHERE reserva_id IN (' . implode(', ', [$s['reserva'], ...array_values($extensiones)]) . ')')->fetchColumn());
     }
 
     public function testHorarioDeCheckInSeValidaPersisteYPreservaAlEditar(): void

@@ -5,6 +5,7 @@ use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Request\Request;
 use App\Validacion\PlazoIngreso;
+use App\Validacion\VencimientoReserva;
 
 // Los hechos de la estadía son independientes de los importes y fechas contratadas.
 class EstadiasController
@@ -79,10 +80,10 @@ class EstadiasController
                 return;
             }
             if ($tipo === 'ingreso') {
-                // Contrato pendiente de fase 0: limite(fechaIngreso, horaCheckIn): DateTimeImmutable.
-                $limite = PlazoIngreso::limite($reserva['fecha_ingreso'], $reserva['hora_check_in']);
                 // La fecha enviada por el dispositivo no permite eludir un plazo ya vencido.
-                if ($fecha >= $limite || new \DateTimeImmutable('now', new \DateTimeZone('UTC')) >= $limite) {
+                $vencioAlOcurrir = PlazoIngreso::vencido($reserva['fecha_ingreso'], $reserva['hora_check_in'], $utc);
+                $vencioAlRegistrar = PlazoIngreso::vencido($reserva['fecha_ingreso'], $reserva['hora_check_in'], VencimientoReserva::ahora());
+                if ($vencioAlOcurrir || $vencioAlRegistrar) {
                     $pdo->rollBack(); $this->error('Venció el plazo de 24 horas para registrar el ingreso', 409,
                         ['codigo' => 'PLAZO_INGRESO_VENCIDO']); return;
                 }

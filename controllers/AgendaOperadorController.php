@@ -58,14 +58,13 @@ class AgendaOperadorController
                 ];
             }
         }
-        $ahora = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+        $ahora = VencimientoReserva::ahora();
         $reservas = [];
         foreach ($filas as $fila) {
             $deLaReserva = $extensiones[(int) $fila['id']] ?? [];
             $egreso = $fila['fecha_egreso'];
             foreach ($deLaReserva as $extension) $egreso = max($egreso, $extension['egreso']);
-            // Contrato pendiente de fase 0: limite(fechaIngreso, horaCheckIn): DateTimeImmutable.
-            $limite = !$fila['ingreso_en'] ? PlazoIngreso::limite($fila['fecha_ingreso'], $fila['hora_check_in']) : null;
+            $limite = !$fila['ingreso_en'] ? PlazoIngreso::limiteIso($fila['fecha_ingreso'], $fila['hora_check_in']) : null;
             $saldoPagado = $fila['monto_faltante'] !== null && bccomp($fila['monto_faltante'], '0', 2) <= 0;
             $reservas[] = [
                 'id'       => (int) $fila['id'],
@@ -74,13 +73,13 @@ class AgendaOperadorController
                 'egreso'   => $egreso,
                 'egreso_original' => $fila['fecha_egreso'],
                 'extensiones' => $deLaReserva,
-                'limite_ingreso' => $limite?->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z'),
+                'limite_ingreso' => $limite,
                 'noches'   => ValidadorFechas::noches(ValidadorFechas::fecha($fila['fecha_ingreso']), ValidadorFechas::fecha($egreso)),
                 'personas' => (int) $fila['cantidad_personas'],
                 'huesped'  => $fila['huesped'],
                 'estadia'  => EstadiasController::datos($fila),
                 'saldo_pagado' => $saldoPagado,
-                'puede_registrar_ingreso' => $fila['estado'] === 'confirmada' && !$fila['ingreso_en'] && $saldoPagado && $ahora < $limite && $fila['fecha_ingreso'] <= $hoy->format('Y-m-d'),
+                'puede_registrar_ingreso' => $fila['estado'] === 'confirmada' && !$fila['ingreso_en'] && $saldoPagado && !PlazoIngreso::vencido($fila['fecha_ingreso'], $fila['hora_check_in'], $ahora) && $fila['fecha_ingreso'] <= $hoy->format('Y-m-d'),
                 'puede_registrar_egreso' => $fila['estado'] === 'confirmada' && $fila['ingreso_en'] !== null && $fila['egreso_en'] === null,
                 'unidad'   => [
                     'id'        => (int) $fila['unidad_id'],

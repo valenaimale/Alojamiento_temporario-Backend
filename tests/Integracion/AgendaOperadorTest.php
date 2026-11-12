@@ -19,9 +19,9 @@ final class AgendaOperadorTest extends CasoDeIntegracion
         $this->pdo()->prepare(
             "INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado, importe_total,
                                    porcentaje_sena, importe_sena, retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15,
-                                   politica_aceptada_en)
-             VALUES (?, ?, ?, ?, 3, ?, 210000, 20, 42000, 30, 50, 70, UTC_TIMESTAMP())"
-        )->execute([$unidadId, $huespedId, $ingreso, $egreso, $estado]);
+                                   politica_aceptada_en, no_show_en)
+             VALUES (?, ?, ?, ?, 3, ?, 210000, 20, 42000, 30, 50, 70, UTC_TIMESTAMP(), ?)"
+        )->execute([$unidadId, $huespedId, $ingreso, $egreso, $estado, $estado === 'no_show' ? (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s') : null]);
         return (int) $this->pdo()->lastInsertId();
     }
 
@@ -62,7 +62,7 @@ final class AgendaOperadorTest extends CasoDeIntegracion
     public function testAgendaInformaLimiteYNoHabilitaIngresosVencidosNiImpagos(): void
     {
         $operador = $this->crearUsuarioEnBase('operador');
-        $unidad = $this->unidadConOperador($operador['id'], ['hora_check_in' => '18:30']);
+        $unidad = $this->unidadConOperador($operador['id'], ['hora_check_in' => '23:30']);
         $huesped = $this->crearUsuarioEnBase('huesped')['id'];
         $vigente = $this->reservaEnBase($unidad, $huesped, $this->fecha(), $this->fecha('+3 days'), 'confirmada');
         $vencida = $this->reservaEnBase($unidad, $huesped, $this->fecha('-3 days'), $this->fecha('+2 days'), 'confirmada');
@@ -73,7 +73,7 @@ final class AgendaOperadorTest extends CasoDeIntegracion
         $r = $this->iniciarSesion($operador['mail'])->get('/operador/agenda');
         $this->assertSame(200, $r->codigo, $r->cuerpo);
         $reservas = array_column($r->json()['reservas'], null, 'id');
-        $this->assertSame($this->fecha('+1 day') . 'T21:30:00Z', $reservas[$vigente]['limite_ingreso']);
+        $this->assertSame($this->fecha('+2 days') . 'T02:30:00Z', $reservas[$vigente]['limite_ingreso']);
         $this->assertTrue($reservas[$vigente]['puede_registrar_ingreso']);
         $this->assertTrue($reservas[$vigente]['saldo_pagado']);
         $this->assertFalse($reservas[$vencida]['puede_registrar_ingreso']);
