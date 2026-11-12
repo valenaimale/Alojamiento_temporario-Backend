@@ -228,6 +228,12 @@ Con MetaMask en Base Sepolia y ETH de prueba de un faucet: pagar una seña, ver 
 
 ---
 
+## Backups
+
+La base tiene un backup automático de Aiven y uno propio, cifrado, que hace GitHub Actions todos los días y que se restaura de prueba en cada ejecución. Qué se respalda, dónde queda y cómo se restaura: [backups.md](backups.md).
+
+---
+
 ## Limitaciones conocidas
 
 - **Sesiones:** se guardan en archivos dentro del contenedor (una sola réplica). Cada vez que Railway vuelve a desplegar, los usuarios tienen que iniciar sesión de nuevo. Para que sobrevivan, o para usar varias réplicas, se puede agregar un Redis en Railway y cargar `SESIONES_DRIVER=redis`, `REDIS_HOST` y `REDIS_PORT` (ver `escalado-horizontal.md`).

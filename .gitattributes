@@ -1,0 +1,2 @@
+# Los scripts de bash siempre con fin de línea LF, también en Windows: con CRLF, bash falla ("$'\r': command not found")
+*.sh text eol=lf

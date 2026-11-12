@@ -14,3 +14,5 @@ tests/
 phpunit.xml
 .phpunit.cache/
 .github/
+# Los scripts del backup corren en GitHub Actions, no en el servidor
+scripts/backup/
