@@ -54,6 +54,7 @@ class ExcepcionDeCancelacion
             $reserva['estado'] !== 'cancelada'                  => 'La reserva no está cancelada',
             $hasta === null                                     => 'Solo se puede dar una excepción cuando cancela el huésped',
             $reserva['excepcion'] !== null                      => 'Ya le diste una excepción a esta reserva',
+            $reserva['excepcion_en'] !== null                   => 'Ya decidiste no devolverle nada al huésped',
             (bool) $reserva['liquidada']                        => 'Esta reserva ya se liquidó',
             $hasta <= VencimientoReserva::ahora()               => 'Pasaron las ' . Liquidacion::HORAS_EXCEPCION . ' hs para dar una excepción',
             bccomp($montos['maximo'], '0', 2) <= 0              => 'No se retuvo nada que puedas devolver',
@@ -65,6 +66,8 @@ class ExcepcionDeCancelacion
             'maximo'       => $montos['maximo'],
             'hasta'        => $hasta === null ? null : str_replace(' ', 'T', $hasta) . 'Z',
             'excepcion'    => $reserva['excepcion'],
+            //true si el propietario decidió no devolver nada (excepcion_en anotada, sin monto): ya no se espera
+            'renuncio'     => $reserva['excepcion'] === null && $reserva['excepcion_en'] !== null,
             'puede'        => $problema === null,
             'motivo'       => $problema,
         ];
@@ -120,5 +123,38 @@ class ExcepcionDeCancelacion
         );
         return ['codigo' => 200, 'mensaje' => 'Listo: le devolvemos $' . number_format((float) $monto, 2, ',', '.')
             . ' al huésped. Le llega en los próximos minutos, junto con tu liquidación'];
+    }
+
+    //El propietario decide no devolver nada más: se aplica la política de cancelación tal cual, sin esperar las 48 hs.
+    //Queda anotado como excepcion_en con la fecha y excepcion en NULL (no hay monto). Desde ahí ya no puede dar una
+    //excepción, y la cancelada se liquida enseguida. Devuelve ['codigo' => HTTP, 'mensaje' => texto], como dar().
+    public static function renunciar(int $reservaId, int $propietarioId): array
+    {
+        $pdo = Conexion::obtener();
+        $pdo->beginTransaction();
+        try {
+            //traba la reserva: si a la vez llega una excepción, la segunda en llegar ve la decisión ya tomada
+            $reserva = self::reserva($reservaId, $propietarioId, true);
+            if ($reserva === false) {
+                $pdo->rollBack();
+                return ['codigo' => 404, 'mensaje' => 'No encontramos esa reserva'];
+            }
+            $estado = self::estado($reserva);
+            if (!$estado['puede']) {
+                $pdo->rollBack();
+                return ['codigo' => 409, 'mensaje' => $estado['motivo']];
+            }
+            $pdo->prepare('UPDATE reservas SET excepcion_en = ? WHERE id = ?')->execute([VencimientoReserva::ahora(), $reservaId]);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        //ya no hay que esperar las 48 hs: se liquida ahora (si la devolución ya se confirmó) y el cron la paga
+        Liquidacion::generar($reservaId);
+        return ['codigo' => 200, 'mensaje' => 'Listo: se aplica la política de cancelación. Tu parte de lo retenido te llega en los próximos minutos'];
     }
 }

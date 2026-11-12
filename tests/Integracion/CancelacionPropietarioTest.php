@@ -162,6 +162,43 @@ final class CancelacionPropietarioTest extends CasoDeIntegracion
         $this->assertSame('11655.00', $this->pdo()->query("SELECT importe_propietario FROM liquidaciones WHERE reserva_id = $reservaId")->fetchColumn());
     }
 
+    //Si el propietario decide no devolver nada, la cancelada se liquida enseguida (sin esperar las 48 hs), sin parte
+    //para el huésped, y después ya no puede dar una excepción ni volver a decidir
+    public function testElPropietarioDecideNoDevolverNada(): void
+    {
+        $huesped = $this->huesped();
+        $reservaId = $this->reservaPagada($huesped, 50);
+        $huesped->post('/reservas/cancelar', ['reserva_id' => $reservaId]);
+
+        $respuesta = $this->dueno()->post('/unidades/reservas/excepcion/renunciar', ['reserva_id' => $reservaId]);
+
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        $vista = $this->dueno()->get('/unidades/reservas/excepcion', ['reserva_id' => $reservaId])->json();
+        $this->assertSame([false, true, null, 'Ya decidiste no devolverle nada al huésped'],
+            [$vista['puede'], $vista['renuncio'], $vista['excepcion'], $vista['motivo']]);
+        $this->assertSame(409, $this->dueno()->post('/unidades/reservas/excepcion', ['reserva_id' => $reservaId, 'monto' => '100'])->codigo);
+        $this->assertSame(409, $this->dueno()->post('/unidades/reservas/excepcion/renunciar', ['reserva_id' => $reservaId])->codigo);
+
+        //ya liquidada, con toda su parte para el propietario
+        $liquidacion = $this->dueno()->get('/liquidaciones/mias')->json()['liquidaciones'][0];
+        $this->assertSame(['cancelacion', '12600.00', '0.00', '11655.00'], [
+            $liquidacion['motivo'], $liquidacion['importe_cobrado'], $liquidacion['excepcion'], $liquidacion['importe_propietario'],
+        ]);
+    }
+
+    //Solo decide el propietario de la unidad, y solo cuando canceló el huésped
+    public function testNoDevolverNadaSoloLoDecideElPropietarioCuandoCancelaElHuesped(): void
+    {
+        $reservaId = $this->reservaPagada($this->huesped(), 50);
+        $this->assertSame(404, $this->iniciarSesion($this->crearPropietarioEnBase()['mail'])
+            ->post('/unidades/reservas/excepcion/renunciar', ['reserva_id' => $reservaId])->codigo);
+
+        $this->dueno()->post('/unidades/reservas/cancelar', ['reserva_id' => $reservaId, 'motivo' => 'Se me rompió el techo']);
+        $respuesta = $this->dueno()->post('/unidades/reservas/excepcion/renunciar', ['reserva_id' => $reservaId]);
+        $this->assertSame(409, $respuesta->codigo);
+        $this->assertSame('Solo se puede dar una excepción cuando cancela el huésped', $respuesta->json()['error']);
+    }
+
     //Con el saldo pagado se retiene todo (#62), y la excepción puede devolver hasta la parte del propietario
     public function testConElSaldoPagadoLaExcepcionLlegaHastaLaParteDelPropietario(): void
     {

@@ -8,7 +8,7 @@ Regla general: **los mensajes de `error` y `ok` del back se muestran tal cual.**
 
 ### `POST /reservas/crear` (`detalle-alojamiento.js`)
 
-- La reserva nace **`pendiente`**, con `reserva.vence_en` (UTC, `"2026-11-05T20:15:00Z"`): el huésped tiene **15 minutos** para pagar la seña. Pasado ese plazo, las fechas se liberan.
+- La reserva nace **`pendiente`**, con `reserva.vence_en` (UTC, `"2026-11-05T20:15:00Z"`): el huésped tiene **10 minutos** para pagar la seña. Pasado ese plazo, las fechas se liberan.
 - El mensaje `ok` ahora es "Reservaste Casa del Bosque: pagá la seña antes de las 17:15 para confirmarla".
 - Si la unidad no pide seña (0 %), la reserva viene **`confirmada`** y `vence_en` es `null`: no hay que pagar nada para confirmarla.
 - **A cambiar:** hoy, después de reservar, se va a `mis-reservas.html?nueva=1`. Tiene que ir a **`../reservas/pagar.html?reserva_id={id}&tipo=sena`**, salvo que la reserva venga `confirmada`. Es el cambio de una línea en el detalle que menciona el plan.

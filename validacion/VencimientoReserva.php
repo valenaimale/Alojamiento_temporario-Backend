@@ -7,9 +7,10 @@ use App\Database\Conexion;
 //Cuánto tiempo guarda sus noches una reserva pendiente mientras el huésped paga la seña (L2-28).
 //Al reservar se anota bloqueo_expira_en = ahora + minutos_bloqueo_reserva. Pasado ese momento, sin pagar,
 //la reserva deja de ocupar sus noches aunque en la base todavía diga 'pendiente': las consultas usan
-//ocupaNoches() / pendienteVigente(), y la API la muestra como 'expirada' (estadoVisible()).
-//Recién se anota 'expirada' en la base cuando alguien la toca (pagar, cancelar): así no hace falta un cron.
-//bloqueo_expira_en NULL = sin vencimiento (las pendientes de antes de los pagos).
+//ocupaNoches() / pendienteVigente(), y la API la muestra como 'expirada' (estadoVisible()) desde el primer segundo.
+//En la base la anota 'expirada' marcarExpiradas() (scripts/marcar-expiradas.php, en las tareas frecuentes, cada
+//10 minutos), o antes, si el huésped intenta pagarla.
+//bloqueo_expira_en NULL = sin vencimiento: ya no queda ninguna pendiente así (la migración del 14/11 las expiró).
 //Las fechas van en UTC: se comparan con UTC_TIMESTAMP(), que no depende de la zona horaria de la base.
 class VencimientoReserva
 {
@@ -56,6 +57,18 @@ class VencimientoReserva
         return (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
             ->modify('+' . self::minutosParaPagar() . ' minutes')
             ->format('Y-m-d H:i:s');
+    }
+
+    //Anota 'expirada' en la base en todas las pendientes a las que se les pasó el plazo para pagar la seña, y
+    //devuelve cuántas. Es seguro de repetir: una reserva ya expirada (o pagada a tiempo) no cumple la condición.
+    public static function marcarExpiradas(): int
+    {
+        $consulta = Conexion::obtener()->prepare(
+            "UPDATE reservas SET estado = 'expirada'
+             WHERE estado = 'pendiente' AND bloqueo_expira_en IS NOT NULL AND bloqueo_expira_en <= UTC_TIMESTAMP()"
+        );
+        $consulta->execute();
+        return $consulta->rowCount();
     }
 
     //"Ahora" en UTC, como se guarda en la base

@@ -113,6 +113,24 @@ class CancelacionPropietarioController
         echo json_encode(['ok' => $resultado['mensaje']]);
     }
 
+    //POST /unidades/reservas/excepcion/renunciar: {"reserva_id"}. El propietario decide no devolver nada más: se
+    //aplica la política tal cual y la cancelada se liquida enseguida, sin esperar las 48 hs.
+    public function renunciarExcepcion()
+    {
+        Autorizacion::requiere('propietario');
+        $datos = Request::datosJson();
+        $id = $this->id($datos['reserva_id'] ?? null);
+        if ($id === false) {
+            return $this->error('No encontramos esa reserva', 404);
+        }
+        $resultado = ExcepcionDeCancelacion::renunciar($id, (int) $_SESSION['usuario']['id']);
+        if ($resultado['codigo'] >= 400) {
+            return $this->error($resultado['mensaje'], $resultado['codigo']);
+        }
+        http_response_code(200);
+        echo json_encode(['ok' => $resultado['mensaje']]);
+    }
+
     //La reserva de una unidad del propietario, con lo que hace falta para cancelarla, o false si no existe o es de otro
     private function reserva(mixed $id, int $propietarioId): array|false
     {
