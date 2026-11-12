@@ -69,6 +69,9 @@ class BusquedaController
                 'capacidad'      => (int) $unidad['capacidad'],
                 'foto_principal' => $unidad['foto_principal'],
                 'noches'         => $estadia['noches'],
+                //con el descuento por estadía larga (#69): el front muestra el precio anterior tachado
+                'importe_sin_descuento' => $estadia['importe_sin_descuento'],
+                'porcentaje_descuento'  => $estadia['porcentaje_descuento'],
                 'precio_total'   => $estadia['precio_total'],
             ];
         }

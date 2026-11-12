@@ -70,8 +70,28 @@ final class BusquedaTest extends CasoDeIntegracion
             'capacidad'      => 5,
             'foto_principal' => 'https://res.cloudinary.com/ynclnyuh/image/upload/unidades/prueba.jpg',
             'noches'         => 5,
+            'importe_sin_descuento' => '350000.00',
+            'porcentaje_descuento'  => '0.00',//sin descuentos por estadía larga
             'precio_total'   => '350000.00',
         ]]], $respuesta->json());
+    }
+
+    //Con un descuento por estadía larga (#69), el precio total ya viene con el descuento, y los resultados se
+    //ordenan por ese precio: una unidad más cara por noche puede quedar primera
+    public function testElPrecioTotalTieneElDescuentoPorEstadiaLarga(): void
+    {
+        $localidadId = $this->localidadNueva();
+        $sinDescuento = $this->unidadPublicada($localidadId);//70.000 por noche
+        $conDescuento = $this->unidadPublicada($localidadId);
+        $this->pdo()->prepare('UPDATE precio_noche SET precio = 75000 WHERE unidad_id = ?')->execute([$conDescuento]);
+        $this->pdo()->prepare('INSERT INTO descuentos_estadia (unidad_id, noches_minimas, porcentaje) VALUES (?, 5, 10)')->execute([$conDescuento]);
+
+        $unidades = $this->buscar($localidadId, '+10 days', '+15 days')->json()['unidades'];
+
+        $this->assertSame([$conDescuento, $sinDescuento], array_column($unidades, 'id'));
+        $this->assertSame(['375000.00', '350000.00'], array_column($unidades, 'importe_sin_descuento'));
+        $this->assertSame(['10.00', '0.00'], array_column($unidades, 'porcentaje_descuento'));
+        $this->assertSame(['337500.00', '350000.00'], array_column($unidades, 'precio_total'));
     }
 
     //Con precios distintos por noche, el total es la suma; y los resultados van del más barato al más caro

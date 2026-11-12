@@ -17,7 +17,7 @@ Y además: el ingreso es **de mañana en adelante** (hoy ya no se reserva), el e
 
 El **precio total** es la suma del precio de cada noche: es el precio final, con el IVA incluido si el propietario lo cobra (RN-13).
 
-**Descuento por estadía larga (La 25, decisión #69):** si la unidad tiene un escalón que la estadía alcanza, el precio total ya viene **con el descuento** aplicado. En la rama `descuentos`, la búsqueda y el detalle suman `importe_sin_descuento` y `porcentaje_descuento` (`"0.00"` sin descuento), para mostrar el precio anterior tachado.
+**Descuento por estadía larga (La 25, decisión #69):** si la unidad tiene un escalón que la estadía alcanza, el precio total ya viene **con el descuento** aplicado. La búsqueda y la `estadia` del detalle traen además `importe_sin_descuento` y `porcentaje_descuento` (`"0.00"` sin descuento), para mostrar el precio anterior tachado.
 
 ## Buscar
 

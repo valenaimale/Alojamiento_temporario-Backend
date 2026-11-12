@@ -166,7 +166,7 @@ Cada unidad puede tener **escalones de descuento**, por ejemplo 10 % desde 10 no
 
 - Se aplica en la búsqueda, el detalle, la reserva y la extensión (`Estadia::calcular`): `importe_total` ya viene con el descuento, y de ahí salen la seña, el saldo y la retención.
 - Los cambios valen **para las reservas futuras**: cada reserva guarda su foto (`importe_sin_descuento` y `porcentaje_descuento`).
-- Cada escalón tiene `noches_minimas`, entero de 2 a 60, y `porcentaje`, mayor que 0 y menor que 100, con hasta 2 decimales. No hay dos escalones con las mismas noches.
+- Cada escalón tiene `noches_minimas`, entero de 2 a 60, y `porcentaje`, mayor que 0 y menor que 100, con hasta 2 decimales. No hay dos escalones con las mismas noches, y una unidad tiene hasta 10.
 
 ### Ver
 
@@ -190,6 +190,6 @@ POST /unidades/descuentos
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `200` | `{"ok": "Guardamos los descuentos", "descuentos": [...]}` | |
-| `422` | `{"error": "Las noches tienen que ser un número de 2 a 60"}`, `{"error": "El descuento tiene que ser un porcentaje mayor que 0 y menor que 100, con hasta 2 decimales"}` o `{"error": "Hay dos descuentos desde la misma cantidad de noches"}` | |
+| `200` | `{"ok": "Guardamos los descuentos", "descuentos": [{"noches_minimas": 10, "porcentaje": "10.00"}, ...]}` | Devuelve los escalones como quedaron, ordenados por noches. Con la lista vacía: `"ok": "Sacamos los descuentos de la unidad"`. |
+| `422` | `{"error": "Las noches tienen que ser un número de 2 a 60"}`, `{"error": "El descuento tiene que ser un porcentaje mayor que 0 y menor que 100, con hasta 2 decimales"}` , `{"error": "Hay dos descuentos desde la misma cantidad de noches"}`, `{"error": "Podés cargar hasta 10 descuentos por unidad"}` o `{"error": "Mandá los descuentos como una lista"}` | No se guarda nada |
 | `403` / `404` | No es el propietario / la unidad no existe | |
