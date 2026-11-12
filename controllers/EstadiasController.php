@@ -4,13 +4,18 @@ namespace App\Controllers;
 use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Validacion\PlazoIngreso;
 
 // Los hechos de la estadía son independientes de los importes y fechas contratadas.
 class EstadiasController
 {
     public function registrar(): void
     {
-        Autorizacion::requiere('operador');
+        Autorizacion::requiereSesion();
+        $rol = $_SESSION['usuario']['rol'];
+        if (!in_array($rol, ['operador', 'propietario', 'administrador'], true)) {
+            $this->error('No tenés permiso para hacer esto', 403); return;
+        }
         header('Cache-Control: no-store');
         $d = Request::datosJson();
         $id = is_bool($d['reserva_id'] ?? null) ? false : filter_var($d['reserva_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -36,10 +41,18 @@ class EstadiasController
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
         try {
-            $q = $pdo->prepare('SELECT r.* FROM reservas r JOIN unidades u ON u.id = r.unidad_id WHERE r.id = ? AND u.operador_id = ? FOR UPDATE');
+            $permiso = match ($rol) {
+                'operador' => 'u.operador_id = ?',
+                'propietario' => 'u.propietario_id = ?',
+                'administrador' => 'EXISTS (SELECT 1 FROM administraciones a WHERE a.unidad_id = u.id AND a.administrador_id = ?)',
+            };
+            $q = $pdo->prepare("SELECT r.*, u.hora_check_in FROM reservas r JOIN unidades u ON u.id = r.unidad_id WHERE r.id = ? AND $permiso FOR UPDATE");
             $q->execute([$id, $_SESSION['usuario']['id']]);
             $reserva = $q->fetch();
             if (!$reserva) { $pdo->rollBack(); $this->error('No encontramos esa reserva', 404); return; }
+            if ($reserva['extiende_reserva_id'] !== null) {
+                $pdo->rollBack(); $this->error('Registrá el movimiento en la reserva original', 409); return;
+            }
             $q = $pdo->prepare('SELECT * FROM estadias WHERE reserva_id = ? FOR UPDATE');
             $q->execute([$id]);
             $estadia = $q->fetch();
@@ -57,9 +70,26 @@ class EstadiasController
             if ($reserva['estado'] !== 'confirmada') {
                 $pdo->rollBack(); $this->error('Solo se puede registrar una reserva confirmada', 409); return;
             }
+            // Decisión #25: el saldo se verifica bajo el mismo bloqueo que usa el pago.
+            if ($tipo === 'ingreso' && ($reserva['monto_faltante'] === null || bccomp($reserva['monto_faltante'], '0', 2) > 0)) {
+                $pdo->rollBack();
+                $sinDato = $reserva['monto_faltante'] === null;
+                $this->error($sinDato ? 'No se pudo verificar el saldo de esta reserva. Consultá al administrador.' : 'Falta pagar el saldo', 409,
+                    ['codigo' => $sinDato ? 'SALDO_NO_INFORMADO' : 'SALDO_PENDIENTE']);
+                return;
+            }
+            if ($tipo === 'ingreso') {
+                // Contrato pendiente de fase 0: limite(fechaIngreso, horaCheckIn): DateTimeImmutable.
+                $limite = PlazoIngreso::limite($reserva['fecha_ingreso'], $reserva['hora_check_in']);
+                // La fecha enviada por el dispositivo no permite eludir un plazo ya vencido.
+                if ($fecha >= $limite || new \DateTimeImmutable('now', new \DateTimeZone('UTC')) >= $limite) {
+                    $pdo->rollBack(); $this->error('Venció el plazo de 24 horas para registrar el ingreso', 409,
+                        ['codigo' => 'PLAZO_INGRESO_VENCIDO']); return;
+                }
+            }
             $dia = $fecha->setTimezone(new \DateTimeZone('America/Argentina/Buenos_Aires'))->format('Y-m-d');
-            if ($tipo === 'ingreso' && ($dia < $reserva['fecha_ingreso'] || $dia >= $reserva['fecha_egreso'])) {
-                $pdo->rollBack(); $this->error('El ingreso debe ocurrir dentro de las fechas de la reserva', 409); return;
+            if ($tipo === 'ingreso' && $dia < $reserva['fecha_ingreso']) {
+                $pdo->rollBack(); $this->error('El ingreso no puede ocurrir antes de la fecha de la reserva', 409); return;
             }
             if ($tipo === 'egreso' && (!$estadia || $utc < $estadia['ingreso_en'])) {
                 $pdo->rollBack(); $this->error('Registrá primero el ingreso; el egreso no puede ser anterior', 409); return;
@@ -74,7 +104,15 @@ class EstadiasController
             } else {
                 $pdo->prepare('UPDATE estadias SET egreso_en = ?, egreso_registrado_en = UTC_TIMESTAMP(), egreso_operador_id = ?, egreso_evento_id = ?, estado_egreso = ?, notas_egreso = ? WHERE reserva_id = ?')
                     ->execute([$utc, $_SESSION['usuario']['id'], $evento, $estadoUnidad, $notas, $id]);
+                // La estadía y sus extensiones comparten un único movimiento de egreso.
+                // El bloqueo del original también debe usarse al crear o confirmar una extensión.
+                $q = $pdo->prepare("SELECT id FROM reservas WHERE extiende_reserva_id = ? AND estado = 'confirmada' ORDER BY id FOR UPDATE");
+                $q->execute([$id]);
+                $extensiones = $q->fetchAll(\PDO::FETCH_COLUMN);
                 $pdo->prepare("UPDATE reservas SET estado = 'finalizada' WHERE id = ?")->execute([$id]);
+                foreach ($extensiones as $extensionId) {
+                    $pdo->prepare("UPDATE reservas SET estado = 'finalizada' WHERE id = ? AND estado = 'confirmada'")->execute([$extensionId]);
+                }
             }
             $q = $pdo->prepare('SELECT * FROM estadias WHERE reserva_id = ?');
             $q->execute([$id]);
@@ -103,8 +141,8 @@ class EstadiasController
         http_response_code(200);
         echo json_encode(['ok' => $tipo === 'ingreso' ? 'Ingreso registrado' : 'Egreso registrado', 'estadia' => self::datos($estadia)]);
     }
-    private function error(string $mensaje, int $codigo = 422): void
+    private function error(string $mensaje, int $codigo = 422, array $datos = []): void
     {
-        http_response_code($codigo); echo json_encode(['error' => $mensaje]);
+        http_response_code($codigo); echo json_encode(['error' => $mensaje] + $datos);
     }
 }

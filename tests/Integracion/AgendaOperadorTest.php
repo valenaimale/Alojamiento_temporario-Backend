@@ -47,14 +47,41 @@ final class AgendaOperadorTest extends CasoDeIntegracion
         $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
         $reservas = $respuesta->json()['reservas'];
         $this->assertSame([$enCurso, $proxima], array_column($reservas, 'id'));
-        $this->assertSame([
+        $this->assertEquals([
             'id' => $proxima, 'estado' => 'confirmada', 'ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+13 days'),
             'noches' => 3, 'personas' => 3, 'huesped' => 'Juan',
-            'estadia' => null, 'puede_registrar_ingreso' => false, 'puede_registrar_egreso' => false,
-            'unidad' => ['id' => $suya, 'nombre' => 'Casa del Bosque', 'direccion' => 'Los Alerces 450', 'localidad' => 'Las Grutas', 'provincia' => 'Río Negro'],
+            'egreso_original' => $this->fecha('+13 days'), 'extensiones' => [],
+            'limite_ingreso' => $this->fecha('+11 days') . 'T17:00:00Z',
+            'estadia' => null, 'saldo_pagado' => false, 'puede_registrar_ingreso' => false, 'puede_registrar_egreso' => false,
+            'unidad' => ['id' => $suya, 'nombre' => 'Casa del Bosque', 'hora_check_in' => '14:00', 'direccion' => 'Los Alerces 450', 'localidad' => 'Las Grutas', 'provincia' => 'Río Negro'],
         ], $reservas[1]);
         $this->assertStringNotContainsString('importe', $respuesta->cuerpo);//RN-19: el operador nunca ve montos
         $this->assertStringNotContainsString('210000', $respuesta->cuerpo);
+    }
+
+    public function testAgendaInformaLimiteYNoHabilitaIngresosVencidosNiImpagos(): void
+    {
+        $operador = $this->crearUsuarioEnBase('operador');
+        $unidad = $this->unidadConOperador($operador['id'], ['hora_check_in' => '18:30']);
+        $huesped = $this->crearUsuarioEnBase('huesped')['id'];
+        $vigente = $this->reservaEnBase($unidad, $huesped, $this->fecha(), $this->fecha('+3 days'), 'confirmada');
+        $vencida = $this->reservaEnBase($unidad, $huesped, $this->fecha('-3 days'), $this->fecha('+2 days'), 'confirmada');
+        $impaga = $this->reservaEnBase($unidad, $huesped, $this->fecha(), $this->fecha('+3 days'), 'confirmada');
+        $noShow = $this->reservaEnBase($unidad, $huesped, $this->fecha(), $this->fecha('+3 days'), 'no_show');
+        $this->pdo()->exec("UPDATE reservas SET monto_faltante = 0 WHERE id IN ($vigente, $vencida)");
+        $this->pdo()->exec("UPDATE reservas SET monto_faltante = 100 WHERE id = $impaga");
+        $r = $this->iniciarSesion($operador['mail'])->get('/operador/agenda');
+        $this->assertSame(200, $r->codigo, $r->cuerpo);
+        $reservas = array_column($r->json()['reservas'], null, 'id');
+        $this->assertSame($this->fecha('+1 day') . 'T21:30:00Z', $reservas[$vigente]['limite_ingreso']);
+        $this->assertTrue($reservas[$vigente]['puede_registrar_ingreso']);
+        $this->assertTrue($reservas[$vigente]['saldo_pagado']);
+        $this->assertFalse($reservas[$vencida]['puede_registrar_ingreso']);
+        $this->assertFalse($reservas[$impaga]['puede_registrar_ingreso']);
+        $this->assertFalse($reservas[$impaga]['saldo_pagado']);
+        $this->assertArrayNotHasKey($noShow, $reservas);
+        $this->assertStringNotContainsString('monto_faltante', $r->cuerpo);
+        $this->assertStringNotContainsString('importe', $r->cuerpo);
     }
 
     //Un operador sin unidades (o sin reservas) recibe la lista vacía

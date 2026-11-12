@@ -40,9 +40,9 @@ class UnidadesController
         $valores = $this->valoresPorDefecto();
 
         $consulta = Conexion::obtener()->prepare(
-            'INSERT INTO unidades (propietario_id, localidad_id, nombre, direccion, capacidad, caracteristicas, deposito_garantia,
+            'INSERT INTO unidades (propietario_id, localidad_id, nombre, direccion, capacidad, caracteristicas, hora_check_in, deposito_garantia,
                                    porcentaje_sena, retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $consulta->execute([
             $_SESSION['usuario']['id'],//el dueño sale siempre de la sesión, nunca de lo que manda el front
@@ -51,6 +51,7 @@ class UnidadesController
             $unidad['direccion'],
             $unidad['capacidad'],
             $unidad['caracteristicas'],
+            $unidad['hora_check_in'],
             $deposito,
             $valores['porcentaje_sena'],
             $valores['retencion_mas_de_30'],
@@ -119,6 +120,7 @@ class UnidadesController
             'direccion'          => $unidad['direccion'],
             'capacidad'          => (int) $unidad['capacidad'],
             'caracteristicas'    => $unidad['caracteristicas'],
+            'hora_check_in'      => substr($unidad['hora_check_in'], 0, 5),
             'deposito_garantia'  => $unidad['deposito_garantia'],
             'estado_publicacion' => $unidad['estado_publicacion'],
             'es_propietario'     => $unidad['es_propietario'],
@@ -133,13 +135,14 @@ class UnidadesController
         $datos = Request::datosJson();
         $unidad = PermisosUnidad::delPropietario($datos['unidad_id'] ?? '');//el administrador recibe 404
 
+        if (!array_key_exists('hora_check_in', $datos)) $datos['hora_check_in'] = substr($unidad['hora_check_in'], 0, 5);
         $nuevos = $this->validarDatos($datos);
         if (isset($nuevos['error'])) {
             return $this->error($nuevos['error']);
         }
 
         $consulta = Conexion::obtener()->prepare(
-            'UPDATE unidades SET nombre = ?, localidad_id = ?, direccion = ?, capacidad = ?, caracteristicas = ? WHERE id = ?'
+            'UPDATE unidades SET nombre = ?, localidad_id = ?, direccion = ?, capacidad = ?, caracteristicas = ?, hora_check_in = ? WHERE id = ?'
         );
         $consulta->execute([
             $nuevos['nombre'],
@@ -147,6 +150,7 @@ class UnidadesController
             $nuevos['direccion'],
             $nuevos['capacidad'],
             $nuevos['caracteristicas'],
+            $nuevos['hora_check_in'],
             $unidad['id'],
         ]);
 
@@ -201,7 +205,13 @@ class UnidadesController
             return ['error' => 'Las características pueden tener hasta 2000 caracteres'];
         }
 
+        $horaCheckIn = array_key_exists('hora_check_in', $datos) ? $datos['hora_check_in'] : '14:00';
+        if (!is_string($horaCheckIn) || !preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/D', $horaCheckIn)) {
+            return ['error' => 'El horario de check-in debe tener el formato HH:MM, entre 00:00 y 23:59'];
+        }
+
         return [
+            'hora_check_in'   => $horaCheckIn,
             'nombre'          => $nombre,
             'localidad_id'    => $localidadId,
             'direccion'       => $direccion,
