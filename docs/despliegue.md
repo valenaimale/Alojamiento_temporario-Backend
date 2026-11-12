@@ -236,6 +236,6 @@ La base tiene un backup automático de Aiven y uno propio, cifrado, que hace Git
 
 ## Limitaciones conocidas
 
-- **Sesiones:** se guardan en archivos dentro del contenedor (una sola réplica). Cada vez que Railway vuelve a desplegar, los usuarios tienen que iniciar sesión de nuevo. Para que sobrevivan, o para usar varias réplicas, se puede agregar un Redis en Railway y cargar `SESIONES_DRIVER=redis`, `REDIS_HOST` y `REDIS_PORT` (ver `escalado-horizontal.md`).
+- **Sesiones:** el back corre con 2 réplicas y las sesiones en un Redis de Railway (`SESIONES_DRIVER=redis` y `REDIS_URL`; los pasos están en [escalado-horizontal.md](escalado-horizontal.md), "En producción"). El Redis es uno solo: si se cae, nadie puede iniciar sesión hasta que vuelva.
 - **`php -S`** es un servidor de desarrollo, que atiende de a una petición por vez. Alcanza para la entrega; para tráfico real se usaría Nginx con PHP-FPM.
 - **El plan gratis de Aiven** se apaga por inactividad, no tiene alta disponibilidad, y está pensado para pruebas.
