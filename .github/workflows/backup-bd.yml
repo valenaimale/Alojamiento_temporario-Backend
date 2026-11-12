@@ -1,0 +1,91 @@
+# Backup de la base de producción (Aiven), todos los días, con la prueba del restore incluida.
+#
+#   1. Hace el dump de la base, lo comprime y lo cifra con BACKUP_CLAVE (scripts/backup/hacer-backup.sh).
+#   2. Lo restaura en un MySQL vacío de esta máquina y compara las filas de cada tabla
+#      (scripts/backup/restaurar-backup.sh): así se sabe cada día que el backup se puede recuperar.
+#   3. Lo guarda como artifact de esta ejecución durante 30 días (Actions → Backup de la base → la ejecución).
+#
+# Corre solo todos los días a las 04:00 de Argentina, y a mano con "Run workflow". Nunca escribe en producción:
+# solo la lee. Ver docs/backups.md (qué se respalda, dónde queda y cómo se restaura).
+name: Backup de la base
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC = 04:00 de Argentina (fuera del horario de uso)
+  workflow_dispatch:      # el botón "Run workflow", para hacer un backup en el momento
+  push:                   # y cuando cambian los scripts del backup: se prueban de verdad antes de mergear
+    paths:
+      - 'scripts/backup/**'
+      - '.github/workflows/backup-bd.yml'
+
+permissions:
+  contents: read          # solo necesita leer el repo (los scripts)
+
+# Nunca dos backups a la vez
+concurrency:
+  group: backup-bd
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Backup y prueba del restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    # Un MySQL vacío, solo para probar el restore. Se destruye al terminar.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: restore
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -prestore"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+
+    steps:
+      - name: Bajar los scripts
+        uses: actions/checkout@v4
+
+      - name: Hacer el backup de producción
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          DB_SSL_CA: certificados/aiven-ca.pem   # el certificado público de Aiven, el mismo que usa Railway
+          BACKUP_CLAVE: ${{ secrets.BACKUP_CLAVE }}
+        run: bash scripts/backup/hacer-backup.sh backup
+
+      - name: Probar el restore en un MySQL vacío
+        env:
+          DESTINO_HOST: 127.0.0.1
+          DESTINO_PORT: 3306
+          DESTINO_USER: root
+          DESTINO_PASS: restore
+          BACKUP_CLAVE: ${{ secrets.BACKUP_CLAVE }}
+        run: |
+          bash scripts/backup/restaurar-backup.sh backup/*.sql.gz.gpg prueba_restore backup/*.filas.tsv | tee restore.txt
+          # el resultado queda en el resumen de la ejecución (sirve como evidencia de que el restore funciona)
+          {
+            echo "## Backup de la base"
+            echo
+            echo "Archivo: \`$(basename backup/*.sql.gz.gpg)\` ($(du -h backup/*.sql.gz.gpg | cut -f1)), cifrado con AES-256."
+            echo
+            echo "### Prueba del restore"
+            echo '```'
+            cat restore.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar el backup (30 días)
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ github.run_id }}
+          path: |
+            backup/*.sql.gz.gpg
+            backup/*.filas.tsv
+          retention-days: 30
+          if-no-files-found: error
