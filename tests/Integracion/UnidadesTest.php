@@ -297,6 +297,7 @@ final class UnidadesTest extends CasoDeIntegracion
             'direccion'          => 'Costanera 123',
             'capacidad'          => 4,
             'caracteristicas'    => 'Con parrilla',
+            'hora_check_in'      => '14:00',
             'deposito_garantia'  => '15000.00',
             'estado_publicacion' => 'borrador',
             'es_propietario'     => true,
