@@ -80,7 +80,9 @@ final class ReservasTest extends CasoDeIntegracion
                 ->setTimezone(new \DateTimeZone('America/Argentina/Buenos_Aires'))->format('H:i') . ' para confirmarla',
             'reserva' => [
                 'id' => $reservaId, 'estado' => 'pendiente', 'ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+13 days'),
-                'noches' => 3, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00',//20% de seña
+                'noches' => 3, 'personas' => 2,
+                'importe_sin_descuento' => '210000.00', 'porcentaje_descuento' => '0.00',//la unidad no tiene descuentos (#69)
+                'importe_total' => '210000.00', 'importe_sena' => '42000.00',//20% de seña
                 'vence_en' => $venceEn,
             ],
         ], $respuesta->json());
@@ -268,6 +270,7 @@ final class ReservasTest extends CasoDeIntegracion
                 'id' => $cancelada, 'estado' => 'cancelada', 'ingreso' => $this->fecha('+30 days'), 'egreso' => $this->fecha('+32 days'),
                 'noches' => 2, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00',
                 'vence_en' => null, 'puede_pagar' => false, 'puede_cancelar' => false,
+                'puede_extender' => false, 'extiende_reserva_id' => null, 'descuento' => null, 'no_show' => null,//La 25
                 'saldo' => null, 'fecha_cobro' => null, 'puede_pagar_saldo' => false,
                 'cancelacion' => ['por' => null, 'motivo' => null, 'excepcion' => null],//cancelada antes de anotar quién
                 'alojamiento' => $alojamiento,
@@ -276,6 +279,7 @@ final class ReservasTest extends CasoDeIntegracion
                 'id' => $proxima, 'estado' => 'pendiente', 'ingreso' => $this->fecha('+10 days'), 'egreso' => $this->fecha('+13 days'),
                 'noches' => 3, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00',
                 'vence_en' => $creada['vence_en'], 'puede_pagar' => true, 'puede_cancelar' => true,
+                'puede_extender' => false, 'extiende_reserva_id' => null, 'descuento' => null, 'no_show' => null,
                 'saldo' => '168000.00', 'fecha_cobro' => $this->fecha('+5 days'), 'puede_pagar_saldo' => false,
                 'cancelacion' => null, 'alojamiento' => $alojamiento,
             ],
@@ -332,6 +336,48 @@ final class ReservasTest extends CasoDeIntegracion
         $this->assertSame(401, $this->cliente()->post('/reservas/cancelar', ['reserva_id' => 1])->codigo);
     }
 
+    // ---------- La 25: no-show y extensión en las listas (fase 0) ----------
+
+    //Un no-show (#67) no se cancela, se ve en "Mis reservas" y le aparece al propietario entre las de las últimas 48 hs
+    //para darle una excepción. Una extensión paga (#70) no se cancela y dice qué reserva extiende.
+    public function testNoShowYExtensionEnLasListas(): void
+    {
+        $unidadId = $this->unidadPublicada();
+        $huesped = $this->crearUsuarioEnBase('huesped', ['nombre' => 'Juan']);
+        $original = $this->reservaEnBase($unidadId, $huesped['id'], $this->fecha('-2 days'), $this->fecha('+1 day'), 'confirmada');
+        $extension = $this->reservaEnBase($unidadId, $huesped['id'], $this->fecha('+1 day'), $this->fecha('+3 days'), 'confirmada');
+        $this->pdo()->prepare('UPDATE reservas SET extiende_reserva_id = ? WHERE id = ?')->execute([$original, $extension]);
+        $noShow = $this->reservaEnBase($unidadId, $huesped['id'], $this->fecha('+10 days'), $this->fecha('+12 days'), 'confirmada');
+        $this->pdo()->prepare("UPDATE reservas SET estado = 'no_show', no_show_en = UTC_TIMESTAMP() - INTERVAL 1 HOUR WHERE id = ?")
+            ->execute([$noShow]);
+
+        //el huésped: ninguna de las dos se cancela
+        $cliente = $this->iniciarSesion($huesped['mail']);
+        $this->assertSame('Una extensión paga no se puede cancelar', $cliente->post('/reservas/cancelar', ['reserva_id' => $extension])->json()['error']);
+        $this->assertSame('El huésped no se presentó: esa reserva ya está resuelta', $cliente->post('/reservas/cancelar', ['reserva_id' => $noShow])->json()['error']);
+
+        $mias = array_column($cliente->get('/reservas/mias')->json()['reservas'], null, 'id');
+        $this->assertSame($original, $mias[$extension]['extiende_reserva_id']);
+        $this->assertFalse($mias[$extension]['puede_cancelar']);
+        $this->assertNull($mias[$original]['extiende_reserva_id']);
+        $this->assertSame('no_show', $mias[$noShow]['estado']);
+        $this->assertMatchesRegularExpression('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/', $mias[$noShow]['no_show']['en']);
+        $this->assertNull($mias[$noShow]['no_show']['excepcion']);
+        $this->assertNull($mias[$original]['no_show']);
+
+        //el propietario: la extensión en las reservas, sin poder cancelarla; el no-show entre las de las últimas 48 hs
+        $respuestaUnidad = $this->iniciarSesion($this->propietario['mail'])->get('/unidades/reservas', ['id' => $unidadId]);
+        $this->assertSame(200, $respuestaUnidad->codigo, $respuestaUnidad->cuerpo);
+        $unidad = $respuestaUnidad->json();
+        $reservas = array_column($unidad['reservas'], null, 'id');
+        $this->assertSame($original, $reservas[$extension]['extiende_reserva_id']);
+        $this->assertFalse($reservas[$extension]['puede_cancelar']);
+        $this->assertArrayNotHasKey($noShow, $reservas);//un no-show no ocupa noches
+        $this->assertSame([$noShow], array_column($unidad['canceladas'], 'id'));
+        $this->assertSame('no_show', $unidad['canceladas'][0]['motivo']);
+        $this->assertNull($unidad['canceladas'][0]['cancelada_por']);
+    }
+
     // ---------- reservas de una unidad ----------
 
     //El propietario y el administrador ven las en curso y próximas (pendientes y confirmadas), de la más cercana
@@ -357,6 +403,7 @@ final class ReservasTest extends CasoDeIntegracion
             $this->assertSame([
                 'id' => $lejana, 'estado' => 'confirmada', 'ingreso' => $this->fecha('+20 days'), 'egreso' => $this->fecha('+22 days'),
                 'noches' => 2, 'personas' => 2, 'importe_total' => '210000.00', 'importe_sena' => '42000.00', 'huesped' => 'Juan',
+                'extiende_reserva_id' => null,//no es una extensión (#70)
                 'puede_cancelar' => $esPropietario,//solo el propietario cancela (#66)
             ], $respuesta->json()['reservas'][1]);
             $this->assertSame([], $respuesta->json()['canceladas']);

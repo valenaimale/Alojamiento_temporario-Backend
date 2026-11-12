@@ -9,6 +9,7 @@ use App\Request\Request;
 use App\Validacion\CancelacionConDevolucion;
 use App\Validacion\Estadia;
 use App\Validacion\ExcepcionDeCancelacion;
+use App\Validacion\Extension;
 use App\Validacion\Liquidacion;
 use App\Validacion\ValidadorFechas;
 use App\Validacion\VencimientoReserva;
@@ -90,10 +91,11 @@ class ReservasController
             $expiraEn = VencimientoReserva::vencimientoDesdeAhora();
             $pdo->prepare(
                 'INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado,
+                                       importe_sin_descuento, porcentaje_descuento,
                                        importe_total, porcentaje_sena, importe_sena, monto_faltante, fecha_cobro,
                                        retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15,
                                        politica_aceptada_en, bloqueo_expira_en, creado_en)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
                 $unidadId,
                 $_SESSION['usuario']['id'],//quién reserva sale siempre de la sesión
@@ -101,7 +103,9 @@ class ReservasController
                 $fechas['egreso']->format('Y-m-d'),
                 $personas,
                 $estado,
-                $estadia['precio_total'],
+                $estadia['importe_sin_descuento'],//foto del descuento por estadía larga (#69)
+                $estadia['porcentaje_descuento'],
+                $estadia['precio_total'],//con el descuento: de acá salen la seña, el saldo y la retención
                 $unidad['porcentaje_sena'],
                 $sena,
                 bcsub($estadia['precio_total'], $sena, 2),//el saldo
@@ -132,6 +136,8 @@ class ReservasController
                 'egreso'        => $fechas['egreso']->format('Y-m-d'),
                 'noches'        => $estadia['noches'],
                 'personas'      => $personas,
+                'importe_sin_descuento' => $estadia['importe_sin_descuento'],
+                'porcentaje_descuento'  => $estadia['porcentaje_descuento'],
                 'importe_total' => $estadia['precio_total'],
                 'importe_sena'  => $sena,
                 'vence_en'      => VencimientoReserva::venceEnIso($estado, $expiraEn),
@@ -148,11 +154,14 @@ class ReservasController
         $consulta = Conexion::obtener()->prepare(
             'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
                     r.monto_faltante, r.fecha_cobro, r.cancelada_por, r.motivo_cancelacion, r.excepcion,
+                    r.extiende_reserva_id, r.importe_sin_descuento, r.porcentaje_descuento, r.no_show_en, r.huesped_id,
+                    e.ingreso_en, e.egreso_en,
                     u.id AS unidad_id, u.nombre AS unidad_nombre, l.nombre AS localidad, l.provincia, f.url AS foto_principal
              FROM reservas r
              JOIN unidades u ON u.id = r.unidad_id
              JOIN localidades l ON l.id = u.localidad_id
              LEFT JOIN fotos_unidad f ON f.unidad_id = u.id AND f.orden = 0
+             LEFT JOIN estadias e ON e.reserva_id = r.id
              WHERE r.huesped_id = ?
              ORDER BY r.fecha_ingreso DESC, r.id DESC'
         );
@@ -167,7 +176,22 @@ class ReservasController
             $reservas[] = $datos + [
                 'vence_en'       => VencimientoReserva::venceEnIso($fila['estado'], $fila['bloqueo_expira_en']),
                 'puede_pagar'    => $estado === 'pendiente',
-                'puede_cancelar' => $estado === 'pendiente' || ($estado === 'confirmada' && $fila['fecha_ingreso'] > $hoy),
+                //una extensión paga no se cancela (#70)
+                'puede_cancelar' => $estado === 'pendiente'
+                    || ($estado === 'confirmada' && $fila['fecha_ingreso'] > $hoy && $fila['extiende_reserva_id'] === null),
+                //extender la estadía (#70): la regla está en Extension; las extensiones apuntan a la reserva que extienden
+                'puede_extender'      => Extension::puedeExtender($fila),
+                'extiende_reserva_id' => $fila['extiende_reserva_id'] === null ? null : (int) $fila['extiende_reserva_id'],
+                //el descuento por estadía larga (#69); null si no tuvo
+                'descuento'           => bccomp($fila['porcentaje_descuento'], '0', 2) > 0 ? [
+                    'porcentaje'            => $fila['porcentaje_descuento'],
+                    'importe_sin_descuento' => $fila['importe_sin_descuento'],
+                ] : null,
+                //el no-show (#67): cuándo lo marcó el sistema y la excepción del propietario, si la dio; null si no es no-show
+                'no_show'             => $estado !== 'no_show' ? null : [
+                    'en'        => str_replace(' ', 'T', $fila['no_show_en']) . 'Z',
+                    'excepcion' => $fila['excepcion'],
+                ],
                 //el saldo (L2-6): lo que falta pagar y hasta cuándo (null en las reservas anteriores al cobro)
                 'saldo'             => $fila['monto_faltante'],
                 'fecha_cobro'       => $fila['fecha_cobro'],
@@ -284,7 +308,7 @@ class ReservasController
         //"en curso y próximas": el egreso es de hoy en adelante (hoy en Argentina, calculado en PHP)
         $consulta = Conexion::obtener()->prepare(
             "SELECT r.id, r.estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
-                    h.nombre AS huesped
+                    r.extiende_reserva_id, h.nombre AS huesped
              FROM reservas r
              JOIN usuarios h ON h.id = r.huesped_id
              WHERE r.unidad_id = ? AND " . VencimientoReserva::ocupaNoches('r') . " AND r.fecha_egreso >= ?
@@ -295,31 +319,46 @@ class ReservasController
 
         $reservas = [];
         foreach ($consulta->fetchAll() as $fila) {
+            $esExtension = $fila['extiende_reserva_id'] !== null;
             $reservas[] = $this->datosDe($fila) + [
                 'huesped'        => $fila['huesped'],
-                //solo el propietario cancela (#66): una pendiente sin vencer o una confirmada antes del ingreso
-                'puede_cancelar' => $unidad['es_propietario'] && ($fila['estado'] === 'pendiente' || $fila['fecha_ingreso'] > $hoy),
+                //una extensión (#70) apunta a la reserva que extiende; null si no es una extensión
+                'extiende_reserva_id' => $esExtension ? (int) $fila['extiende_reserva_id'] : null,
+                //solo el propietario cancela (#66): una pendiente sin vencer o una confirmada antes del ingreso,
+                //salvo una extensión paga, que no se cancela (#70)
+                'puede_cancelar' => $unidad['es_propietario']
+                    && ($fila['estado'] === 'pendiente' || ($fila['fecha_ingreso'] > $hoy && !$esExtension)),
             ];
         }
 
-        //Al propietario, además, las que canceló el huésped (o la plataforma) en las últimas 48 hs, para darle una
-        //excepción (#64). El administrador no las ve: no puede darla.
+        //Al propietario, además, las que canceló el huésped (o la plataforma) y los no-show (#67) de las últimas 48 hs,
+        //para darle una excepción (#64). El administrador no las ve: no puede darla.
+        //'motivo': 'cancelacion' o 'no_show'; 'cancelada_en': el momento de la cancelación o del no-show.
         $canceladas = [];
         if ($unidad['es_propietario']) {
+            $horas = Liquidacion::HORAS_EXCEPCION;
             $consulta = Conexion::obtener()->prepare(
                 "SELECT r.id, r.estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
-                        r.cancelada_en, r.cancelada_por, r.excepcion, r.excepcion_en, h.nombre AS huesped,
+                        r.cancelada_en, r.cancelada_por, r.no_show_en, r.excepcion, r.excepcion_en, h.nombre AS huesped,
                         EXISTS (SELECT 1 FROM liquidaciones q WHERE q.reserva_id = r.id) AS liquidada
                  FROM reservas r
                  JOIN usuarios h ON h.id = r.huesped_id
-                 WHERE r.unidad_id = ? AND r.estado = 'cancelada' AND r.cancelada_por IN ('huesped', 'plataforma')
-                   AND r.cancelada_en > UTC_TIMESTAMP() - INTERVAL " . Liquidacion::HORAS_EXCEPCION . " HOUR
-                 ORDER BY r.cancelada_en DESC"
+                 WHERE r.unidad_id = ?
+                   AND ((r.estado = 'cancelada' AND r.cancelada_por IN ('huesped', 'plataforma')
+                         AND r.cancelada_en > UTC_TIMESTAMP() - INTERVAL $horas HOUR)
+                     OR (r.estado = 'no_show' AND r.no_show_en > UTC_TIMESTAMP() - INTERVAL $horas HOUR))
+                 ORDER BY COALESCE(r.cancelada_en, r.no_show_en) DESC"
             );
             $consulta->execute([$unidad['id']]);
             foreach ($consulta->fetchAll() as $fila) {
-                $canceladas[] = $this->datosDe($fila) + ['huesped' => $fila['huesped'], 'cancelada_por' => $fila['cancelada_por'],
-                    'cancelada_en' => str_replace(' ', 'T', $fila['cancelada_en']) . 'Z', 'excepcion' => ExcepcionDeCancelacion::estado($fila)];
+                $noShow = $fila['estado'] === 'no_show';
+                $canceladas[] = $this->datosDe($fila) + [
+                    'huesped'       => $fila['huesped'],
+                    'motivo'        => $noShow ? 'no_show' : 'cancelacion',
+                    'cancelada_por' => $fila['cancelada_por'],//null en un no-show
+                    'cancelada_en'  => str_replace(' ', 'T', $noShow ? $fila['no_show_en'] : $fila['cancelada_en']) . 'Z',
+                    'excepcion'     => ExcepcionDeCancelacion::estado($fila),
+                ];
             }
         }
 
@@ -338,7 +377,7 @@ class ReservasController
             return false;
         }
         $consulta = Conexion::obtener()->prepare(
-            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.fecha_cobro,
+            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.fecha_cobro, r.extiende_reserva_id,
                     r.retencion_mas_de_30, r.retencion_de_15_a_30, r.retencion_menos_de_15,
                     u.nombre AS unidad_nombre, p.id AS propietario_id, p.nombre AS propietario_nombre, p.mail AS propietario_mail
              FROM reservas r

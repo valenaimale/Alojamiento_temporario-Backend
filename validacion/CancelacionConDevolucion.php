@@ -21,7 +21,7 @@ class CancelacionConDevolucion
     public static function reserva(int $reservaId, bool $bloquear = false): array|false
     {
         $consulta = Conexion::obtener()->prepare(
-            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.fecha_cobro, r.monto_faltante,
+            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.fecha_cobro, r.monto_faltante, r.extiende_reserva_id,
                     r.retencion_mas_de_30, r.retencion_de_15_a_30, r.retencion_menos_de_15, r.huesped_id,
                     u.nombre AS unidad_nombre, p.id AS propietario_id, p.nombre AS propietario_nombre, p.mail AS propietario_mail,
                     h.nombre AS huesped_nombre, h.mail AS huesped_mail
@@ -37,6 +37,8 @@ class CancelacionConDevolucion
 
     //Por qué no se puede cancelar esa reserva, como [mensaje, código HTTP], o null si se puede (decisión #29).
     //Se cancela una pendiente sin vencer o una confirmada antes del día del ingreso. Vale para el huésped y el propietario.
+    //Una extensión paga no se cancela (#70); una pendiente sí, y sus noches quedan libres. Un no-show ya está resuelto (#67).
+    //$reserva necesita extiende_reserva_id (las consultas de cancelar lo traen).
     public static function problema(array $reserva): ?array
     {
         $estado = VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']);
@@ -44,6 +46,9 @@ class CancelacionConDevolucion
             $estado === 'cancelada'  => ['Esa reserva ya estaba cancelada', 409],
             $estado === 'expirada'   => ['Esa reserva ya venció sin pagar la seña: sus noches ya están libres', 409],
             $estado === 'finalizada' => ['Esa estadía ya terminó', 409],
+            $estado === 'no_show'    => ['El huésped no se presentó: esa reserva ya está resuelta', 409],
+            $estado === 'confirmada' && ($reserva['extiende_reserva_id'] ?? null) !== null
+                                     => ['Una extensión paga no se puede cancelar', 409],
             $estado === 'confirmada' && $reserva['fecha_ingreso'] <= ValidadorFechas::hoy()->format('Y-m-d')
                                      => ['La estadía ya empezó: no se puede cancelar desde la app', 409],
             in_array($estado, ['pendiente', 'confirmada'], true) => null,

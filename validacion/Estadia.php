@@ -38,11 +38,17 @@ class Estadia
     }
 
     //Calcula la estadía para una unidad. Devuelve:
-    //  ['disponible' => true, 'noches' => 5, 'precio_total' => "350000.00"], o
+    //  ['disponible' => true, 'noches' => 5, 'importe_sin_descuento' => "350000.00", 'porcentaje_descuento' => "10.00",
+    //   'precio_total' => "315000.00"], o
     //  ['disponible' => false, 'motivo' => "Mínimo 7 noches en temporada alta"].
     //Una estadía se puede reservar si ninguna noche está ocupada, todas tienen precio, y la cantidad de noches
     //llega al mayor mínimo de las temporadas que toca (RN-09; 1 si no toca ninguna).
-    public static function calcular(int $unidadId, \DateTimeImmutable $ingreso, \DateTimeImmutable $egreso): array
+    //precio_total ya tiene el descuento por estadía larga (Descuentos, #69): es lo que paga el huésped.
+    //$exigirMinimo: false en una extensión (#70), que no tiene que cumplir el mínimo de noches.
+    //$nochesParaDescuento: con cuántas noches se elige el escalón de descuento; por defecto, las de esta estadía.
+    //Una extensión pasa las de la estadía completa (la original más las extra).
+    public static function calcular(int $unidadId, \DateTimeImmutable $ingreso, \DateTimeImmutable $egreso,
+                                    bool $exigirMinimo = true, ?int $nochesParaDescuento = null): array
     {
         $noches = ValidadorFechas::noches($ingreso, $egreso);
         $primera = $ingreso->format('Y-m-d');
@@ -73,11 +79,27 @@ class Estadia
         );
         $consulta->execute([$unidadId, $ultima, $primera]);
         $temporada = $consulta->fetch();
-        if ($temporada !== false && $noches < (int) $temporada['minimo_noches']) {
+        if ($exigirMinimo && $temporada !== false && $noches < (int) $temporada['minimo_noches']) {
             return ['disponible' => false, 'motivo' => "Mínimo {$temporada['minimo_noches']} noches en temporada {$temporada['nombre']}"];
         }
 
-        return ['disponible' => true, 'noches' => $noches, 'precio_total' => $precios['total']];//SUM de un decimal: texto con 2 decimales
+        $sinDescuento = $precios['total'];//SUM de un decimal: texto con 2 decimales
+        $porcentaje = Descuentos::porcentaje($unidadId, $nochesParaDescuento ?? $noches);
+        return [
+            'disponible'            => true,
+            'noches'                => $noches,
+            'importe_sin_descuento' => $sinDescuento,
+            'porcentaje_descuento'  => $porcentaje,
+            'precio_total'          => self::conDescuento($sinDescuento, $porcentaje),
+        ];
+    }
+
+    //Un importe con un % de descuento, redondeado a centavos ("350000.00" con "10.00" → "315000.00")
+    public static function conDescuento(string $importe, string $porcentaje): string
+    {
+        $descuento = bcdiv(bcmul($importe, $porcentaje, 6), '100', 6);
+        //bcmath trunca: sumar medio centavo antes de cortar a 2 decimales redondea (sin floats, que pierden precisión)
+        return bcadd(bcsub($importe, $descuento, 6), '0.005', 2);
     }
 
     //La seña de una estadía: el % de seña de la unidad sobre el total, con 2 decimales, como texto ("105000.00")

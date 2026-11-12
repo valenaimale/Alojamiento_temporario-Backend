@@ -17,11 +17,13 @@ Reserva un **huésped** (o un **propietario**, que también es huésped) con el 
 
 Las reglas son las mismas que muestra el detalle (`GET /alojamiento`): ingreso de mañana en adelante, hasta 60 noches, todas las noches con precio y libres, y el mínimo de noches de la temporada (RN-09). Dos huéspedes que reservan las mismas fechas a la vez nunca quedan superpuestos: el segundo recibe el `409`.
 
-Se guarda la **foto de las condiciones** que el huésped acepta: el total (la suma del precio de cada noche), el % de seña, la seña y la política de cancelación de la unidad. Si el propietario las cambia después, la reserva no cambia.
+Se guarda la **foto de las condiciones** que el huésped acepta: el total, el % de seña, la seña y la política de cancelación de la unidad. Si el propietario las cambia después, la reserva no cambia.
+
+**Descuento por estadía larga (decisión #69):** `importe_sin_descuento` es la suma del precio de cada noche. `porcentaje_descuento` es el escalón de la unidad que alcanza la estadía, `"0.00"` si no alcanza ninguno. `importe_total` es lo que paga el huésped, **con el descuento**, y de ahí salen la seña y el saldo.
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `201` | `{"ok": "Reservaste Casa del Bosque: pagá la seña antes de las 17:15 para confirmarla", "reserva": {"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z"}}` | Se reservó. `vence_en` (UTC) es hasta cuándo se puede pagar la seña. |
+| `201` | `{"ok": "Reservaste Casa del Bosque: pagá la seña antes de las 17:15 para confirmarla", "reserva": {"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-15", "noches": 10, "personas": 2, "importe_sin_descuento": "700000.00", "porcentaje_descuento": "10.00", "importe_total": "630000.00", "importe_sena": "126000.00", "vence_en": "2026-11-05T20:15:00Z"}}` | Se reservó. `vence_en` (UTC) es hasta cuándo se puede pagar la seña. |
 | `401` | `{"error": "No hay sesión iniciada"}` | |
 | `403` | `{"error": "Tenés que verificar tu mail para hacer esto"}` o `{"error": "No tenés permiso para hacer esto"}` | Sin el mail verificado, o es administrador, operador o backoffice. |
 | `404` | `{"error": "No encontramos ese alojamiento"}` | No existe o no está publicada. |
@@ -37,9 +39,17 @@ GET /reservas/mias
 
 Las reservas del usuario logueado (huésped o propietario), **todas** (también las canceladas y expiradas), de la más nueva a la más vieja según el ingreso. En las canceladas, `cancelacion` dice quién canceló (`huesped`, `propietario` o `plataforma`; `null` en las de antes), el `motivo` si fue el propietario y la `excepcion` que le dio el propietario, en pesos; en las demás es `null`. `puede_pagar` es `true` solo para las pendientes sin vencer; `puede_cancelar`, para las pendientes sin vencer y las confirmadas antes del día del ingreso, y `vence_en` dice hasta cuándo se paga la seña (`null` en las demás). `saldo` es lo que falta pagar (`"0.00"` cuando ya está pago), `fecha_cobro` hasta cuándo se paga, y `puede_pagar_saldo` es `true` en las confirmadas con saldo (se paga con `GET /pagos/saldo`, ver `pagos.md`). Las reservas anteriores al cobro pueden tener `saldo` y `fecha_cobro` en `null`. Una pendiente vencida aparece con `"estado": "expirada"`. La dirección exacta no se muestra todavía: se le va a dar al huésped cuando la reserva esté confirmada (pagada).
 
+Los campos de La 25:
+
+- `descuento`: `{"porcentaje", "importe_sin_descuento"}` si la reserva tuvo descuento por estadía larga (#69); si no, `null`.
+- `extiende_reserva_id`: si la reserva es una **extensión** (#70), el id de la reserva que extiende; si no, `null`. Una extensión aparece en la lista como cualquier otra reserva, y el front la muestra dentro de la original.
+- `puede_extender`: `true` si se puede pedir una extensión de esta reserva (ver "Extender la estadía").
+- `no_show`: si el huésped no se presentó (#67), `{"en": "2026-12-06T17:00:00Z", "excepcion": "5000.00" | null}`, con `"estado": "no_show"`; si no, `null`.
+- Una extensión paga tiene `puede_cancelar` en `false`.
+
 | Código | Cuerpo |
 |---|---|
-| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z", "puede_pagar": true, "puede_cancelar": true, "saldo": "280000.00", "fecha_cobro": "2026-11-30", "puede_pagar_saldo": false, "alojamiento": {"id": 5, "nombre": "Casa del Bosque", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires", "foto_principal": "https://res.cloudinary.com/..."}}]}` (o `[]`) |
+| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "vence_en": "2026-11-05T20:15:00Z", "puede_pagar": true, "puede_cancelar": true, "puede_extender": false, "extiende_reserva_id": null, "descuento": null, "no_show": null, "saldo": "280000.00", "fecha_cobro": "2026-11-30", "puede_pagar_saldo": false, "cancelacion": null, "alojamiento": {"id": 5, "nombre": "Casa del Bosque", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires", "foto_principal": "https://res.cloudinary.com/..."}}]}` (o `[]`) |
 | `401` / `403` | Sin sesión / no es huésped ni propietario. |
 
 ## Cancelar una reserva (L2-3, L2-18)
@@ -83,7 +93,7 @@ POST /reservas/cancelar
 | `200` | `{"ok": "Cancelaste la reserva: esas noches quedaron libres"}` | Una pendiente. |
 | `200` | `{"ok": "Cancelaste la reserva: esas noches quedaron libres. Te devolvimos $29.400,00 a tu billetera", "devolucion": {…lo mismo que la vista previa…, "estado": "confirmado", "tx_hash": "0x…", "red": 84532, "simulado": false}}` | Una confirmada. `red` y `simulado` dicen dónde salió la devolución: con `84532` y `false` es real y se puede ver en BaseScan; con los pagos simulados, `31337` y `true`. Si la red falló: "La devolución de $29.400,00 está en proceso: te avisamos por mail", con `"estado": "pendiente"` y `"tx_hash": null`. Si no hay nada que devolver (la política retiene toda la seña): "Según la política de cancelación, no corresponde devolución", con `estado`, `tx_hash`, `red` y `simulado` en `null`. |
 | `404` | `{"error": "No encontramos esa reserva"}` | No existe, no es suya o el id no es válido. |
-| `409` | `{"error": "Esa reserva ya estaba cancelada"}`, `{"error": "Esa reserva ya venció sin pagar la seña: sus noches ya están libres"}`, `{"error": "La estadía ya empezó: no se puede cancelar desde la app"}`, `{"error": "Esa estadía ya terminó"}` o `{"error": "La reserva cambió mientras la cancelabas: actualizá la página"}` (se pagó o canceló al mismo tiempo) | |
+| `409` | `{"error": "Esa reserva ya estaba cancelada"}`, `{"error": "Esa reserva ya venció sin pagar la seña: sus noches ya están libres"}`, `{"error": "La estadía ya empezó: no se puede cancelar desde la app"}`, `{"error": "Esa estadía ya terminó"}`, `{"error": "El huésped no se presentó: esa reserva ya está resuelta"}`, `{"error": "Una extensión paga no se puede cancelar"}` o `{"error": "La reserva cambió mientras la cancelabas: actualizá la página"}` (se pagó o canceló al mismo tiempo) | |
 
 ## Cancela el propietario (decisión #63)
 
@@ -135,13 +145,17 @@ POST /unidades/reservas/excepcion
 GET /unidades/reservas?id=5
 ```
 
-Las reservas **en curso y próximas** de la unidad (pendientes, confirmadas y finalizadas con egreso contratado de hoy en adelante), de la más cercana a la más lejana. Las ven el propietario y el administrador asignado; para cualquier otro la unidad "no existe" (`404`). Del huésped va **solo el nombre**. `puede_cancelar` es `true` solo para el propietario (#66).
+Las reservas **en curso y próximas** de la unidad (pendientes, confirmadas y finalizadas con egreso contratado de hoy en adelante), de la más cercana a la más lejana. Las ven el propietario y el administrador asignado; para cualquier otro la unidad "no existe" (`404`). Del huésped va **solo el nombre**. `puede_cancelar` es `true` solo para el propietario (#66), y nunca en una extensión paga. `extiende_reserva_id` dice si es una extensión (#70), y de cuál reserva.
 
-`canceladas` (solo para el propietario; para el administrador, `[]`): las que canceló el huésped o la plataforma en las últimas 48 hs, cada una con `cancelada_por`, `cancelada_en` y `excepcion` (lo mismo que `GET /unidades/reservas/excepcion`).
+`canceladas` (solo para el propietario; para el administrador, `[]`): las que canceló el huésped o la plataforma y los **no-show** (#67) de las últimas 48 hs. Cada una tiene:
+- `motivo`: `cancelacion` o `no_show`;
+- `cancelada_por`: `huesped` o `plataforma`, o `null` en un no-show;
+- `cancelada_en`: cuándo se canceló, o cuándo se marcó el no-show;
+- `excepcion`: lo mismo que `GET /unidades/reservas/excepcion`.
 
 | Código | Cuerpo |
 |---|---|
-| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "huesped": "Juan", "puede_cancelar": true}], "canceladas": []}` |
+| `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "importe_total": "350000.00", "importe_sena": "70000.00", "huesped": "Juan", "extiende_reserva_id": null, "puede_cancelar": true}], "canceladas": [{"id": 9, "estado": "no_show", …, "motivo": "no_show", "cancelada_por": null, "cancelada_en": "2026-12-06T17:00:00Z", "excepcion": {…}}]}` |
 
 ## Agenda del operador (RF-10)
 
@@ -154,6 +168,59 @@ Las reservas **en curso y próximas** (pendientes y confirmadas con egreso de ho
 | Código | Cuerpo |
 |---|---|
 | `200` | `{"reservas": [{"id": 12, "estado": "pendiente", "ingreso": "2026-12-05", "egreso": "2026-12-10", "noches": 5, "personas": 2, "huesped": "Juan", "unidad": {"id": 5, "nombre": "Casa del Bosque", "direccion": "Los Alerces 450", "localidad": "Mar de las Pampas", "provincia": "Buenos Aires"}}]}` (o `[]`) |
+
+**La 25 (rama `estadias-y-extension-front`):**
+- Cada reserva confirmada sin ingreso trae `limite_ingreso`: hasta cuándo se puede registrar el ingreso, en UTC (`PlazoIngreso::limiteIso`). Pasado ese momento, la reserva pasa a no-show.
+- Si la estadía tiene una extensión confirmada, `egreso` es la fecha de salida de la extensión, y `extendida` es `true`.
+
+## No-show (decisión #67)
+
+Cada unidad tiene un **horario de check-in** (`hora_check_in`, 14:00 por defecto, en hora de Argentina). Desde ese horario del día del ingreso hay **24 hs** para registrar el ingreso. Lo pueden registrar el operador, el administrador o el propietario.
+
+Si nadie lo registró, `php scripts/marcar-no-shows.php` (en las tareas frecuentes, cada 10 minutos) pasa la reserva a **`no_show`**, con `no_show_en`. No hay una marca manual: el no-show es la falta del ingreso. A partir de ahí:
+
+- Se retiene **todo lo pagado** (la seña sola o la seña y el saldo), como cuando el huésped cancela con todo pagado (#62).
+- El propietario tiene **48 hs** desde `no_show_en` para dar una excepción, con `GET` y `POST /unidades/reservas/excepcion`, igual que en una cancelación.
+- Las noches se liberan: un no-show no ocupa noches.
+- Lo retenido se liquida a las 48 hs, o antes si el propietario da la excepción.
+- `POST /operador/estadias/registrar` con `tipo: ingreso` responde `409` si ya pasó el plazo o la reserva es un no-show.
+
+## Extender la estadía (decisión #70)
+
+Con el **ingreso registrado y sin egreso**, el huésped puede quedarse más noches, si están libres. La extensión es una **reserva nueva** vinculada a la original (`extiende_reserva_id`), de las noches que siguen a su egreso:
+
+- cada noche lleva su precio, con el descuento de la **estadía completa** (#69);
+- no exige el mínimo de noches;
+- nace **pendiente**, guarda sus noches durante el mismo plazo que una seña y se paga **entera, en un solo pago**: es la seña de esa reserva (`porcentaje_sena` 100, sin saldo), con `GET /pagos/sena?reserva_id=<id de la extensión>` y `POST /pagos/confirmar` (ver [pagos](pagos.md));
+- pagada, queda **confirmada**, ocupa sus noches y **no se cancela**;
+- se liquida apenas se confirma el pago (#71).
+
+### Cotizar
+
+```
+GET /reservas/extension?reserva_id=12&noches=2
+```
+
+No guarda nada.
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"reserva_id": 12, "noches": 2, "ingreso": "2026-12-10", "egreso": "2026-12-12", "importe_sin_descuento": "140000.00", "porcentaje_descuento": "10.00", "importe_total": "126000.00"}` | `ingreso` es el egreso actual de la estadía; `egreso`, la nueva salida. |
+| `404` | `{"error": "No encontramos esa reserva"}` | No existe o es de otro huésped. |
+| `409` | `{"error": "Solo se puede extender una estadía en curso"}`, `{"error": "Hay noches ocupadas en esas fechas"}`, `{"error": "Hay noches sin precio en esas fechas"}` o `{"error": "Ya tenés una extensión esperando el pago"}` | |
+| `422` | `{"error": "Indicá cuántas noches más (de 1 a 30)"}` | |
+
+### Extender
+
+```
+POST /reservas/extender
+{"reserva_id": 12, "noches": 2}
+```
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `201` | `{"ok": "Pagá la extensión antes de las 17:15 para confirmarla", "reserva": {"id": 31, "estado": "pendiente", "extiende_reserva_id": 12, "ingreso": "2026-12-10", "egreso": "2026-12-12", "noches": 2, "importe_sin_descuento": "140000.00", "porcentaje_descuento": "10.00", "importe_total": "126000.00", "importe_sena": "126000.00", "vence_en": "2026-12-09T20:15:00Z"}}` | Se creó la extensión pendiente. Se paga como la seña de la reserva 31. |
+| `404` / `409` / `422` | Los mismos de cotizar. | |
 
 ## Bloqueos sobre noches reservadas
 
