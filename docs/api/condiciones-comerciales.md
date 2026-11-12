@@ -159,3 +159,37 @@ Los 4 porcentajes son obligatorios: cada uno de 0 a 100, con hasta 2 decimales. 
 | `422` | `{"error": "La seña tiene que ser un porcentaje de 0 a 100, con hasta 2 decimales"}` (uno por cada campo) | Un porcentaje falta o es inválido. |
 | `422` | `{"error": "La seña tiene que ser de al menos el 1 %: sin seña, el huésped no podría pagar el saldo"}` | La seña es menor que 1. |
 | `422` | `{"error": "La retención de más de 30 días no puede ser mayor que la retención de 15 a 30 días"}` (uno por cada desigualdad) | No se cumple la regla. |
+
+## Descuentos por estadía larga (US2.10, decisión #69)
+
+Cada unidad puede tener **escalones de descuento**, por ejemplo 10 % desde 10 noches y 15 % desde 14. Una estadía lleva el **escalón más alto que alcanza**, en cualquier temporada. Lo ven y lo cambian **solo el propietario** (el administrador recibe `403`).
+
+- Se aplica en la búsqueda, el detalle, la reserva y la extensión (`Estadia::calcular`): `importe_total` ya viene con el descuento, y de ahí salen la seña, el saldo y la retención.
+- Los cambios valen **para las reservas futuras**: cada reserva guarda su foto (`importe_sin_descuento` y `porcentaje_descuento`).
+- Cada escalón tiene `noches_minimas`, entero de 2 a 60, y `porcentaje`, mayor que 0 y menor que 100, con hasta 2 decimales. No hay dos escalones con las mismas noches.
+
+### Ver
+
+```
+GET /unidades/descuentos?id=5
+```
+
+| Código | Cuerpo |
+|---|---|
+| `200` | `{"descuentos": [{"noches_minimas": 10, "porcentaje": "10.00"}, {"noches_minimas": 14, "porcentaje": "15.00"}]}` (ordenados por noches; `[]` si no tiene) |
+| `403` / `404` | No es el propietario / la unidad no existe |
+
+### Guardar
+
+```
+POST /unidades/descuentos
+{"unidad_id": 5, "descuentos": [{"noches_minimas": 10, "porcentaje": 10}, {"noches_minimas": 14, "porcentaje": 15}]}
+```
+
+**Reemplaza todos** los escalones de la unidad. Con `"descuentos": []` se borran todos.
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"ok": "Guardamos los descuentos", "descuentos": [...]}` | |
+| `422` | `{"error": "Las noches tienen que ser un número de 2 a 60"}`, `{"error": "El descuento tiene que ser un porcentaje mayor que 0 y menor que 100, con hasta 2 decimales"}` o `{"error": "Hay dos descuentos desde la misma cantidad de noches"}` | |
+| `403` / `404` | No es el propietario / la unidad no existe | |

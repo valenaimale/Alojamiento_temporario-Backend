@@ -121,7 +121,7 @@ class CancelacionPropietarioController
             return false;
         }
         $consulta = Conexion::obtener()->prepare(
-            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.huesped_id,
+            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.huesped_id, r.extiende_reserva_id,
                     u.nombre AS unidad_nombre, h.nombre AS huesped_nombre, h.mail AS huesped_mail
              FROM reservas r
              JOIN unidades u ON u.id = r.unidad_id
