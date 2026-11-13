@@ -74,6 +74,62 @@ final class LiquidacionesTest extends CasoDeIntegracion
         $this->assertSame([], $this->liquidacionesDe($escena['propietario']['mail']));
     }
 
+    //Un no-show se liquida como una cancelación del huésped con todo pagado (#67): se reparte lo que se retuvo,
+    //nunca queda en deuda y la respuesta lo marca con "motivo": "no_show"
+    public function testUnNoShowSeLiquidaComoUnaCancelacionDelHuesped(): void
+    {
+        //la seña pagada, el ingreso nunca registrado y el no-show marcado hace más de 48 hs: ya no se espera la excepción
+        $escena = $this->escena(['pagar_saldo' => false, 'registrar_ingreso' => false]);
+        $this->pdo()->exec(
+            "UPDATE reservas SET estado = 'no_show', no_show_en = UTC_TIMESTAMP() - INTERVAL 49 HOUR WHERE id = {$escena['reserva']}"
+        );
+
+        $this->generar();
+
+        $liquidacion = $this->liquidacionesDe($escena['propietario']['mail'])[0];
+        $this->assertSame('no_show', $liquidacion['motivo']);
+        $this->assertSame('pendiente', $liquidacion['estado']);   //lo retenido es todo lo que corresponde: no hay deuda
+        $this->assertSame('85000.00', $liquidacion['importe_cobrado']);   //solo la seña del 20 %
+        $this->assertSame('65875.00', $liquidacion['importe_propietario']);
+        $this->assertNull($liquidacion['faltante']);
+    }
+
+    //Mientras corren las 48 hs desde el no-show, lo retenido no se liquida: sigue en el contrato por si el
+    //propietario le da una excepción al huésped (#64 y #67)
+    public function testUnNoShowNoSeLiquidaAntesDeLas48Horas(): void
+    {
+        $escena = $this->escena(['pagar_saldo' => false, 'registrar_ingreso' => false]);
+        $this->pdo()->exec(
+            "UPDATE reservas SET estado = 'no_show', no_show_en = UTC_TIMESTAMP() - INTERVAL 1 HOUR WHERE id = {$escena['reserva']}"
+        );
+
+        $this->generar();
+
+        $this->assertSame([], $this->liquidacionesDe($escena['propietario']['mail']));
+    }
+
+    //Una extensión es una reserva propia y se liquida con el ingreso de la reserva que extiende (#71): ese ingreso
+    //ya está registrado cuando se pide la extensión. Queda su propia liquidación, marcada como "extension".
+    public function testUnaExtensionSeLiquidaConElIngresoDeLaReservaQueExtiende(): void
+    {
+        $escena = $this->escena(['cobra_iva' => false, 'comision' => 15, 'precio' => 85000]);
+        $this->crearExtensionEnBase($escena['unidad'], $escena['huesped']['id'], $escena['reserva'], $this->importe(170000));
+
+        $this->generar();
+
+        $porMotivo = array_column($this->liquidacionesDe($escena['propietario']['mail']), null, 'motivo');
+        $this->assertArrayHasKey('extension', $porMotivo, 'la extensión no se liquidó');
+        $this->assertArrayHasKey('estadia', $porMotivo, 'la reserva original tiene su propia liquidación');
+        $extension = $porMotivo['extension'];
+        //se reparten las dos noches extra, no el total de la estadía, y el propietario ve a qué reserva se le agregaron
+        $this->assertSame('170000.00', $extension['importe_cobrado']);
+        //170.000 − 12.750 (7,5 % de la plataforma) − 25.500 (15 % del administrador)
+        $this->assertSame('131750.00', $extension['importe_propietario']);
+        $this->assertSame($escena['reserva'], $extension['reserva']['extiende_reserva_id']);
+        $this->assertSame(2, $extension['reserva']['noches']);
+        $this->assertNull($extension['faltante']);
+    }
+
     //Generar dos veces no duplica: una estadía se liquida una sola vez
     public function testGenerarDosVecesNoDuplicaLaLiquidacion(): void
     {
@@ -541,6 +597,22 @@ final class LiquidacionesTest extends CasoDeIntegracion
              VALUES (?, ?, ?, ?, 2, 'confirmada', ?, 20, ?, 30, 50, 70, UTC_TIMESTAMP())"
         )->execute([$unidadId, $huespedId, $ingreso, $egreso, $total, $sena]);
         return (int) $this->pdo()->lastInsertId();
+    }
+
+    //Una extensión paga de la reserva $originalId: las dos noches que siguen a su egreso, en una reserva propia
+    //vinculada por extiende_reserva_id, que se paga entera en un solo pago (porcentaje_sena 100, sin saldo: #70).
+    //Devuelve su id.
+    private function crearExtensionEnBase(int $unidadId, int $huespedId, int $originalId, string $total): int
+    {
+        $this->pdo()->prepare(
+            "INSERT INTO reservas (unidad_id, huesped_id, extiende_reserva_id, fecha_ingreso, fecha_egreso,
+                                   cantidad_personas, estado, importe_total, porcentaje_sena, importe_sena, monto_faltante,
+                                   retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15, politica_aceptada_en)
+             VALUES (?, ?, ?, ?, ?, 2, 'confirmada', ?, 100, ?, 0, 30, 50, 70, UTC_TIMESTAMP())"
+        )->execute([$unidadId, $huespedId, $originalId, $this->fecha('-7 days'), $this->fecha('-5 days'), $total, $total]);
+        $extensionId = (int) $this->pdo()->lastInsertId();
+        $this->pagarEnBase($extensionId, 'sena', $total);//la "seña" de una extensión es el 100 %
+        return $extensionId;
     }
 
     //Un pago ya confirmado de la reserva, con la billetera y el hash con el formato que exigen los CHECK

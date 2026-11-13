@@ -156,6 +156,26 @@ final class LiquidacionTest extends TestCase
         $this->assertNull(Liquidacion::faltante('400000.00', '24000.00', true));
     }
 
+    //Un no-show tampoco: se trata como una cancelación del huésped y se retiene todo lo que había pagado (#67).
+    //Con solo la seña pagada, lo retenido es la seña, y eso es todo lo que corresponde liquidar: sin deuda.
+    public function testUnNoShowNoTieneFaltante(): void
+    {
+        $this->assertNull(Liquidacion::faltante('210000.00', '42000.00', true));
+    }
+
+    //Lo retenido de un no-show se reparte igual que una estadía: comisiones sobre lo cobrado, no sobre el total
+    //de la reserva. Con $42.000 de seña retenida, el 7,5 % de la plataforma y sin administrador ni IVA.
+    public function testElNoShowSeRepartePorLoRetenido(): void
+    {
+        $reparto = Liquidacion::calcular('42000.00', false, self::IVA, self::PLATAFORMA, null);
+
+        $this->assertSame('42000.00', $reparto['importe_cobrado']);
+        $this->assertSame('42000.00', $reparto['base_comisiones']);
+        $this->assertSame('3150.00', $reparto['comision_plataforma']);
+        $this->assertSame('0.00', $reparto['comision_administrador']);
+        $this->assertSame('38850.00', $reparto['importe_propietario']);
+    }
+
     //El reparto en wei sigue la proporción de los pesos, y entre todos da exactamente lo disponible (decisión #59)
     public function testRepartirWeiSumaExactamenteLoDisponible(): void
     {

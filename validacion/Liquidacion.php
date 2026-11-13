@@ -28,18 +28,34 @@ class Liquidacion
     //Las horas que tiene el propietario para darle una excepción al huésped que canceló (decisión #64)
     public const HORAS_EXCEPCION = 48;
 
-    //Una cancelada se puede liquidar cuando su devolución ya se confirmó (si no, no se sabe cuánto queda en el contrato)
-    //y ya no se espera la excepción del propietario (#64): la canceló él, ya decidió (dio la excepción o decidió no
-    //devolver nada: en los dos casos excepcion_en tiene la fecha), pasaron las 48 hs, o se canceló antes de que
+    //Una cancelada (o un no-show, que se trata igual: decisión #67) se puede liquidar cuando su devolución ya se
+    //confirmó (si no, no se sabe cuánto queda en el contrato) y ya no se espera la excepción del propietario (#64):
+    //ya decidió (dio la excepción o decidió no devolver nada: en los dos casos excepcion_en tiene la fecha),
+    //pasaron las 48 hs (desde la cancelación, o desde no_show_en), la canceló él, o se canceló antes de que
     //existiera la excepción (cancelada_en en NULL).
     private const CANCELADA_LISTA = "(NOT EXISTS (SELECT 1 FROM pagos d WHERE d.reserva_id = r.id AND d.tipo = 'devolucion' AND d.estado = 'pendiente')
-                                     AND (r.cancelada_por = 'propietario' OR r.cancelada_en IS NULL OR r.excepcion_en IS NOT NULL
-                                          OR r.cancelada_en <= UTC_TIMESTAMP() - INTERVAL " . self::HORAS_EXCEPCION . " HOUR))";
+                                     AND (r.excepcion_en IS NOT NULL
+                                          OR (r.estado = 'no_show'
+                                              AND r.no_show_en <= UTC_TIMESTAMP() - INTERVAL " . self::HORAS_EXCEPCION . " HOUR)
+                                          OR (r.estado = 'cancelada'
+                                              AND (r.cancelada_por = 'propietario' OR r.cancelada_en IS NULL
+                                                   OR r.cancelada_en <= UTC_TIMESTAMP() - INTERVAL " . self::HORAS_EXCEPCION . " HOUR))))";
+
+    //Los estados en los que lo cobrado quedó retenido y se liquida como una cancelación del huésped: la cancelada
+    //con retención (#57) y el no-show, que se trata igual, con todo pagado (#67).
+    private const RETENIDAS = "r.estado IN ('cancelada', 'no_show')";
+
+    //La estadía que habilita la liquidación: la de la reserva o, si es una extensión, la de la reserva que extiende
+    //(#70 y #71: una extensión se liquida apenas se confirma su pago, porque el ingreso de la original ya está
+    //registrado, y el egreso se registra siempre en la original).
+    private const CON_INGRESO = "(e.reserva_id IS NOT NULL
+                                  OR EXISTS (SELECT 1 FROM estadias x WHERE x.reserva_id = r.extiende_reserva_id))";
 
     //Qué reservas corresponde liquidar, de la más vieja a la más nueva:
     //  - las estadías en las que el huésped ya ingresó. Es cuando el contrato libera la plata que tenía retenida
-    //    (plan de la entrega del 80 %, paso 0, punto 3): no se espera al egreso, porque la plata ya es del propietario;
-    //  - las canceladas en las que se retuvo algo (decisión #57), cuando están listas (CANCELADA_LISTA).
+    //    (plan de la entrega del 80 %, paso 0, punto 3): no se espera al egreso, porque la plata ya es del propietario.
+    //    Las extensiones entran por el ingreso de la reserva que extienden (#71);
+    //  - las canceladas y los no-shows en los que se retuvo algo (#57 y #67), cuando están listos (CANCELADA_LISTA).
     public static function reservasSinLiquidar(): array
     {
         $consulta = Conexion::obtener()->query(
@@ -48,14 +64,14 @@ class Liquidacion
              LEFT JOIN estadias e ON e.reserva_id = r.id
              LEFT JOIN liquidaciones q ON q.reserva_id = r.id
              WHERE q.reserva_id IS NULL
-               AND ((r.estado IN ('confirmada', 'finalizada') AND e.reserva_id IS NOT NULL)
-                    OR (r.estado = 'cancelada' AND " . self::COBRADO . " > 0 AND " . self::CANCELADA_LISTA . "))
+               AND ((r.estado IN ('confirmada', 'finalizada') AND " . self::CON_INGRESO . ")
+                    OR (" . self::RETENIDAS . " AND " . self::COBRADO . " > 0 AND " . self::CANCELADA_LISTA . "))
              ORDER BY COALESCE(e.ingreso_en, r.fecha_ingreso), r.id"
         );
         return array_map('intval', $consulta->fetchAll(\PDO::FETCH_COLUMN));
     }
 
-    //Lo que se retuvo de una reserva cancelada y lo máximo que el propietario puede devolverle al huésped como
+    //Lo que se retuvo de una reserva cancelada o de un no-show, y lo máximo que el propietario puede devolverle como
     //excepción (#65): lo que le tocaría a él en la liquidación, así el administrador y la plataforma cobran siempre
     //su comisión. Devuelve ['retenido' => '25500.00', 'maximo' => '19762.50'], o null si la reserva no existe.
     public static function retenidoYMaximo(int $reservaId): ?array
@@ -72,17 +88,18 @@ class Liquidacion
     }
 
     //Calcula y guarda la liquidación de una reserva. Devuelve su id, o null si no correspondía
-    //(la reserva no existe, el huésped nunca ingresó, se canceló sin retener nada, la cancelada todavía no está lista
-    //o ya estaba liquidada). Una cancelada se reparte igual que una estadía (decisión #57), pero sobre lo que se retuvo,
-    //y si el propietario le dio una excepción al huésped, sale de su parte (#65).
+    //(la reserva no existe, el huésped nunca ingresó, se canceló sin retener nada, la cancelada o el no-show todavía
+    //no están listos, o ya estaba liquidada). Una cancelada y un no-show se reparten igual que una estadía (#57 y #67),
+    //pero sobre lo que se retuvo, y si el propietario le dio una excepción al huésped, sale de su parte (#65).
     //Es idempotente: el índice único de reserva_id garantiza que una estadía se liquide una sola vez,
     //aunque el script y el backoffice la pidan al mismo tiempo.
     public static function generar(int $reservaId): ?int
     {
         $pdo = Conexion::obtener();
         $datos = self::datos($reservaId);
-        $cancelada = $datos !== false && $datos['estado'] === 'cancelada';
-        if ($datos === false || ($cancelada && (self::aCentesimas((string) $datos['cobrado']) <= 0 || !$datos['lista']))) {
+        //lo retenido de una cancelada o de un no-show: se liquida lo cobrado, y recién cuando ya no se espera la excepción
+        $retenida = $datos !== false && in_array($datos['estado'], ['cancelada', 'no_show'], true);
+        if ($datos === false || ($retenida && (self::aCentesimas((string) $datos['cobrado']) <= 0 || !$datos['lista']))) {
             return null;
         }
 
@@ -98,8 +115,8 @@ class Liquidacion
         //Desde la decisión #25 de docs/pagos-decisiones.md (no se registra el ingreso sin el saldo pago) esto
         //casi no debería pasar: queda como red de seguridad para las estadías registradas antes de esa regla
         //y para cualquier caso en el que lo cobrado no llegue al total de la reserva.
-        //Una cancelada nunca está en deuda: lo que se retuvo es todo lo que le corresponde.
-        $estado = !$cancelada && self::aCentesimas((string) $datos['cobrado']) < self::aCentesimas((string) $datos['importe_total'])
+        //Una cancelada y un no-show nunca están en deuda: lo que se retuvo es todo lo que les corresponde.
+        $estado = !$retenida && self::aCentesimas((string) $datos['cobrado']) < self::aCentesimas((string) $datos['importe_total'])
             ? 'retenida_por_deuda'
             : 'pendiente';
 
@@ -142,7 +159,8 @@ class Liquidacion
     }
 
     //Lo que hace falta para liquidar una reserva, o false si no se puede liquidar (no existe, o no es una estadía con
-    //ingreso ni una cancelada). 'lista': si es una cancelada, si ya está lista para liquidarse (CANCELADA_LISTA).
+    //ingreso, ni una cancelada, ni un no-show). 'lista': si es una cancelada o un no-show, si ya está lista para
+    //liquidarse (CANCELADA_LISTA).
     //La condición fiscal y los porcentajes se leen AHORA y se guardan en la liquidación: si el propietario
     //cambia de categoría o renegocia la comisión, las liquidaciones ya hechas no se mueven.
     //Si la unidad dejó de tener administrador, no hay comisión que pagarle (el LEFT JOIN la deja en NULL).
@@ -157,7 +175,7 @@ class Liquidacion
              JOIN propietarios p ON p.usuario_id = u.propietario_id
              LEFT JOIN estadias e ON e.reserva_id = r.id
              LEFT JOIN administraciones a ON a.unidad_id = u.id
-             WHERE r.id = ? AND ((r.estado IN ('confirmada', 'finalizada') AND e.reserva_id IS NOT NULL) OR r.estado = 'cancelada')"
+             WHERE r.id = ? AND ((r.estado IN ('confirmada', 'finalizada') AND " . self::CON_INGRESO . ") OR " . self::RETENIDAS . ")"
         );
         $consulta->execute([$reservaId]);
         return $consulta->fetch();
@@ -217,11 +235,12 @@ class Liquidacion
     }
 
     //Cuánto falta cobrar de una reserva, como texto, o null si está todo cobrado.
-    //Es el motivo por el que una liquidación queda retenida (RN-16). Una cancelada no debe nada ($cancelada).
-    public static function faltante(string $importeTotal, string $importeCobrado, bool $cancelada = false): ?string
+    //Es el motivo por el que una liquidación queda retenida (RN-16). Una cancelada y un no-show no deben nada:
+    //lo que se retuvo es todo lo que les corresponde ($retenida).
+    public static function faltante(string $importeTotal, string $importeCobrado, bool $retenida = false): ?string
     {
         $falta = self::aCentesimas($importeTotal) - self::aCentesimas($importeCobrado);
-        return !$cancelada && $falta > 0 ? self::aPesos($falta) : null;
+        return !$retenida && $falta > 0 ? self::aPesos($falta) : null;
     }
 
     //Reparte en wei lo que le queda a la reserva en el contrato ($disponibleWei), en la misma proporción que los pesos
