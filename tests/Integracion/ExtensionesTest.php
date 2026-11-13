@@ -250,7 +250,9 @@ final class ExtensionesTest extends CasoDeIntegracion
              'noches' => 2, 'importe_total' => '140000.00', 'importe_sena' => '140000.00'],
             array_intersect_key($reserva, array_flip(['estado', 'extiende_reserva_id', 'ingreso', 'egreso', 'noches', 'importe_total', 'importe_sena']))
         );
-        $this->assertEqualsWithDelta(15, (strtotime($reserva['vence_en']) - time()) / 60, 1);
+        //el mismo plazo que una seña (minutos_bloqueo_reserva: 10 desde la decisión #74)
+        $plazo = (int) $this->pdo()->query("SELECT valor FROM parametros WHERE clave = 'minutos_bloqueo_reserva'")->fetchColumn();
+        $this->assertEqualsWithDelta($plazo, (strtotime($reserva['vence_en']) - time()) / 60, 1);
 
         $fila = $this->filaReserva($reserva['id']);
         $this->assertSame(['100.00', '140000.00', '0.00', null, $this->huesped['id'], 2],
