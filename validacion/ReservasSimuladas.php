@@ -41,6 +41,9 @@ class ReservasSimuladas
 
     //Borra esas reservas con todo lo que cuelga de ellas, en una sola transacción: o se borran todas, o ninguna.
     //Devuelve cuántas reservas borró.
+    //Las extensiones (reservas.extiende_reserva_id, decisión #70) se borran antes que las demás: apuntan a la
+    //reserva que extienden con una clave foránea sin ON DELETE, así que si se borrara la original primero, MySQL
+    //rechazaría el borrado y no se borraría nada. Una extensión no se puede extender, así que un paso alcanza.
     public static function borrar(array $ids): int
     {
         $ids = array_values(array_map('intval', $ids));
@@ -54,9 +57,16 @@ class ReservasSimuladas
             foreach (self::TABLAS_HIJAS as $tabla) {//el nombre sale de la constante, nunca de afuera
                 $pdo->prepare("DELETE FROM {$tabla} WHERE reserva_id IN ($marcas)")->execute($ids);
             }
+            //si una extensión que NO es simulada apunta a una que sí, se la desvincula: la original se va igual
+            //y la extensión queda como una reserva suelta, que es mejor que no poder borrar nada
+            $pdo->prepare("UPDATE reservas SET extiende_reserva_id = NULL
+                           WHERE extiende_reserva_id IN ($marcas) AND id NOT IN ($marcas)")
+                ->execute([...$ids, ...$ids]);
+            $extensiones = $pdo->prepare("DELETE FROM reservas WHERE id IN ($marcas) AND extiende_reserva_id IS NOT NULL");
+            $extensiones->execute($ids);
             $consulta = $pdo->prepare("DELETE FROM reservas WHERE id IN ($marcas)");
             $consulta->execute($ids);
-            $borradas = $consulta->rowCount();
+            $borradas = $extensiones->rowCount() + $consulta->rowCount();
             $pdo->commit();
             return $borradas;
         } catch (\Throwable $e) {

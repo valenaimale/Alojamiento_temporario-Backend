@@ -43,5 +43,12 @@ if (!$borrar) {
     exit(0);
 }
 
-$borradas = ReservasSimuladas::borrar(array_column($reservas, 'id'));
+//si el borrado falla, el motivo se imprime acá: es un script de una sola corrida y hay que poder leer qué pasó
+//sin ir a buscar el log (la transacción ya volvió atrás, así que no quedó nada a medias)
+try {
+    $borradas = ReservasSimuladas::borrar(array_column($reservas, 'id'));
+} catch (\Throwable $e) {
+    echo 'Falló el borrado, no se borró ninguna: ' . $e->getMessage() . "\n";
+    exit(1);
+}
 echo "Se borraron $borradas reserva(s) con todos sus datos.\n";
