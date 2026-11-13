@@ -30,7 +30,11 @@ El IVA y la comisión de la plataforma salen de `parametros` (`iva` = 21, `comis
 
 Cuando el **huésped ingresa**, no cuando se va: es el momento en que el contrato libera la plata que tenía retenida (plan de la entrega del 80 %, paso 0, punto 3). En la práctica: toda reserva `confirmada` o `finalizada` que tenga su fila en `estadias`.
 
+Una **extensión** (decisión **#70**) es una reserva propia y tiene su propia liquidación. No tiene estadía propia, porque el ingreso y el egreso se registran en la reserva original: se liquida **apenas se confirma su pago**, porque el ingreso de la original ya está registrado (**#71**). Viene con `"motivo": "extension"` y `reserva.extiende_reserva_id` dice a qué reserva se le agregaron esas noches.
+
 También se liquidan las **reservas canceladas en las que la política retuvo parte de lo pagado** (decisión **#57**), una vez que la devolución se confirmó en la red y pasaron las **48 hs de la excepción** del propietario, o antes si ya la dio (#64). Si dio una excepción, sale de su parte: `excepcion` es lo que se le devuelve al huésped en la misma transacción, y `importe_propietario` ya la tiene descontada (#65). Se reparten igual que una estadía, sobre lo retenido (seña y saldo confirmados menos la devolución). Vienen con `"motivo": "cancelacion"`, `importe_cobrado` es lo retenido y nunca quedan `retenida_por_deuda`. Si se devolvió todo, no hay liquidación.
+
+Un **no-show** (decisión **#67**) se liquida igual que una cancelación del huésped con todo pagado: se retiene todo lo cobrado y las 48 hs de la excepción corren desde `no_show_en`. Si el propietario ya decidió (dio la excepción o decidió no devolver nada, **#73**), no se espera. Viene con `"motivo": "no_show"`, para que el propietario entienda por qué cobró sin que nadie se alojara.
 
 El importe cobrado es la suma de los pagos **confirmados** de tipo `sena` y `saldo` de esa reserva. Si es menor que el total de la reserva, la liquidación se calcula igual pero queda en **`retenida_por_deuda`** y la respuesta trae `faltante` con lo que falta cobrar: es **RN-16**, *"no se liquida lo que todavía no se cobró"*.
 
@@ -80,7 +84,7 @@ Solo el propietario, y solo las de sus unidades. De la más nueva a la más viej
 }]}
 ```
 
-`administrador` es `null` si la unidad es de autogestión, y entonces `comision_administrador` es `"0.00"`. `faltante` solo trae un importe cuando el estado es `retenida_por_deuda`. `motivo` es `estadia` o `cancelacion` (#57). `transaccion` es `null` hasta que se paga; después, `{"tx_hash": "0x…", "red": 84532, "simulado": false}`: con `simulado: false` se puede ver en `https://sepolia.basescan.org/tx/<tx_hash>`. `billetera` es la del propietario logueado (`null` si todavía no la cargó) y `administrador.billetera`, la del administrador.
+`administrador` es `null` si la unidad es de autogestión, y entonces `comision_administrador` es `"0.00"`. `faltante` solo trae un importe cuando el estado es `retenida_por_deuda`. `motivo` es `estadia`, `cancelacion` (#57), `no_show` (#67) o `extension` (#70). `reserva.extiende_reserva_id` es `null`, salvo en una extensión. `transaccion` es `null` hasta que se paga; después, `{"tx_hash": "0x…", "red": 84532, "simulado": false}`: con `simulado: false` se puede ver en `https://sepolia.basescan.org/tx/<tx_hash>`. `billetera` es la del propietario logueado (`null` si todavía no la cargó) y `administrador.billetera`, la del administrador.
 
 | Código | Cuándo |
 |---|---|
