@@ -7,6 +7,7 @@ use App\Database\Conexion;
 use App\Mail\AvisoPagoMail;
 use App\Request\Request;
 use App\Validacion\CobroDelSaldo;
+use App\Validacion\Extension;
 use App\Validacion\ResultadoVerificacion;
 use App\Validacion\TipoDeCambio;
 use App\Validacion\ValidadorFechas;
@@ -23,6 +24,8 @@ use App\Validacion\Verificadores;
 //  - el saldo (reservas.monto_faltante) se paga con la reserva confirmada, hasta su fecha_cobro. Al pagarlo,
 //    monto_faltante queda en 0.
 //Los montos se cobran en wei: los pesos pasados con el tipo de cambio fijo pesos_por_eth (TipoDeCambio).
+//Una extensión de la estadía (decisión #70) se paga igual que una seña, entera (porcentaje_sena 100) y sin saldo, mientras
+//la estadía sigue en curso (Extension::problemaParaPagar). Al confirmarse queda confirmada, como cualquier seña.
 class PagosController
 {
     private const SENA = 'sena';
@@ -68,6 +71,7 @@ class PagosController
             //Traba la reserva hasta el commit: si llegan dos confirmaciones juntas, la segunda espera y ve la reserva
             //ya pagada (así nunca hay dos pagos confirmados de lo mismo). Mientras tanto se consulta la red:
             //con el verificador real conviene que tarde poco, con un timeout.
+            //Si es una extensión, primero se traba su reserva original, en el mismo orden que el egreso (Extension::trabarOriginal)
             $reserva = $this->reservaDelHuesped($datos['reserva_id'] ?? null, true);
             if ($reserva === false) {
                 $pdo->rollBack();
@@ -153,8 +157,12 @@ class PagosController
 
         $huesped = $_SESSION['usuario'];
         $unidad = $reserva['unidad_nombre'];
+        $esExtension = $reserva['extiende_reserva_id'] !== null;
         if ($confirmado) {
-            if ($tipo === self::SENA) {
+            if ($esExtension) {
+                Extension::avisarConfirmada((int) $reserva['id']);//al huésped y al propietario
+                $ok = "Pagaste la extensión: tu estadía en $unidad sigue hasta el " . ValidadorFechas::fecha($reserva['fecha_egreso'])->format('d/m/Y');
+            } elseif ($tipo === self::SENA) {
                 //decisión #23: desde la seña se le avisa hasta cuándo puede pagar el saldo y qué pasa si no lo paga
                 $limite = $this->limiteDelSaldo($reserva);
                 $saldo = $limite !== null && bccomp($reserva['monto_faltante'], '0', 2) > 0
@@ -236,15 +244,18 @@ class PagosController
 
     //La reserva del huésped logueado, con el nombre de la unidad, o false si no existe o es de otro
     //(la de otro huésped "no existe": así nadie averigua reservas ajenas probando números).
-    //$bloquear: FOR UPDATE, dentro de una transacción.
+    //$bloquear: FOR UPDATE, dentro de una transacción (si es una extensión, traba antes su reserva original).
     private function reservaDelHuesped(mixed $id, bool $bloquear = false): array|false
     {
         $reservaId = is_bool($id) ? false : filter_var($id ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         if ($reservaId === false) {
             return false;
         }
+        if ($bloquear) {
+            Extension::trabarOriginal((int) $_SESSION['usuario']['id'], $reservaId);
+        }
         $consulta = Conexion::obtener()->prepare(
-            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.importe_sena, r.monto_faltante, r.fecha_cobro, r.retencion_menos_de_15,
+            'SELECT r.id, r.estado, r.bloqueo_expira_en, r.extiende_reserva_id, r.importe_sena, r.monto_faltante, r.fecha_cobro, r.retencion_menos_de_15,
                     r.fecha_ingreso, r.fecha_egreso, u.nombre AS unidad_nombre
              FROM reservas r JOIN unidades u ON u.id = r.unidad_id
              WHERE r.id = ? AND r.huesped_id = ?' . ($bloquear ? ' FOR UPDATE' : '')
@@ -262,6 +273,10 @@ class PagosController
     //Por qué no se puede pagar la seña o el saldo de esa reserva, como [mensaje, código HTTP], o null si se puede
     private function problemaParaPagar(string $tipo, array $reserva): ?array
     {
+        $problemaDeExtension = Extension::problemaParaPagar($reserva, $tipo);
+        if ($problemaDeExtension !== null) {
+            return $problemaDeExtension;
+        }
         $estado = VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']);
         if ($estado === 'expirada') {
             return ['Se venció el plazo para pagar la seña y las fechas se liberaron. Si siguen libres, podés volver a reservar', 409];
