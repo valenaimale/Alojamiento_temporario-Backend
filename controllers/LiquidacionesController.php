@@ -183,16 +183,30 @@ class LiquidacionesController
         return PagoDeLiquidacion::faltanBilleteras($fila);
     }
 
-    //Por qué se liquida: 'estadia' (el huésped ingresó) o 'cancelacion' (lo que retuvo la política, decisión #57)
+    //Por qué se liquida:
+    //  - 'cancelacion': lo que retuvo la política de una cancelada (#57);
+    //  - 'no_show': lo retenido porque el huésped no se presentó (#67). Se reparte igual que una cancelación,
+    //    pero se le muestra aparte: el propietario entiende por qué cobró sin que nadie se alojara;
+    //  - 'extension': las noches extra de una estadía en curso, que son una reserva propia (#70);
+    //  - 'estadia': lo normal, el huésped ingresó.
     private function motivo(array $fila): string
     {
-        return $fila['reserva_estado'] === 'cancelada' ? 'cancelacion' : 'estadia';
+        return match (true) {
+            $fila['reserva_estado'] === 'cancelada'     => 'cancelacion',
+            $fila['reserva_estado'] === 'no_show'       => 'no_show',
+            $fila['extiende_reserva_id'] !== null       => 'extension',
+            default                                     => 'estadia',
+        };
     }
 
-    //Cuánto falta cobrar (RN-16), o null. Una cancelada no debe nada: se liquida lo que se retuvo.
+    //Cuánto falta cobrar (RN-16), o null. Una cancelada y un no-show no deben nada: se liquida lo que se retuvo.
     private function faltante(array $fila): ?string
     {
-        return Liquidacion::faltante($fila['importe_total'], $fila['importe_cobrado'], $fila['reserva_estado'] === 'cancelada');
+        return Liquidacion::faltante(
+            $fila['importe_total'],
+            $fila['importe_cobrado'],
+            in_array($fila['reserva_estado'], ['cancelada', 'no_show'], true)
+        );
     }
 
     //La transacción de liquidar() que la pagó, para verla en BaseScan, o null si todavía no salió.
@@ -219,6 +233,7 @@ class LiquidacionesController
                     q.porcentaje_comision_plataforma, q.comision_plataforma,
                     q.porcentaje_comision_administrador, q.comision_administrador, q.excepcion, q.importe_propietario,
                     r.estado AS reserva_estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total,
+                    r.extiende_reserva_id,
                     t.tx_hash, t.red AS tx_red,
                     u.id AS unidad_id, u.nombre AS unidad, l.nombre AS localidad, l.provincia,
                     h.nombre AS huesped,
@@ -315,11 +330,15 @@ class LiquidacionesController
         ];
     }
 
-    //Los datos de la reserva que liquida (los mismos en los listados y en el comprobante)
+    //Los datos de la reserva que liquida (los mismos en los listados y en el comprobante).
+    //Si la liquidación es de una extensión (#70), 'extiende_reserva_id' dice a qué reserva se le agregaron esas
+    //noches: el comprobante muestra las noches de la extensión, que son las de su propia reserva, y el propietario
+    //ve que ese cobro es el de las noches extra y no una estadía nueva.
     private function reservaDe(array $fila): array
     {
         return [
             'id'            => (int) $fila['reserva_id'],
+            'extiende_reserva_id' => $fila['extiende_reserva_id'] === null ? null : (int) $fila['extiende_reserva_id'],
             'ingreso'       => $fila['fecha_ingreso'],
             'egreso'        => $fila['fecha_egreso'],
             'noches'        => ValidadorFechas::noches(ValidadorFechas::fecha($fila['fecha_ingreso']), ValidadorFechas::fecha($fila['fecha_egreso'])),

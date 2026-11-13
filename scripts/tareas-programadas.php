@@ -20,6 +20,7 @@ if (php_sapi_name() !== 'cli') {
 const TAREAS = [
     'frecuentes' => [
         ['marcar-expiradas.php', []],                  //anota 'expirada' en las pendientes que no pagaron la seña a tiempo
+        ['marcar-no-shows.php', ['--marcar']],         //anota 'no_show' en las confirmadas sin ingreso con el plazo vencido (#67)
         ['reintentar-devoluciones.php', []],           //confirma o vuelve a mandar las devoluciones pendientes
         ['generar-liquidaciones.php', ['--guardar']],  //calcula las liquidaciones: estadías con ingreso y canceladas con retención
         ['pagar-liquidaciones.php', []],               //las paga con liquidar() del contrato (después de las devoluciones)
