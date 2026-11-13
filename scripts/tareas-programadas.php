@@ -19,6 +19,7 @@ if (php_sapi_name() !== 'cli') {
 //Qué corre cada grupo, en orden: [script, argumentos]
 const TAREAS = [
     'frecuentes' => [
+        ['marcar-expiradas.php', []],                  //anota 'expirada' en las pendientes que no pagaron la seña a tiempo
         ['reintentar-devoluciones.php', []],           //confirma o vuelve a mandar las devoluciones pendientes
         ['generar-liquidaciones.php', ['--guardar']],  //calcula las liquidaciones: estadías con ingreso y canceladas con retención
         ['pagar-liquidaciones.php', []],               //las paga con liquidar() del contrato (después de las devoluciones)
