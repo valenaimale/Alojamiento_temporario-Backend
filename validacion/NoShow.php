@@ -3,6 +3,7 @@
 namespace App\Validacion;
 
 use App\Database\Conexion;
+use App\Log\Log;
 use App\Mail\NoShowMail;
 
 //El no-show: la reserva confirmada a la que nadie le registró el ingreso dentro del plazo (decisión #67 de
@@ -34,8 +35,14 @@ class NoShow
                 continue;//otro proceso la marcó, o alguien registró el ingreso entre la consulta y el UPDATE
             }
             $marcadas[] = $reserva;
-            if ($avisar) {
+            if (!$avisar) {
+                continue;
+            }
+            //la reserva ya quedó marcada: si el aviso falla, se anota y se sigue con las demás (como en los mails)
+            try {
                 self::avisar($reserva);
+            } catch (\Throwable $e) {
+                Log::error('No se pudo avisar un no-show', $e, ['reserva_id' => (int) $reserva['id']]);
             }
         }
         return $marcadas;

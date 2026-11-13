@@ -123,7 +123,8 @@ final class LiquidacionesTest extends CasoDeIntegracion
         $extension = $porMotivo['extension'];
         //se reparten las dos noches extra, no el total de la estadía, y el propietario ve a qué reserva se le agregaron
         $this->assertSame('170000.00', $extension['importe_cobrado']);
-        $this->assertSame('144500.00', $extension['importe_propietario']);//170.000 − 7,5 % − 15 %
+        //170.000 − 12.750 (7,5 % de la plataforma) − 25.500 (15 % del administrador)
+        $this->assertSame('131750.00', $extension['importe_propietario']);
         $this->assertSame($escena['reserva'], $extension['reserva']['extiende_reserva_id']);
         $this->assertSame(2, $extension['reserva']['noches']);
         $this->assertNull($extension['faltante']);
