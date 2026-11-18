@@ -66,6 +66,10 @@ Cuando el cambio entra a `main` (un PR mergeado), el mismo workflow sigue con el
 
 El resultado se ve en la pestaña **Actions** del repo, y al lado de cada commit y de cada PR (✅ o ❌).
 
+## Tests de punta a punta (E2E)
+
+Los E2E con Playwright están en el repo del front (`e2e/`). Usan este back: `scripts/preparar-e2e.php` arma la base `alojamiento_e2e` desde cero con las migraciones y `db/seeds/DatosDeEjemplo.php`, y Playwright levanta el back en el puerto 8090 con el pago simulado. El CI del front baja este repo desde `main`, así que un cambio del back que necesita un E2E nuevo se mergea primero acá. Si cambia el seeder, hay que actualizar `e2e/soporte/datos.js` del front.
+
 ## Prueba de carga (k6)
 
 Aparte de PHPUnit, `tests/carga/carga.js` es una **prueba de carga con k6**: mide cuánto tarda el backend con 1 y con 10 usuarios a la vez (RNF-13). No corre en el CI: se ejecuta a mano, con Docker. Ver `tests/carga/README.md`.

@@ -23,7 +23,8 @@ use Phinx\Seed\AbstractSeed;
 //con precio cargado y el importe de cada reserva salga de esos precios, como cuando reserva un huésped.
 //
 //Se carga con:  vendor/bin/phinx seed:run -s DatosDeEjemplo
-//SOLO PARA DESARROLLO: no corre en el CI ni en producción (las contraseñas son conocidas y los pagos son inventados).
+//SOLO PARA DESARROLLO Y PRUEBAS: nunca en producción (las contraseñas son conocidas y los pagos son inventados).
+//Además de la base de cada integrante, se carga en la base aislada de los E2E del front (scripts/preparar-e2e.php).
 final class DatosDeEjemplo extends AbstractSeed
 {
     private const CONTRASENIA = 'clave-segura-1';
