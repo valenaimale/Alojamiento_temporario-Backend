@@ -7,6 +7,7 @@ use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
 use App\Validacion\ReglasPublicacion;
+use App\Validacion\Ubicacion;
 
 //Alta y datos de una unidad (US2.1) y su depósito de garantía (US2.6).
 //Las fotos de la unidad están en FotosUnidadController.
@@ -40,9 +41,9 @@ class UnidadesController
         $valores = $this->valoresPorDefecto();
 
         $consulta = Conexion::obtener()->prepare(
-            'INSERT INTO unidades (propietario_id, localidad_id, nombre, direccion, capacidad, caracteristicas, hora_check_in, deposito_garantia,
+            'INSERT INTO unidades (propietario_id, localidad_id, nombre, direccion, capacidad, caracteristicas, hora_check_in, latitud, longitud, barrio, metros_playa, metros_centro, deposito_garantia,
                                    porcentaje_sena, retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $consulta->execute([
             $_SESSION['usuario']['id'],//el dueño sale siempre de la sesión, nunca de lo que manda el front
@@ -52,6 +53,7 @@ class UnidadesController
             $unidad['capacidad'],
             $unidad['caracteristicas'],
             $unidad['hora_check_in'],
+            ...array_values($unidad['ubicacion']),
             $deposito,
             $valores['porcentaje_sena'],
             $valores['retencion_mas_de_30'],
@@ -124,6 +126,7 @@ class UnidadesController
             'deposito_garantia'  => $unidad['deposito_garantia'],
             'estado_publicacion' => $unidad['estado_publicacion'],
             'es_propietario'     => $unidad['es_propietario'],
+            ...Ubicacion::publica($unidad),
             'fotos'              => FotosUnidadController::fotosDe((int) $unidad['id']),
         ]]);
     }
@@ -136,13 +139,15 @@ class UnidadesController
         $unidad = PermisosUnidad::delPropietario($datos['unidad_id'] ?? '');//el administrador recibe 404
 
         if (!array_key_exists('hora_check_in', $datos)) $datos['hora_check_in'] = substr($unidad['hora_check_in'], 0, 5);
+        $incluyeUbicacion = (bool) Ubicacion::publica($datos);
         $nuevos = $this->validarDatos($datos);
         if (isset($nuevos['error'])) {
             return $this->error($nuevos['error']);
         }
 
+        $camposMapa = $incluyeUbicacion ? ', latitud = ?, longitud = ?, barrio = ?, metros_playa = ?, metros_centro = ?' : '';
         $consulta = Conexion::obtener()->prepare(
-            'UPDATE unidades SET nombre = ?, localidad_id = ?, direccion = ?, capacidad = ?, caracteristicas = ?, hora_check_in = ? WHERE id = ?'
+            'UPDATE unidades SET nombre = ?, localidad_id = ?, direccion = ?, capacidad = ?, caracteristicas = ?, hora_check_in = ?' . $camposMapa . ' WHERE id = ?'
         );
         $consulta->execute([
             $nuevos['nombre'],
@@ -151,6 +156,7 @@ class UnidadesController
             $nuevos['capacidad'],
             $nuevos['caracteristicas'],
             $nuevos['hora_check_in'],
+            ...($incluyeUbicacion ? array_values($nuevos['ubicacion']) : []),
             $unidad['id'],
         ]);
 
@@ -210,7 +216,13 @@ class UnidadesController
             return ['error' => 'El horario de check-in debe tener el formato HH:MM, entre 00:00 y 23:59'];
         }
 
+        $ubicacion = Ubicacion::validar($datos);
+        if (isset($ubicacion['error'])) {
+            return $ubicacion;
+        }
+
         return [
+            'ubicacion' => $ubicacion,
             'hora_check_in'   => $horaCheckIn,
             'nombre'          => $nombre,
             'localidad_id'    => $localidadId,
