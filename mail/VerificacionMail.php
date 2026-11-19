@@ -6,8 +6,9 @@ use App\Config\Config;
 use App\Database\Conexion;
 use App\Log\Log;
 
-//Envía el mail con el enlace para verificar la casilla.
-//Lo llaman el registro (RegistroController) y POST /reenviar-verificacion.
+//Envía los mails con el enlace para verificar la casilla:
+//  - enviarParaCrearCuenta(): el del registro. La cuenta se crea recién cuando se abre el enlace (RegistroPendiente).
+//  - enviar(): el de las cuentas viejas que se crearon sin verificar (antes del 19/11). Lo usa POST /reenviar-verificacion.
 //Regla: nunca lanza excepciones (si el mail falla, el registro no tiene que fallar).
 //En la base se guarda el HASH del token, nunca el token: lo único que puede abrir
 //el enlace es quien recibió el mail.
@@ -50,6 +51,39 @@ class VerificacionMail
             //el mail no se pudo mandar (Mailpit apagado, SMTP mal configurado, etc.):
             //queda en la terminal de php -S y el usuario puede pedir otro desde el aviso de su home
             Log::error('No se pudo enviar el mail de verificación', $e, ['usuario_id' => $usuarioId]);
+        }
+    }
+
+    //Manda el enlace que crea la cuenta de un registro pendiente (App\Validacion\RegistroPendiente).
+    //Nunca lanza excepciones: si el mail falla, queda en el log y el usuario pide otro desde post-registro.html.
+    public static function enviarParaCrearCuenta(string $mail, string $nombre, string $token): void
+    {
+        try {
+            $enlace = Config::obtener('app.url_front') . '/vistas/sesion/verificar-mail.html?token=' . $token;
+            $nombreEscapado = htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8');
+            $horas = \App\Validacion\RegistroPendiente::HORAS_DE_VIGENCIA;
+
+            $html = <<<HTML
+                <p>¡Hola, {$nombreEscapado}!</p>
+                <p>Para terminar de crear tu cuenta en Alojamiento temporario, confirmá que este mail es tuyo:</p>
+                <p><a href="{$enlace}" style="display:inline-block;padding:12px 20px;border-radius:6px;background-color:#1f6f54;color:#ffffff;font-weight:bold;text-decoration:none">Crear mi cuenta</a></p>
+                <p>Si el botón no funciona, copiá y pegá esta dirección en tu navegador:<br><a href="{$enlace}">{$enlace}</a></p>
+                <p>El enlace vence en {$horas} horas. Hasta que lo abras, la cuenta no existe. Si no te registraste, ignorá este mail.</p>
+                HTML;
+
+            $textoPlano = <<<TEXTO
+                ¡Hola, {$nombre}!
+
+                Para terminar de crear tu cuenta en Alojamiento temporario, confirmá que este mail es tuyo abriendo esta dirección:
+
+                {$enlace}
+
+                El enlace vence en {$horas} horas. Hasta que lo abras, la cuenta no existe. Si no te registraste, ignorá este mail.
+                TEXTO;
+
+            EnviadorMail::enviar($mail, $nombre, 'Confirmá tu mail para crear tu cuenta en Alojamiento temporario', $html, $textoPlano);
+        } catch (\Throwable $e) {
+            Log::error('No se pudo enviar el mail para crear la cuenta', $e);
         }
     }
 

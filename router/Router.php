@@ -68,6 +68,7 @@ class Router {
     public function cargar_rutas(){
         // ---------- Base (Fase 0) ----------
         $this->register('POST@/registrarse', 'RegistroController@registrar');
+        $this->register('POST@/reenviar-registro', 'RegistroController@reenviar');//sin sesión: la cuenta todavía no existe
         $this->register('POST@/iniciar-sesion', 'InicioSesionController@iniciaSesion');
         $this->register('POST@/cerrar-sesion', 'InicioSesionController@cierraSesion');
         $this->register('GET@/sesion', 'InicioSesionController@dameSesion');

@@ -30,14 +30,33 @@ abstract class CasoDeIntegracion extends TestCase
         return EntornoDePrueba::pdo();
     }
 
-    //Registra un usuario por la API. Devuelve [el cliente con la sesión ya iniciada, los datos enviados, el usuario que devolvió el back].
+    //Registra un usuario por la API y crea su cuenta abriendo el enlace, como lo haría la persona desde su mail.
+    //Devuelve [el cliente con la sesión ya iniciada, los datos enviados, el usuario que devolvió el back].
     protected function registrar(string $rol = 'huesped', array $cambios = []): array
     {
         $cliente = $this->cliente();
         $datos = Datos::registro($rol, $cambios);
         $respuesta = $cliente->post('/registrarse', $datos);
-        $this->assertSame(201, $respuesta->codigo, "No se pudo registrar: {$respuesta->cuerpo}");
-        return [$cliente, $datos, $respuesta->json()['usuario']];
+        $this->assertSame(202, $respuesta->codigo, "No se pudo registrar: {$respuesta->cuerpo}");
+
+        $confirmacion = $cliente->post('/verificar-mail', ['token' => $this->tokenDelRegistro($respuesta->json()['mail'])]);
+        $this->assertSame(201, $confirmacion->codigo, "No se pudo crear la cuenta: {$confirmacion->cuerpo}");
+        return [$cliente, $datos, $confirmacion->json()['usuario']];
+    }
+
+    //El token del enlace que se mandó por mail no se puede leer de la base (se guarda su hash): se reemplaza por uno
+    //conocido, que es lo mismo que tener el mail en la mano. Devuelve ese token.
+    protected function tokenDelRegistro(string $mail, string $vence = '+24 HOUR'): string
+    {
+        $token = bin2hex(random_bytes(32));
+        [$signo, $cantidad, $unidad] = sscanf($vence, '%1s%d %s');
+        $funcion = $signo === '-' ? 'DATE_SUB' : 'DATE_ADD';
+        $consulta = $this->pdo()->prepare(
+            "UPDATE registros_pendientes SET token_hash = ?, expira_en = $funcion(NOW(), INTERVAL $cantidad $unidad) WHERE mail = ?"
+        );
+        $consulta->execute([hash('sha256', $token), $mail]);
+        $this->assertSame(1, $consulta->rowCount(), "No hay un registro pendiente para $mail");
+        return $token;
     }
 
     //Crea un usuario directo en la base, para los casos que no se pueden armar desde la web

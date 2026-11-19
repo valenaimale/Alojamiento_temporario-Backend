@@ -56,7 +56,7 @@ Si el `rol` es `huesped` u `operador`, los datos fiscales y bancarios se ignoran
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `201` | `{"ok": "Cuenta creada exitosamente", "usuario": {"id": 8, "nombre": "Ana Pérez", "mail": "ana@mail.com", "dni": "30123456", "rol": "propietario", "mail_verificado": false}}` | El usuario se registró. Queda con la sesión iniciada. Si es propietario o administrador, también se creó su fila en `propietarios` o en `administradores`. |
+| `202` | `{"ok": "Te enviamos un mail a ana@mail.com. Abrí el enlace para crear tu cuenta.", "mail": "ana@mail.com"}` | Los datos son válidos. **La cuenta todavía no existe ni hay sesión**: los datos (con la contraseña ya hasheada y, si es propietario o administrador, los fiscales y bancarios) quedan en `registros_pendientes` y se manda el enlace por mail. Al abrirlo, `POST /verificar-mail` crea la fila en `usuarios` (y en `propietarios` o `administradores`) y deja la sesión iniciada. Registrarse otra vez con el mismo mail reemplaza el pendiente. Ver [`verificacion-y-backoffice.md`](verificacion-y-backoffice.md). |
 | `422` | `{"error": "Todos los campos son obligatorios"}` | Falta `nombre`, `dni`, `mail`, `mail_confirmacion`, `contrasenia`, `contrasenia_confirmacion` o `rol`. |
 | `422` | `{"error": "El rol no existe"}` | El rol no es uno de los permitidos. |
 | `422` | `{"error": "El nombre debe tener entre 2 y 70 caracteres"}` | Nombre demasiado corto o largo. |
