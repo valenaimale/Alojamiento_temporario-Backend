@@ -5,7 +5,7 @@
 #   lint → tests (unitarios + integración contra MySQL y Mailpit reales) → build de la imagen de producción
 #
 # Despliegue continuo (CD): solo en un push a main (o sea, al mergear un PR) y solo si todo lo anterior pasó:
-#   deploy a Railway → verificación de producción (/estado responde con el commit nuevo)
+#   deploy a Railway → verificación de producción (/estado responde con el commit nuevo) → smoke con el navegador
 # Si algo falla antes, el deploy ni se ejecuta y producción sigue con la versión anterior.
 # El despliegue automático de Railway está apagado: la única forma de llegar a producción es este pipeline.
 #
@@ -155,3 +155,42 @@ jobs:
           done
           echo "Producción no respondió con la versión $esperada en 6 minutos"
           exit 1
+
+  # Smoke de producción: con el back nuevo ya respondiendo, un navegador recorre la app desplegada (front en Vercel +
+  # este back + Aiven) con los tests de solo lectura del repo del front (e2e/smoke/). Detecta lo que /estado no ve:
+  # CORS, la redirección /api de Vercel, búsquedas o inicio de sesión rotos. No modifica nada en producción.
+  smoke:
+    name: Smoke de producción (Playwright)
+    needs: [verificar]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Descargar el front (los tests del smoke viven ahí)
+        uses: actions/checkout@v4
+        with:
+          repository: valenaimale/Alojamiento_temporario-Frontend
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Instalar Playwright y Chromium
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Correr el smoke contra producción
+        working-directory: e2e
+        run: npx playwright test -c playwright.smoke.config.js
+
+      - name: Subir el reporte
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-smoke
+          path: e2e/playwright-report/
+          retention-days: 14
