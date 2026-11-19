@@ -6,27 +6,163 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Soporte\Datos;
 
 //POST /registrarse (RF-23) y el RNF de validación de datos en el backend.
+//Desde el 19/11 el mail se verifica ANTES de crear la cuenta: registrarse deja un registro pendiente y la cuenta se crea
+//al abrir el enlace del mail (POST /verificar-mail). El atajo registrar() de CasoDeIntegracion hace los dos pasos.
 final class RegistroTest extends CasoDeIntegracion
 {
-    //Un huésped se registra y queda con la sesión iniciada, sin que la respuesta traiga la contraseña
-    public function testUnHuespedSeRegistraYQuedaConLaSesionIniciada(): void
+    //Registrarse NO crea la cuenta ni inicia sesión: deja un registro pendiente, con la contraseña hasheada
+    public function testRegistrarseNoCreaLaCuentaHastaAbrirElEnlace(): void
     {
+        // Arrange
         $cliente = $this->cliente();
         $datos = Datos::registro('huesped');
 
+        // Act
         $respuesta = $cliente->post('/registrarse', $datos);
 
+        // Assert
+        $this->assertSame(202, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame("Te enviamos un mail a {$datos['mail']}. Abrí el enlace para crear tu cuenta.", $respuesta->json()['ok']);
+        $this->assertSame(401, $cliente->get('/sesion')->codigo, 'No inicia sesión: la cuenta todavía no existe');
+        $this->assertSame(0, $this->contar('usuarios', $datos['mail']));
+        $pendiente = $this->pendiente($datos['mail']);
+        $this->assertTrue(password_verify($datos['contrasenia'], $pendiente['contrasenia']));
+        $this->assertNull($pendiente['datos_fiscales']);
+    }
+
+    //Abrir el enlace crea la cuenta con el mail ya verificado, deja la sesión iniciada y borra el registro pendiente
+    public function testAbrirElEnlaceCreaLaCuentaYIniciaLaSesion(): void
+    {
+        // Arrange
+        $cliente = $this->cliente();
+        $datos = Datos::registro('huesped');
+        $cliente->post('/registrarse', $datos);
+        $token = $this->tokenDelRegistro($datos['mail']);
+
+        // Act
+        $respuesta = $cliente->post('/verificar-mail', ['token' => $token]);
+
+        // Assert
         $this->assertSame(201, $respuesta->codigo, $respuesta->cuerpo);
-        $this->assertSame('Cuenta creada exitosamente', $respuesta->json()['ok']);
+        $this->assertSame('Tu cuenta quedó creada', $respuesta->json()['ok']);
         $usuario = $respuesta->json()['usuario'];
         $this->assertSame('huesped', $usuario['rol']);
-        $this->assertFalse($usuario['mail_verificado']);
+        $this->assertTrue($usuario['mail_verificado']);
         $this->assertArrayNotHasKey('contrasenia', $usuario);
+        $this->assertSame($datos['mail'], $cliente->get('/sesion')->json()['usuario']['mail']);
+        $this->assertNotNull($this->filaUsuario($datos['mail'])['mail_verificado_en']);
+        $this->assertSame(0, $this->contar('registros_pendientes', $datos['mail']));
+    }
 
-        //la sesión quedó iniciada: GET /sesion devuelve al usuario
-        $sesion = $cliente->get('/sesion');
-        $this->assertSame(200, $sesion->codigo);
-        $this->assertSame($datos['mail'], $sesion->json()['usuario']['mail']);
+    //Registrarse otra vez con el mismo mail reemplaza el pendiente: vale el último y el enlace anterior deja de servir
+    public function testRegistrarseDeNuevoConElMismoMailReemplazaElPendiente(): void
+    {
+        // Arrange
+        $primero = Datos::registro('huesped', ['nombre' => 'Primer Intento']);
+        $this->cliente()->post('/registrarse', $primero);
+        $tokenViejo = $this->tokenDelRegistro($primero['mail']);
+        $segundo = Datos::registro('huesped', ['nombre' => 'Segundo Intento', 'mail' => $primero['mail'], 'mail_confirmacion' => $primero['mail']]);
+
+        // Act
+        $respuesta = $this->cliente()->post('/registrarse', $segundo);
+
+        // Assert
+        $this->assertSame(202, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame(1, $this->contar('registros_pendientes', $primero['mail']));
+        $this->assertSame('Segundo Intento', $this->pendiente($primero['mail'])['nombre']);
+        $this->assertSame(422, $this->cliente()->post('/verificar-mail', ['token' => $tokenViejo])->codigo);
+    }
+
+    //Si mientras tanto otra cuenta ocupó el DNI, el enlace no crea nada, lo explica y borra el pendiente
+    public function testSiOtraCuentaOcupoElDniElEnlaceNoCreaLaCuenta(): void
+    {
+        // Arrange
+        $datos = Datos::registro('huesped');
+        $this->cliente()->post('/registrarse', $datos);
+        $token = $this->tokenDelRegistro($datos['mail']);
+        $this->crearUsuarioEnBase('huesped', ['dni' => $datos['dni']]);
+
+        // Act
+        $respuesta = $this->cliente()->post('/verificar-mail', ['token' => $token]);
+
+        // Assert
+        $this->assertSame(409, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame('Ese DNI ya tiene una cuenta. Si es tuya, iniciá sesión.', $respuesta->json()['error']);
+        $this->assertSame(0, $this->contar('usuarios', $datos['mail']));
+        $this->assertSame(0, $this->contar('registros_pendientes', $datos['mail']));
+    }
+
+    //Un enlace de registro vencido no crea la cuenta
+    public function testUnEnlaceDeRegistroVencidoNoCreaLaCuenta(): void
+    {
+        // Arrange
+        $datos = Datos::registro('huesped');
+        $this->cliente()->post('/registrarse', $datos);
+        $token = $this->tokenDelRegistro($datos['mail'], '-1 HOUR');
+
+        // Act
+        $respuesta = $this->cliente()->post('/verificar-mail', ['token' => $token]);
+
+        // Assert
+        $this->assertSame(422, $respuesta->codigo);
+        $this->assertSame(0, $this->contar('usuarios', $datos['mail']));
+    }
+
+    //El reenvío responde siempre lo mismo (no revela quién se está registrando) y manda como mucho un mail por minuto
+    public function testElReenvioNoRevelaNadaYEsperaUnMinuto(): void
+    {
+        // Arrange
+        $datos = Datos::registro('huesped');
+        $this->cliente()->post('/registrarse', $datos);
+        $hashAntes = $this->pendiente($datos['mail'])['token_hash'];
+
+        // Act
+        $enseguida = $this->cliente()->post('/reenviar-registro', ['mail' => $datos['mail']]);
+        $hashEnseguida = $this->pendiente($datos['mail'])['token_hash'];
+        $this->pdo()->prepare('UPDATE registros_pendientes SET enviado_en = NOW() - INTERVAL 2 MINUTE WHERE mail = ?')->execute([$datos['mail']]);
+        $despues = $this->cliente()->post('/reenviar-registro', ['mail' => $datos['mail']]);
+        $sinRegistro = $this->cliente()->post('/reenviar-registro', ['mail' => Datos::mail()]);
+
+        // Assert
+        $this->assertSame(200, $enseguida->codigo, $enseguida->cuerpo);
+        $this->assertSame($hashAntes, $hashEnseguida, 'Antes del minuto no genera otro enlace');
+        $this->assertSame(200, $despues->codigo);
+        $this->assertNotSame($hashAntes, $this->pendiente($datos['mail'])['token_hash'], 'Pasado el minuto, el enlace es nuevo');
+        $this->assertSame(200, $sinRegistro->codigo);
+        $this->assertStringStartsWith('Si hay un registro pendiente para', $sinRegistro->json()['ok']);
+    }
+
+    //Un propietario guarda en el pendiente sus datos fiscales y bancarios, y se pasan a su cuenta al abrir el enlace
+    public function testLosDatosFiscalesEsperanEnElPendiente(): void
+    {
+        // Arrange
+        $datos = Datos::registro('propietario');
+
+        // Act
+        $this->cliente()->post('/registrarse', $datos);
+
+        // Assert
+        $fiscales = json_decode($this->pendiente($datos['mail'])['datos_fiscales'], true);
+        $this->assertSame($datos['cbu'], $fiscales['cbu']);
+        $this->assertSame(0, (int) $this->pdo()->query('SELECT COUNT(*) FROM propietarios p JOIN usuarios u ON u.id = p.usuario_id WHERE u.dni = ' . $this->pdo()->quote($datos['dni']))->fetchColumn());
+    }
+
+    //El registro pendiente de ese mail (el test falla si no existe)
+    private function pendiente(string $mail): array
+    {
+        $consulta = $this->pdo()->prepare('SELECT * FROM registros_pendientes WHERE mail = ?');
+        $consulta->execute([$mail]);
+        $fila = $consulta->fetch();
+        $this->assertNotFalse($fila, "No hay un registro pendiente para $mail");
+        return $fila;
+    }
+
+    //Cuántas filas de usuarios o registros_pendientes tienen ese mail
+    private function contar(string $tabla, string $mail): int
+    {
+        $consulta = $this->pdo()->prepare("SELECT COUNT(*) FROM $tabla WHERE mail = ?");
+        $consulta->execute([$mail]);
+        return (int) $consulta->fetchColumn();
     }
 
     //La contraseña se guarda hasheada con bcrypt, nunca en texto plano
@@ -198,14 +334,13 @@ final class RegistroTest extends CasoDeIntegracion
         $this->assertSame('Los datos enviados no son válidos', $respuesta->json()['error']);
     }
 
-    //Si el registro se rechaza, no queda nada guardado en la base
+    //Si el registro se rechaza, no queda nada guardado en la base: ni la cuenta ni un registro pendiente
     public function testUnRegistroRechazadoNoGuardaNada(): void
     {
         $datos = Datos::registro('huesped', ['contrasenia_confirmacion' => 'otra-clave-1']);
         $this->cliente()->post('/registrarse', $datos);
 
-        $consulta = $this->pdo()->prepare('SELECT COUNT(*) FROM usuarios WHERE mail = ?');
-        $consulta->execute([$datos['mail']]);
-        $this->assertSame(0, (int) $consulta->fetchColumn());
+        $this->assertSame(0, $this->contar('usuarios', $datos['mail']));
+        $this->assertSame(0, $this->contar('registros_pendientes', $datos['mail']));
     }
 }

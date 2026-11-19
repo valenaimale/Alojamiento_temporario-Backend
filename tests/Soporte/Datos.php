@@ -14,10 +14,13 @@ final class Datos
         return 'prueba-' . bin2hex(random_bytes(6)) . '@test.local';
     }
 
-    //Un DNI al azar de 8 dígitos
+    //Un DNI de 8 dígitos que no se repite en toda la corrida: arranca en un número al azar y después suma de a uno.
+    //(Sacarlos todos al azar a veces repetía uno y el test fallaba con "Duplicate entry ... for key 'usuarios.dni'".)
     public static function dni(): string
     {
-        return (string) random_int(10_000_000, 99_999_999);
+        static $siguiente = null;
+        $siguiente ??= random_int(10_000_000, 89_999_999);
+        return (string) $siguiente++;
     }
 
     //Un CUIT válido (con el dígito verificador correcto, calculado con módulo 11)

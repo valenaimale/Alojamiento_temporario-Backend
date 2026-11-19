@@ -28,6 +28,7 @@ const TAREAS = [
     'diarias' => [
         ['cancelar-saldos-vencidos.php', []],           //primero cancela: así una cancelada no recibe recordatorio
         ['enviar-recordatorios.php', ['--enviar']],     //los mails del saldo (RF-25)
+        ['borrar-registros-vencidos.php', []],          //los registros que no abrieron el enlace del mail en 24 horas
     ],
 ];
 

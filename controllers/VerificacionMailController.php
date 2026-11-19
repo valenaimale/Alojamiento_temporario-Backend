@@ -7,10 +7,13 @@ use App\Autorizacion\Autorizacion;
 use App\Autorizacion\SesionUsuario;
 use App\Database\Conexion;
 use App\Mail\VerificacionMail;
+use App\Validacion\RegistroPendiente;
 
 //Verificación del mail del usuario (Tarea 2).
-//El enlace que llega por mail trae el token en la URL; el front lo manda acá.
-//El token es de un solo uso y vence a las 24 horas (lo genera App\Mail\VerificacionMail).
+//El enlace que llega por mail trae el token en la URL; el front lo manda acá. Hay dos clases de enlace:
+//  - el del registro (desde el 19/11): al abrirlo se crea la cuenta (App\Validacion\RegistroPendiente);
+//  - el de una cuenta vieja que se creó sin verificar: al abrirlo se marca el mail como verificado.
+//El token es de un solo uso y vence a las 24 horas.
 class VerificacionMailController{
 
     //POST /verificar-mail — NO requiere sesión: el enlace del mail se puede abrir en otro navegador
@@ -24,6 +27,20 @@ class VerificacionMailController{
             return $this->error('El enlace no es válido');
         }
 
+        //Primero, el enlace de un registro: la cuenta se crea ahora y queda la sesión iniciada en este navegador
+        //(decisión del 19/11: tener el enlace demuestra que el mail es suyo)
+        $registro = RegistroPendiente::confirmar($token);
+        if($registro !== null){
+            if(isset($registro['error'])){
+                return $this->error($registro['error'], 409);
+            }
+            $usuario = SesionUsuario::iniciar($registro['usuario_id']);//igual que el login: arma la sesión y regenera el ID
+            http_response_code(201);
+            echo json_encode(['ok' => 'Tu cuenta quedó creada', 'usuario' => $usuario]);
+            return;
+        }
+
+        //Si no, el enlace de una cuenta vieja, creada sin verificar antes del 19/11: solo se marca el mail como verificado
         $pdo = Conexion::obtener();
         //en la base está el hash, no el token: se busca por el hash de lo que llegó.
         //Las tres condiciones juntas dan el mismo mensaje: inexistente, ya usado o vencido.
@@ -60,7 +77,8 @@ class VerificacionMailController{
         return $this->respuesta('Tu mail quedó verificado');
     }
 
-    //POST /reenviar-verificacion — lo usa el aviso que ve el usuario logueado en su home
+    //POST /reenviar-verificacion — lo usa el aviso que ve en su home una cuenta vieja, creada sin verificar el mail
+    //(las nuevas ya nacen verificadas: su reenvío es POST /reenviar-registro)
     public function reenviar(){
         Autorizacion::requiereSesion();//sin sesión (o con la cuenta deshabilitada) responde 401 y corta acá
         $usuario = $_SESSION['usuario'];//el id sale siempre de la sesión, nunca del cuerpo de la petición
