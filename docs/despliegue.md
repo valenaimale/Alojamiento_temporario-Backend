@@ -139,7 +139,7 @@ En Railway, cargar `APP_URL_FRONT` con la URL de Vercel (sin `/` al final). Rail
 Todo el pipeline corre en **GitHub Actions** (`.github/workflows/ci.yml`): la **integración continua** (CI) verifica cada cambio y el **despliegue continuo** (CD) lleva a producción, solo, cada cambio que entra a `main`, **pero solo si pasó todos los controles**:
 
 ```
-PR mergeado en main → lint → tests → build de la imagen → deploy a Railway → health check (Railway) → verificación de /estado
+PR mergeado en main → lint → tests → build de la imagen → deploy a Railway → health check (Railway) → verificación de /estado → smoke
                        └─────────── si algo falla acá, el deploy ni se ejecuta: producción sigue con la versión anterior
 ```
 
@@ -150,6 +150,7 @@ PR mergeado en main → lint → tests → build de la imagen → deploy a Railw
 | **CD: deploy** | Job `Deploy a Railway (producción)` | Solo en un push a `main` y solo si los dos jobs anteriores pasaron. Usa la herramienta oficial de Railway (`railway up`) con un token guardado como secreto del repo (`RAILWAY_TOKEN`) |
 | **Health check** | Railway → **Settings → Deploy → Healthcheck Path** = `/estado` | Antes de pasarle el tráfico a la versión nueva, Railway consulta `/estado`. Si no responde `200` (por ejemplo, porque no se conecta a la base), descarta esa versión y sigue la anterior |
 | **Verificación** | Job `Verificar producción (/estado)` | Espera a que producción responda con **el commit recién desplegado** y la base funcionando. Si no pasa en 6 minutos, el pipeline queda en ❌ |
+| **Smoke** | Job `Smoke de producción (Playwright)` | Con la versión nueva ya respondiendo, un navegador recorre la app desplegada con los tests de solo lectura de `e2e/smoke/` del front: `/api/estado` por Vercel, el inicio con sus destinos, una búsqueda con su detalle y el inicio de sesión. Detecta lo que `/estado` no ve (CORS, la redirección de Vercel, pantallas rotas). No modifica nada. El front corre el mismo smoke después de cada deploy de Vercel y todos los días a las 8 |
 | **Rollback** | Railway → **Deployments** → una versión anterior → **Redeploy**. En Vercel: **Deployments** → **Promote to Production** | Volver a una versión anterior con un clic, sin tocar el código |
 
 **El despliegue automático de Railway está apagado** (Railway → **Settings → Source → Auto deploy is disabled**): la única forma de llegar a producción es este pipeline.
