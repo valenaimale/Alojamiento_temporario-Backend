@@ -5,6 +5,7 @@ use Phinx\Migration\AbstractMigration;
 // Ubicación pública elegida por el propietario. Las unidades existentes conservan la búsqueda común.
 final class UbicacionDeUnidades extends AbstractMigration
 {
+    // Agrega las cinco columnas, todas opcionales; Phinx sabe deshacerlas solo (rollback) porque usa change()
     public function change(): void
     {
         $this->table('unidades')

@@ -43,7 +43,7 @@ class CobroDelSaldo
         //Si ya ingresó (tiene estadía), el saldo ya está pagado: sin el saldo no se registra el ingreso (#25).
         $consulta = Conexion::obtener()->prepare(
             "SELECT r.id, r.fecha_ingreso, r.fecha_egreso, r.importe_total, r.creado_en,
-                    r.monto_faltante, r.fecha_cobro,
+                    r.monto_faltante, r.fecha_cobro, r.grupo_id,
                     u.nombre AS unidad,
                     h.id AS huesped_id, h.nombre AS huesped, h.mail,
                     (SELECT COALESCE(SUM(p.monto_pesos), 0) FROM pagos p
@@ -96,9 +96,38 @@ class CobroDelSaldo
                 'vence_hoy'   => $limite === $hoy,
                 'unidad'      => $reserva['unidad'],
                 'huesped'     => ['id' => (int) $reserva['huesped_id'], 'nombre' => $reserva['huesped'], 'mail' => $reserva['mail']],
+                'grupo_id'    => $reserva['grupo_id'] === null ? null : (int) $reserva['grupo_id'],
+                'otras_reservas' => [],
             ];
         }
-        return $pendientes;
+        return self::juntarGrupos($pendientes);
+    }
+
+    //Las unidades de una reserva grupal (US4.4) pagan el saldo juntas: en lugar de un mail por unidad, va UNO con el
+    //total y los nombres de todas. Queda en la primera del grupo; 'otras_reservas' son las demás, para que el script
+    //anote el recordatorio en todas y la cuenta de cada una siga igual.
+    private static function juntarGrupos(array $pendientes): array
+    {
+        $resultado = [];
+        $primeraDelGrupo = [];//grupo_id → posición en $resultado
+        foreach ($pendientes as $recordatorio) {
+            $grupo = $recordatorio['grupo_id'];
+            if ($grupo === null || !isset($primeraDelGrupo[$grupo])) {
+                if ($grupo !== null) {
+                    $primeraDelGrupo[$grupo] = count($resultado);
+                }
+                $resultado[] = $recordatorio;
+                continue;
+            }
+            $primera = &$resultado[$primeraDelGrupo[$grupo]];
+            $primera['debe'] = bcadd($primera['debe'], $recordatorio['debe'], 2);
+            $primera['unidad'] .= ', ' . $recordatorio['unidad'];
+            $primera['limite'] = min($primera['limite'], $recordatorio['limite']);
+            $primera['vence_hoy'] = $primera['vence_hoy'] || $recordatorio['vence_hoy'];
+            $primera['otras_reservas'][] = $recordatorio['reserva_id'];
+            unset($primera);
+        }
+        return $resultado;
     }
 
     //El último día en que el huésped puede pagar el saldo (decisión #23 de docs/pagos-decisiones.md):

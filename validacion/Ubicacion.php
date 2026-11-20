@@ -2,11 +2,15 @@
 
 namespace App\Validacion;
 
-// Valida el punto público y las distancias aproximadas informadas por el propietario.
+// Valida el punto público y las distancias aproximadas informadas por el propietario (mapa, US2.12 y US3.4).
+// La dirección exacta nunca se muestra: este punto lo elige el propietario para la búsqueda pública.
 final class Ubicacion
 {
+    // Los campos de la ubicación pública, en el orden de las columnas de unidades
     public const CAMPOS = ['latitud', 'longitud', 'barrio', 'metros_playa', 'metros_centro'];
 
+    // Valida la ubicación que manda el propietario. Todo es opcional, pero latitud y longitud van juntas.
+    // Devuelve ['error' => mensaje] o los cinco campos listos para guardar (null los que no vinieron).
     public static function validar(array $datos): array
     {
         $ubicacion = [];
@@ -38,6 +42,7 @@ final class Ubicacion
         return $ubicacion;
     }
 
+    // Solo los campos de la ubicación pública de una fila (de la base o de lo que mandó el front)
     public static function publica(array $fila): array
     {
         return array_intersect_key($fila, array_flip(self::CAMPOS));

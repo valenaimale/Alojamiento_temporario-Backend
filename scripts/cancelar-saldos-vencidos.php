@@ -17,7 +17,7 @@
 use App\Database\Conexion;
 use App\Log\Log;
 use App\Validacion\CancelacionConDevolucion;
-use App\Validacion\CobroDelSaldo;
+use App\Validacion\ReservaGrupal;
 use App\Validacion\ValidadorFechas;
 
 //por si alguien lo deja dentro de la carpeta pública por error: desde el navegador no corre
@@ -36,21 +36,31 @@ if ((int) $pdo->query("SELECT GET_LOCK('cancelar_saldos_vencidos', 0)")->fetchCo
 $hoy = ValidadorFechas::hoy()->format('Y-m-d');
 
 //Candidatas: confirmadas, con saldo por pagar y sin ingreso registrado. El plazo exacto se calcula en PHP
-//con limiteDePago, para que sea el mismo que vio el huésped.
+//con limiteDePago, para que sea el mismo que vio el huésped. En una reserva grupal cuenta la fecha de cobro más temprana
+//del grupo (ReservaGrupal::limiteDelSaldo): el saldo se paga junto, y si no se paga se cancelan todas sus unidades.
 $consulta = $pdo->prepare(
     "SELECT r.id, r.fecha_cobro, r.fecha_ingreso FROM reservas r
-     WHERE r.estado = 'confirmada' AND r.monto_faltante > 0 AND r.fecha_cobro IS NOT NULL AND r.fecha_cobro < ?
+     WHERE r.estado = 'confirmada' AND r.monto_faltante > 0 AND r.fecha_cobro IS NOT NULL
+       AND (r.fecha_cobro < ? OR r.grupo_id IS NOT NULL)
        AND NOT EXISTS (SELECT 1 FROM estadias e WHERE e.reserva_id = r.id)
      ORDER BY r.id"
 );
 $consulta->execute([$hoy]);
+$candidatas = $consulta->fetchAll();
+
+//El plazo de cada una se calcula ANTES de cancelar ninguna: en un grupo, al cancelar la primera unidad cambiaría la
+//fecha de cobro más temprana del grupo y las demás quedarían sin cancelar
+$limites = [];
+foreach ($candidatas as $fila) {
+    $limites[(int) $fila['id']] = ReservaGrupal::limiteDelSaldo((int) $fila['id'], $fila['fecha_cobro'], $fila['fecha_ingreso']);
+}
 
 //Si la reserva sigue igual cuando se la traba: confirmada, con saldo, sin ingreso y con el plazo vencido
-$sigueVencida = function (array $reserva) use ($pdo, $hoy): bool {
+$sigueVencida = function (array $reserva) use ($pdo, $hoy, $limites): bool {
     if ($reserva['monto_faltante'] === null || bccomp($reserva['monto_faltante'], '0', 2) <= 0 || $reserva['fecha_cobro'] === null) {
         return false;
     }
-    if (CobroDelSaldo::limiteDePago($reserva['fecha_cobro'], $reserva['fecha_ingreso']) >= $hoy) {
+    if (($limites[(int) $reserva['id']] ?? $hoy) >= $hoy) {
         return false;
     }
     $estadia = $pdo->prepare('SELECT 1 FROM estadias WHERE reserva_id = ?');
@@ -60,8 +70,8 @@ $sigueVencida = function (array $reserva) use ($pdo, $hoy): bool {
 
 $canceladas = 0;
 $fallidas = 0;
-foreach ($consulta->fetchAll() as $fila) {
-    $limite = CobroDelSaldo::limiteDePago($fila['fecha_cobro'], $fila['fecha_ingreso']);
+foreach ($candidatas as $fila) {
+    $limite = $limites[(int) $fila['id']];
     if ($limite >= $hoy) {
         continue;//todavía está a tiempo
     }

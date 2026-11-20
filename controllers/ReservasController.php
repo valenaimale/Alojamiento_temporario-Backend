@@ -11,6 +11,7 @@ use App\Validacion\Estadia;
 use App\Validacion\ExcepcionDeCancelacion;
 use App\Validacion\Extension;
 use App\Validacion\Liquidacion;
+use App\Validacion\NuevaReserva;
 use App\Validacion\ValidadorFechas;
 use App\Validacion\VencimientoReserva;
 use App\Validacion\VerificadorBlockchain;
@@ -89,35 +90,10 @@ class ReservasController
             }
             $estado = 'pendiente';
             $expiraEn = VencimientoReserva::vencimientoDesdeAhora();
-            $pdo->prepare(
-                'INSERT INTO reservas (unidad_id, huesped_id, fecha_ingreso, fecha_egreso, cantidad_personas, estado,
-                                       importe_sin_descuento, porcentaje_descuento,
-                                       importe_total, porcentaje_sena, importe_sena, monto_faltante, fecha_cobro,
-                                       retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15,
-                                       politica_aceptada_en, bloqueo_expira_en, creado_en)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-            )->execute([
-                $unidadId,
-                $_SESSION['usuario']['id'],//quién reserva sale siempre de la sesión
-                $fechas['ingreso']->format('Y-m-d'),
-                $fechas['egreso']->format('Y-m-d'),
-                $personas,
-                $estado,
-                $estadia['importe_sin_descuento'],//foto del descuento por estadía larga (#69)
-                $estadia['porcentaje_descuento'],
-                $estadia['precio_total'],//con el descuento: de acá salen la seña, el saldo y la retención
-                $unidad['porcentaje_sena'],
-                $sena,
-                bcsub($estadia['precio_total'], $sena, 2),//el saldo
-                Estadia::fechaCobro($fechas['ingreso'])->format('Y-m-d'),
-                $unidad['retencion_mas_de_30'],
-                $unidad['retencion_de_15_a_30'],
-                $unidad['retencion_menos_de_15'],
-                $ahora,
-                $expiraEn,
-                $ahora,
-            ]);
-            $reservaId = (int) $pdo->lastInsertId();
+            //quién reserva sale siempre de la sesión; lo que se copia de la unidad está en NuevaReserva (lo comparte
+            //con cada unidad de una reserva grupal)
+            $reservaId = NuevaReserva::insertar($unidad, (int) $_SESSION['usuario']['id'], $fechas['ingreso'], $fechas['egreso'],
+                $personas, $estadia, $sena, $ahora, $expiraEn);
             $pdo->commit();
         } catch (\Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -155,6 +131,7 @@ class ReservasController
             'SELECT r.id, r.estado, r.bloqueo_expira_en, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
                     r.monto_faltante, r.fecha_cobro, r.cancelada_por, r.motivo_cancelacion, r.excepcion,
                     r.extiende_reserva_id, r.importe_sin_descuento, r.porcentaje_descuento, r.no_show_en, r.huesped_id,
+                    r.grupo_id, ug.titulo AS grupo_titulo,
                     e.ingreso_en, e.egreso_en,
                     u.id AS unidad_id, u.nombre AS unidad_nombre, l.nombre AS localidad, l.provincia, f.url AS foto_principal
              FROM reservas r
@@ -162,6 +139,8 @@ class ReservasController
              JOIN localidades l ON l.id = u.localidad_id
              LEFT JOIN fotos_unidad f ON f.unidad_id = u.id AND f.orden = 0
              LEFT JOIN estadias e ON e.reserva_id = r.id
+             LEFT JOIN grupos_reserva g ON g.id = r.grupo_id
+             LEFT JOIN unidades_grupales ug ON ug.id = g.grupal_id
              WHERE r.huesped_id = ?
              ORDER BY r.fecha_ingreso DESC, r.id DESC'
         );
@@ -182,6 +161,12 @@ class ReservasController
                 //extender la estadía (#70): la regla está en Extension; las extensiones apuntan a la reserva que extienden
                 'puede_extender'      => Extension::puedeExtender($fila),
                 'extiende_reserva_id' => $fila['extiende_reserva_id'] === null ? null : (int) $fila['extiende_reserva_id'],
+                //la reserva grupal de la que es parte (US4.4), o null: la seña y el saldo se pagan con las demás del grupo
+                //(/pagos/grupo/...), y se cancela por separado como cualquier reserva
+                'grupo'               => $fila['grupo_id'] === null ? null : [
+                    'id'     => (int) $fila['grupo_id'],
+                    'titulo' => $fila['grupo_titulo'],//null si el administrador borró la unidad grupal
+                ],
                 //el descuento por estadía larga (#69); null si no tuvo
                 'descuento'           => bccomp($fila['porcentaje_descuento'], '0', 2) > 0 ? [
                     'porcentaje'            => $fila['porcentaje_descuento'],
@@ -308,7 +293,7 @@ class ReservasController
         //"en curso y próximas": el egreso es de hoy en adelante (hoy en Argentina, calculado en PHP)
         $consulta = Conexion::obtener()->prepare(
             "SELECT r.id, r.estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total, r.importe_sena,
-                    r.extiende_reserva_id, h.nombre AS huesped
+                    r.extiende_reserva_id, r.grupo_id, h.nombre AS huesped
              FROM reservas r
              JOIN usuarios h ON h.id = r.huesped_id
              WHERE r.unidad_id = ? AND " . VencimientoReserva::ocupaNoches('r') . " AND r.fecha_egreso >= ?
@@ -324,6 +309,11 @@ class ReservasController
                 'huesped'        => $fila['huesped'],
                 //una extensión (#70) apunta a la reserva que extiende; null si no es una extensión
                 'extiende_reserva_id' => $esExtension ? (int) $fila['extiende_reserva_id'] : null,
+                //si es parte de una reserva grupal (US4.4). El administrador ve además con qué otras unidades se reservó;
+                //el propietario no, porque pueden ser de otros dueños
+                'grupal'         => $fila['grupo_id'] !== null,
+                'grupo_unidades' => $fila['grupo_id'] === null || $unidad['es_propietario'] ? null
+                    : $this->otrasDelGrupo((int) $fila['grupo_id'], (int) $fila['id']),
                 //solo el propietario cancela (#66): una pendiente sin vencer o una confirmada antes del ingreso,
                 //salvo una extensión paga, que no se cancela (#70)
                 'puede_cancelar' => $unidad['es_propietario']
@@ -364,6 +354,16 @@ class ReservasController
 
         http_response_code(200);
         echo json_encode(['reservas' => $reservas, 'canceladas' => $canceladas]);
+    }
+
+    //Los nombres de las otras unidades de una reserva grupal, para el administrador
+    private function otrasDelGrupo(int $grupoId, int $reservaId): array
+    {
+        $consulta = Conexion::obtener()->prepare(
+            'SELECT u.nombre FROM reservas r JOIN unidades u ON u.id = r.unidad_id WHERE r.grupo_id = ? AND r.id <> ? ORDER BY r.id'
+        );
+        $consulta->execute([$grupoId, $reservaId]);
+        return $consulta->fetchAll(\PDO::FETCH_COLUMN);
     }
 
     //Los datos de una reserva como los devuelve la API (los mismos en todas las listas)
