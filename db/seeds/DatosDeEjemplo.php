@@ -9,12 +9,14 @@ use Phinx\Seed\AbstractSeed;
 //    Marisa no discrimina IVA (las comisiones van sobre el total) y Elsa sí (van sobre el neto sin IVA).
 //  - Cacho (administrador), Nadia (operadora) y dos huéspedes: Juan, que repite, y Lucía.
 //    Rocío, del backoffice. Todos con la contraseña "clave-segura-1" y el mail ya verificado.
-//  - Cuatro unidades:
+//  - Cinco unidades:
 //      1. "Cabaña del Mar" (Marisa, Las Grutas): publicada, de autogestión, con Nadia de operadora,
 //         temporada baja y alta, precios, fotos y una semana bloqueada.
 //      2. "Departamento Costanera" (Marisa, Las Grutas): en borrador, sin precios (le falta para publicarse).
 //      3. "Casa del Bosque" (Marisa, Mar de las Pampas): publicada y administrada por Cacho, con el 15 % de comisión.
 //      4. "Loft del Centro" (Elsa, Villa Gesell): publicada y administrada por Cacho, con el 10 %.
+//      5. "Cabaña de los Pinos" (Elsa, Mar de las Pampas): publicada y administrada por Cacho, mínimo 4 noches.
+//  - Una unidad grupal de Cacho, "Complejo del Bosque": la Casa del Bosque y la Cabaña de los Pinos (US4.4).
 //  - Seis reservas, una por cada estado que existe hoy: pendiente, confirmada, tres finalizadas y cancelada.
 //    Las finalizadas tienen su estadía registrada, su libro de huéspedes y la seña y el saldo pagados,
 //    así hay algo para liquidar (RF-09, RF-13 y RF-19); la confirmada es la que levantan los recordatorios (RF-25).
@@ -129,6 +131,32 @@ final class DatosDeEjemplo extends AbstractSeed
             'unidad_id' => $loft, 'url' => 'https://res.cloudinary.com/ynclnyuh/image/upload/samples/landscapes/girl-urban-view.jpg', 'orden' => 0,
         ])->saveData();
 
+        //5. Otra de Elsa en Mar de las Pampas, administrada por Cacho: con la Casa del Bosque arma la reserva grupal.
+        //Pide mínimo 4 noches, así no aparece en las búsquedas de 3 noches que usan los E2E de la búsqueda y del mapa.
+        $pinos = $this->crearUnidad($elsa, 'Mar de las Pampas', [
+            'nombre' => 'Cabaña de los Pinos', 'direccion' => 'Hudson 150', 'capacidad' => 4,
+            'caracteristicas' => 'Al lado de la Casa del Bosque. Dos dormitorios y deck con parrilla.',
+            'deposito_garantia' => 50000, 'estado_publicacion' => 'publicada', 'operador_id' => $nadia,
+        ]);
+        $this->crearTemporada($pinos, 'media', -120, 239, 4);
+        $this->cargarPrecios($pinos, -120, 239, 70000, $elsa);
+        $this->administrar($pinos, $cacho, 10);
+        $this->table('fotos_unidad')->insert([
+            'unidad_id' => $pinos, 'url' => 'https://res.cloudinary.com/ynclnyuh/image/upload/samples/landscapes/nature-mountains.jpg', 'orden' => 0,
+        ])->saveData();
+
+        //La unidad grupal de Cacho (US4.4): la Casa del Bosque (6) y la Cabaña de los Pinos (4), de dos propietarias.
+        //Aparece en las búsquedas de 7 a 10 personas en Mar de las Pampas, de 4 noches o más: ninguna alcanza sola.
+        $this->table('unidades_grupales')->insert([
+            'administrador_id' => $cacho, 'localidad_id' => $this->localidad('Mar de las Pampas'),
+            'titulo' => 'Complejo del Bosque', 'activa' => 1, 'creado_en' => date('Y-m-d H:i:s'),
+        ])->saveData();
+        $grupal = $this->ultimoId();
+        $this->table('unidades_grupales_unidades')->insert([
+            ['grupal_id' => $grupal, 'unidad_id' => $casa],
+            ['grupal_id' => $grupal, 'unidad_id' => $pinos],
+        ])->saveData();
+
         $this->cargarReservas($cabania, $casa, $loft, $juan, $lucia, $nadia);
 
         $this->getOutput()->writeln(
@@ -192,10 +220,16 @@ final class DatosDeEjemplo extends AbstractSeed
         return $this->ultimoId();
     }
 
+    //El id de una localidad por su nombre (las carga la migración de localidades)
+    private function localidad(string $nombre): int
+    {
+        return (int) $this->fetchRow("SELECT id FROM localidades WHERE nombre = '$nombre'")['id'];
+    }
+
     //Crea una unidad de la propietaria en esa localidad, con la seña y la política por defecto, y devuelve su id
     private function crearUnidad(int $propietarioId, string $localidad, array $datos): int
     {
-        $localidadId = (int) $this->fetchRow("SELECT id FROM localidades WHERE nombre = '$localidad'")['id'];
+        $localidadId = $this->localidad($localidad);
         $this->table('unidades')->insert(array_merge([
             'propietario_id' => $propietarioId, 'localidad_id' => $localidadId,
             'porcentaje_sena' => 20, 'retencion_mas_de_30' => 30, 'retencion_de_15_a_30' => 50, 'retencion_menos_de_15' => 70,
