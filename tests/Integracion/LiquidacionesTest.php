@@ -363,6 +363,106 @@ final class LiquidacionesTest extends CasoDeIntegracion
         $this->assertSame(404, $backoffice->post('/liquidaciones/pagar', ['liquidacion_id' => 'hola'])->codigo);
     }
 
+    // ---------- El listado del backoffice (liquidar a mano, sin esperar al cron) ----------
+
+    //El backoffice ve cuántas reservas faltan liquidar, las genera, y ve todas las liquidaciones con lo que puede hacer
+    public function testElBackofficeVeTodasLasLiquidacionesConSuSituacion(): void
+    {
+        // Arrange: una estadía lista para pagar y otra cuyo propietario no cargó la billetera
+        $lista = $this->escena();
+        $sinBilletera = $this->escena();
+        $this->borrarBilleteraEnBase('propietarios', $sinBilletera['propietario']['id']);
+        $backoffice = $this->sesionDeBackoffice();
+        $antes = $backoffice->get('/backoffice/liquidaciones')->json();
+
+        // Act
+        $this->generar();
+        $respuesta = $backoffice->get('/backoffice/liquidaciones');
+
+        // Assert
+        $this->assertGreaterThanOrEqual(2, $antes['sin_liquidar']);
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame(0, $respuesta->json()['sin_liquidar']);
+        $porReserva = [];
+        foreach ($respuesta->json()['liquidaciones'] as $liquidacion) {
+            $porReserva[$liquidacion['reserva']['id']] = $liquidacion;
+        }
+        $this->assertSame('para_pagar', $porReserva[$lista['reserva']]['situacion']);
+        $this->assertSame('pendiente', $porReserva[$lista['reserva']]['estado']);
+        $this->assertSame($lista['propietario']['nombre'], $porReserva[$lista['reserva']]['propietario']);
+        $this->assertSame('sin_billetera', $porReserva[$sinBilletera['reserva']]['situacion']);
+        $this->assertSame(['propietario'], $porReserva[$sinBilletera['reserva']]['faltan_billeteras']);
+    }
+
+    //Después de pagarla, la liquidación figura pagada y con su transacción
+    public function testElListadoMuestraLaLiquidacionPagada(): void
+    {
+        // Arrange
+        $escena = $this->escena();
+        $this->generar();
+        $id = $this->liquidacionesDe($escena['propietario']['mail'])[0]['id'];
+        $backoffice = $this->sesionDeBackoffice();
+
+        // Act
+        $pago = $backoffice->post('/liquidaciones/pagar', ['liquidacion_id' => $id]);
+        $liquidacion = $this->delListado($backoffice, $id);
+
+        // Assert
+        $this->assertSame(200, $pago->codigo, $pago->cuerpo);
+        $this->assertSame('pagada', $liquidacion['situacion']);
+        $this->assertSame($pago->json()['tx_hash'], $liquidacion['transaccion']['tx_hash']);
+    }
+
+    //El listado de todas las liquidaciones es solo del backoffice
+    public function testSoloElBackofficeVeTodasLasLiquidaciones(): void
+    {
+        $escena = $this->escena();
+
+        $this->assertSame(403, $this->iniciarSesion($escena['propietario']['mail'])->get('/backoffice/liquidaciones')->codigo);
+        $this->assertSame(401, $this->cliente()->get('/backoffice/liquidaciones')->codigo);
+    }
+
+    //Si otro proceso (el cron, u otra pestaña del backoffice) está mandando la liquidación de esa reserva, el pedido del
+    //backoffice no la manda otra vez: la deja anotada, un segundo pedido da 409, y después sale UNA sola transacción
+    public function testSiOtroProcesoLaEstaMandandoNoSeMandaDosVeces(): void
+    {
+        // Arrange: la reserva trabada por "otro proceso" (esta conexión de los tests)
+        $escena = $this->escena(['comision' => null]);
+        $this->generar();
+        $id = $this->liquidacionesDe($escena['propietario']['mail'])[0]['id'];
+        $backoffice = $this->sesionDeBackoffice();
+        $candado = "liquidar_reserva_{$escena['reserva']}";
+        $this->assertSame(1, (int) $this->pdo()->query("SELECT GET_LOCK('$candado', 0)")->fetchColumn());
+
+        try {
+            // Act
+            $primera = $backoffice->post('/liquidaciones/pagar', ['liquidacion_id' => $id]);
+            $segunda = $backoffice->post('/liquidaciones/pagar', ['liquidacion_id' => $id]);
+            $mientras = $this->delListado($backoffice, $id);
+        } finally {
+            $this->pdo()->query("SELECT RELEASE_LOCK('$candado')");
+        }
+
+        // Assert: se anotó pero no salió, y el segundo pedido no anotó nada más
+        $this->assertSame(202, $primera->codigo, $primera->cuerpo);
+        $this->assertSame(409, $segunda->codigo);
+        $this->assertSame('saliendo', $mientras['situacion']);
+        $pagos = $this->pagosDeLiquidacion($escena['reserva']);
+        $this->assertCount(2, $pagos);//propietario y plataforma
+        $this->assertSame([null], array_values(array_unique(array_column($pagos, 'tx_hash'))));
+
+        //el reintento del cron (toma lo que tiene más de 5 minutos) la manda una sola vez
+        $this->pdo()->prepare("UPDATE pagos SET creado_en = UTC_TIMESTAMP() - INTERVAL 10 MINUTE WHERE reserva_id = ? AND tipo = 'liquidacion'")
+            ->execute([$escena['reserva']]);
+        $this->correrScript('pagar-liquidaciones.php');
+        $this->correrScript('pagar-liquidaciones.php');
+        $pagos = $this->pagosDeLiquidacion($escena['reserva']);
+        $this->assertCount(2, $pagos);
+        $this->assertCount(1, array_unique(array_column($pagos, 'tx_hash')));
+        $this->assertNotNull($pagos[0]['tx_hash']);
+        $this->assertSame('pagada', $this->delListado($backoffice, $id)['situacion']);
+    }
+
     // ---------- Pagar con el contrato (decisiones #57 a #61) ----------
 
     //Pagar manda UNA transacción liquidar() con las tres partes: cada una a su billetera, en wei, en la proporción de
@@ -476,6 +576,19 @@ final class LiquidacionesTest extends CasoDeIntegracion
     }
 
     // ---------- Ayudas de este test ----------
+
+    //La liquidación $id tal como la muestra el listado del backoffice
+    private function delListado(\Tests\Soporte\ClienteApi $backoffice, int $id): array
+    {
+        $respuesta = $backoffice->get('/backoffice/liquidaciones');
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        foreach ($respuesta->json()['liquidaciones'] as $liquidacion) {
+            if ($liquidacion['id'] === $id) {
+                return $liquidacion;
+            }
+        }
+        $this->fail("La liquidación $id no está en el listado del backoffice");
+    }
 
     //Una reserva con la seña pagada que se canceló antes de ingresar, con la devolución de $devolucion
     //('confirmado', o 'pendiente' si todavía no salió). Devuelve la escena.

@@ -28,14 +28,18 @@ class FirmadorSimulado implements FirmadorPagos
         return new EnvioTransaccion('0x' . bin2hex(random_bytes(32)), true);
     }
 
-    public function liquidar(int $reservaId, array $destinatarios, array $montosWei): EnvioTransaccion
+    public function liquidar(int $reservaId, array $destinatarios, array $montosWei, ?callable $alSalir = null): EnvioTransaccion
     {
         foreach ($destinatarios as $destinatario) {
             if (str_ends_with(strtolower($destinatario), 'dead')) {
                 throw new \RuntimeException('Firmador simulado: no se pudo mandar la liquidación (billetera terminada en dead)');
             }
         }
-        return new EnvioTransaccion('0x' . bin2hex(random_bytes(32)), true);
+        $txHash = '0x' . bin2hex(random_bytes(32));
+        if ($alSalir !== null) {
+            $alSalir($txHash);
+        }
+        return new EnvioTransaccion($txHash, true);
     }
 
     public function estado(string $txHash): ?bool

@@ -3,7 +3,7 @@
 //Prepara la base de los tests de punta a punta (E2E) del front, con Playwright (carpeta e2e/ del repo del front):
 //  1. borra y vuelve a crear la base alojamiento_e2e (nunca la de desarrollo ni la de los tests de PHPUnit);
 //  2. le aplica todas las migraciones;
-//  3. le carga los datos de ejemplo (db/seeds/DatosDeEjemplo.php): Marisa, Elsa, Cacho, Nadia, Juan y Lucía,
+//  3. le carga los datos de ejemplo (db/seeds/DatosDeEjemplo.php): Marisa, Elsa, Cacho, Nadia, Juan, Lucía y Rocío (backoffice),
 //     con la contraseña "clave-segura-1", cuatro unidades y una reserva en cada estado.
 //Lo corre Playwright antes de cada ejecución (e2e/soporte/preparar.js del front). También se puede correr a mano:
 //    php scripts/preparar-e2e.php

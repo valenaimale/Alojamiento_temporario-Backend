@@ -8,7 +8,7 @@ use Phinx\Seed\AbstractSeed;
 //  - Dos propietarias, porque la liquidación se calcula distinto según la condición fiscal (RN-24):
 //    Marisa no discrimina IVA (las comisiones van sobre el total) y Elsa sí (van sobre el neto sin IVA).
 //  - Cacho (administrador), Nadia (operadora) y dos huéspedes: Juan, que repite, y Lucía.
-//    Todos con la contraseña "clave-segura-1" y el mail ya verificado.
+//    Rocío, del backoffice. Todos con la contraseña "clave-segura-1" y el mail ya verificado.
 //  - Cuatro unidades:
 //      1. "Cabaña del Mar" (Marisa, Las Grutas): publicada, de autogestión, con Nadia de operadora,
 //         temporada baja y alta, precios, fotos y una semana bloqueada.
@@ -56,6 +56,8 @@ final class DatosDeEjemplo extends AbstractSeed
         $nadia = $this->crearUsuario('Nadia Ruiz', 'nadia@ejemplo.local', '35111444', 'operador');
         $juan = $this->crearUsuario('Juan Pérez', 'juan@ejemplo.local', '40111555', 'huesped');
         $lucia = $this->crearUsuario('Lucía Sosa', 'lucia@ejemplo.local', '38111666', 'huesped');
+        //Rocío, del backoffice: genera y paga las liquidaciones a mano, sin esperar al cron
+        $this->crearUsuario('Rocío Paz', 'rocio@ejemplo.local', '33111777', 'backoffice');
 
         //Las billeteras de cobro son las cuentas 1, 2 y 3 de Anvil (la red local de Foundry): públicas y sin valor
         //Marisa es monotributista: no discrimina IVA, así que las comisiones se calculan sobre el total (RN-24)

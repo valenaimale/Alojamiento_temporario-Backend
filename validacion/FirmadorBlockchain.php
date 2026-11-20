@@ -63,7 +63,7 @@ class FirmadorBlockchain implements FirmadorPagos
         return $this->mandar($datos);
     }
 
-    public function liquidar(int $reservaId, array $destinatarios, array $montosWei): EnvioTransaccion
+    public function liquidar(int $reservaId, array $destinatarios, array $montosWei, ?callable $alSalir = null): EnvioTransaccion
     {
         $destinatarios = array_values($destinatarios);
         $montosWei = array_values($montosWei);
@@ -83,7 +83,7 @@ class FirmadorBlockchain implements FirmadorPagos
             . ClienteRpc::palabraUint((string) $inicioDestinatarios) . ClienteRpc::palabraUint((string) $inicioMontos)
             . ClienteRpc::palabraUint((string) $n) . implode('', array_map([ClienteRpc::class, 'palabraDireccion'], $destinatarios))
             . ClienteRpc::palabraUint((string) $n) . implode('', array_map(fn ($m) => ClienteRpc::palabraUint((string) $m), $montosWei));
-        return $this->mandar($datos);
+        return $this->mandar($datos, $alSalir);
     }
 
     public function estado(string $txHash): ?bool
@@ -97,7 +97,8 @@ class FirmadorBlockchain implements FirmadorPagos
     }
 
     //Firma y manda una llamada al contrato, sin ETH. Devuelve el hash y si ya está confirmada.
-    private function mandar(string $datos): EnvioTransaccion
+    //$alSalir($txHash), si se pasa, se llama apenas sale, antes de esperar la confirmación.
+    private function mandar(string $datos, ?callable $alSalir = null): EnvioTransaccion
     {
         $chainId = (int) ClienteRpc::hexADecimal((string) $this->rpc->llamar('eth_chainId'));
         if ($chainId !== $this->red()) {
@@ -122,6 +123,9 @@ class FirmadorBlockchain implements FirmadorPagos
             $txHash = strtolower((string) $this->rpc->llamar('eth_sendRawTransaction', [$firmada]));
         } finally {
             $pdo->query("SELECT RELEASE_LOCK('" . self::CANDADO . "')");
+        }
+        if ($alSalir !== null) {
+            $alSalir($txHash);
         }
 
         for ($i = 0; $i < self::ESPERAS_DE_CONFIRMACION; $i++) {

@@ -91,6 +91,7 @@ class Router {
         $this->register('GET@/backoffice/usuarios', 'BackofficeController@listar');
         $this->register('GET@/backoffice/usuario', 'BackofficeController@detalle');
         $this->register('POST@/backoffice/usuario/estado', 'BackofficeController@cambiarEstado');
+        $this->register('GET@/backoffice/liquidaciones', 'LiquidacionesController@todas');
         // ---------- fin Tarea 2 ----------
 
         // ---------- Tarea 3: sesiones escalables ----------

@@ -24,6 +24,9 @@ class PagoDeLiquidacion
     //Los tipos de pago que salen con liquidar(): las partes de la liquidación y la excepción al huésped (#65)
     public const TIPOS = "'liquidacion', 'excepcion'";
 
+    //El nombre del candado de MySQL que traba el envío de la liquidación de una reserva (se le agrega el id)
+    private const CANDADO = 'liquidar_reserva_';
+
     //Paga la liquidación $liquidacionId. Devuelve ['codigo' => HTTP, 'mensaje' => texto, 'tx_hash' => ?string]:
     //200 pagada, 202 salió y falta que se confirme, 404 no existe, 409 no se puede pagar (y por qué),
     //503 la red falló (queda pendiente y la reintenta el script).
@@ -82,6 +85,9 @@ class PagoDeLiquidacion
             Log::error('No se pudo mandar la liquidación', $e, ['liquidacion_id' => $liquidacionId, 'reserva_id' => $reservaId]);
             return self::resultado(503, 'No se pudo mandar la liquidación a la red: queda pendiente y se reintenta sola en unos minutos');
         }
+        if ($envio === null) {//otro proceso tiene trabada la reserva: no se manda dos veces, sale con el próximo reintento
+            return self::resultado(202, 'La liquidación quedó anotada: sale en unos minutos');
+        }
         return $envio->confirmada
             ? self::resultado(200, 'Liquidación pagada', $envio->txHash)
             : self::resultado(202, 'La liquidación salió: se confirma en unos minutos', $envio->txHash);
@@ -90,32 +96,52 @@ class PagoDeLiquidacion
     //Manda en una sola transacción los pagos 'liquidacion' pendientes y sin tx_hash de la reserva, y anota el hash.
     //Si ya se confirmó, deja la liquidación pagada. Devuelve el envío, o null si no había nada que mandar.
     //Si la red falla, lanza la excepción y los pagos quedan como estaban (sin tx_hash).
+    //Para que la misma reserva no salga dos veces (el backoffice y el cron a la vez, o dos pestañas del backoffice):
+    //  - un candado de MySQL por reserva: mientras uno la está mandando, el otro no hace nada (devuelve null);
+    //  - el tx_hash se anota apenas sale la transacción, antes de esperar la confirmación: si el proceso se corta
+    //    mientras espera, los pagos ya tienen hash y el script solo pregunta cómo terminó, no la vuelve a mandar.
+    //Y si todo eso fallara, el contrato no deja sacar de la reserva más de lo que entró: la segunda revertiría.
     public static function mandar(int $reservaId, FirmadorPagos $firmador): ?EnvioTransaccion
     {
         $pdo = Conexion::obtener();
-        $consulta = $pdo->prepare(
-            "SELECT id, billetera, monto_wei FROM pagos
-             WHERE reserva_id = ? AND tipo IN (" . self::TIPOS . ") AND estado = 'pendiente' AND tx_hash IS NULL AND red = ?
-             ORDER BY id"
-        );
-        $consulta->execute([$reservaId, $firmador->red()]);
-        $pagos = $consulta->fetchAll();
-        if ($pagos === []) {
-            return null;
+        $candado = $pdo->quote(self::CANDADO . $reservaId);
+        if ((int) $pdo->query("SELECT GET_LOCK($candado, 0)")->fetchColumn() !== 1) {
+            return null;//la está mandando otro proceso
         }
+        try {
+            //se buscan los pagos recién con el candado tomado: si otro la mandó justo antes, ya tienen tx_hash
+            $consulta = $pdo->prepare(
+                "SELECT id, billetera, monto_wei FROM pagos
+                 WHERE reserva_id = ? AND tipo IN (" . self::TIPOS . ") AND estado = 'pendiente' AND tx_hash IS NULL AND red = ?
+                 ORDER BY id"
+            );
+            $consulta->execute([$reservaId, $firmador->red()]);
+            $pagos = $consulta->fetchAll();
+            if ($pagos === []) {
+                return null;
+            }
+            $ids = array_column($pagos, 'id');
 
-        $envio = $firmador->liquidar($reservaId, array_column($pagos, 'billetera'), array_column($pagos, 'monto_wei'));
-        $actualizacion = $pdo->prepare('UPDATE pagos SET tx_hash = ?, estado = ?, confirmado_en = ? WHERE id = ?');
-        foreach ($pagos as $pago) {
-            $actualizacion->execute([
-                strtolower($envio->txHash), $envio->confirmada ? 'confirmado' : 'pendiente',
-                $envio->confirmada ? VencimientoReserva::ahora() : null, $pago['id'],
-            ]);
+            $anotarHash = function (string $txHash) use ($pdo, $ids): void {
+                $actualizacion = $pdo->prepare('UPDATE pagos SET tx_hash = ? WHERE id = ?');
+                foreach ($ids as $id) {
+                    $actualizacion->execute([strtolower($txHash), $id]);
+                }
+            };
+            $envio = $firmador->liquidar($reservaId, array_column($pagos, 'billetera'), array_column($pagos, 'monto_wei'), $anotarHash);
+            $anotarHash($envio->txHash);//por si el firmador no llamó a $alSalir
+
+            if ($envio->confirmada) {
+                $confirmacion = $pdo->prepare("UPDATE pagos SET estado = 'confirmado', confirmado_en = ? WHERE id = ?");
+                foreach ($ids as $id) {
+                    $confirmacion->execute([VencimientoReserva::ahora(), $id]);
+                }
+                self::marcarPagada($reservaId);
+            }
+            return $envio;
+        } finally {
+            $pdo->query("SELECT RELEASE_LOCK($candado)");
         }
-        if ($envio->confirmada) {
-            self::marcarPagada($reservaId);
-        }
-        return $envio;
     }
 
     //La transacción $txHash de la reserva se confirmó en un bloque: sus pagos quedan confirmados y la liquidación, pagada
@@ -169,7 +195,9 @@ class PagoDeLiquidacion
         if (bccomp((string) $liquidacion['excepcion'], '0', 2) > 0 && $liquidacion['huesped_billetera'] === null) {
             return self::resultado(409, 'No encontramos la billetera con la que pagó el huésped: no se le puede mandar la excepción');
         }
-        $consulta = Conexion::obtener()->prepare('SELECT COUNT(*) FROM pagos WHERE reserva_id = ? AND tipo IN (' . self::TIPOS . ')');
+        //FOR UPDATE: lectura con bloqueo, que ve lo último confirmado aunque otro pedido lo haya anotado mientras este
+        //esperaba la liquidación trabada (una lectura común podría ver la foto de antes y pagar dos veces)
+        $consulta = Conexion::obtener()->prepare('SELECT COUNT(*) FROM pagos WHERE reserva_id = ? AND tipo IN (' . self::TIPOS . ') FOR UPDATE');
         $consulta->execute([$reservaId]);
         if ((int) $consulta->fetchColumn() > 0) {
             return self::resultado(409, 'Esa liquidación ya se está pagando: se confirma en unos minutos');
