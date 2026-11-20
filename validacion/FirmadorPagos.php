@@ -19,7 +19,9 @@ interface FirmadorPagos
 
     //Manda liquidar(reservaId, destinatarios, montos) al contrato (Rol 4). $montosWei en el mismo orden que
     //$destinatarios. Si no la pudo mandar, lanza una excepción.
-    public function liquidar(int $reservaId, array $destinatarios, array $montosWei): EnvioTransaccion;
+    //$alSalir($txHash), si se pasa, se llama apenas la transacción sale, ANTES de esperar a que se confirme: así quien
+    //la manda anota el hash enseguida, y si el proceso se corta mientras espera, nadie la vuelve a mandar.
+    public function liquidar(int $reservaId, array $destinatarios, array $montosWei, ?callable $alSalir = null): EnvioTransaccion;
 
     //Cómo terminó una transacción que ya se mandó: true si se confirmó, false si revirtió o la red ya no la tiene
     //(hay que volver a mandarla), null si todavía no está en un bloque.

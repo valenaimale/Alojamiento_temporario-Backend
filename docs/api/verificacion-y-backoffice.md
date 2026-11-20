@@ -6,6 +6,7 @@ Rutas de la **Tarea 2**. Las convenciones generales (URL base, formato JSON, for
 
 - [Verificación de mail](#verificación-de-mail)
   - [`POST /verificar-mail`](#post-verificar-mail)
+  - [`POST /reenviar-registro`](#post-reenviar-registro)
   - [`POST /reenviar-verificacion`](#post-reenviar-verificacion)
 - [Backoffice: administración de usuarios](#backoffice-administración-de-usuarios)
   - [`GET /backoffice/usuarios`](#get-backofficeusuarios)
@@ -20,19 +21,23 @@ Rutas de la **Tarea 2**. Las convenciones generales (URL base, formato JSON, for
 
 ### Cómo funciona
 
+**Desde el 19/11, el mail se verifica ANTES de crear la cuenta.** Así un mail falso o ajeno nunca ocupa un mail, un DNI o un CUIT:
+
 ```
-Registro → VerificacionMail::enviar(id) → genera un token aleatorio, guarda su HASH con vencimiento
-           de 24 h, y manda un mail con el enlace
-           http://localhost:5500/vistas/sesion/verificar-mail.html?token=<token>
+POST /registrarse → valida los datos → RegistroPendiente::guardar() → fila en registros_pendientes
+                    (contraseña hasheada, HASH del token, vence en 24 h) → mail con el enlace
+                    http://localhost:5500/vistas/sesion/verificar-mail.html?token=<token>  → responde 202
 Usuario abre el enlace → verificar-mail.js lee el token de la URL → POST /verificar-mail {token}
-Backend busca el hash, controla que no esté usado ni vencido → usuarios.mail_verificado_en = NOW()
+Backend → RegistroPendiente::confirmar(): vuelve a controlar que el mail, el DNI y el CUIT sigan libres,
+          crea la cuenta con mail_verificado_en = NOW(), borra el pendiente e inicia la sesión → responde 201
 ```
 
-- En la tabla `verificaciones_mail` se guarda el **hash** del token (`hash('sha256', $token)`), **nunca el token**. Si alguien leyera la tabla, no podría usar los enlaces. Es el mismo criterio que con las contraseñas.
-- El token es de **un solo uso** (`usado_en`) y **vence a las 24 horas** (`expira_en`).
-- Cada vez que se manda un mail nuevo, se borran los tokens anteriores de ese usuario que no se hayan usado: **vale solo el último enlace**.
-- Si el mail no se puede enviar (Mailpit apagado, SMTP mal configurado), el registro **igual responde `201`**: `VerificacionMail::enviar()` nunca lanza excepciones, y el error queda en la terminal de `php -S`.
-- **Política actual:** un usuario sin verificar **puede iniciar sesión** y usar las funciones permitidas para su rol, pero ve un aviso en su home. Reservar ya exige el mail confirmado mediante `Autorizacion::requiereMailVerificado()`; no es una validación futura. Crear la cuenta únicamente después de verificar el mail es un cambio de flujo pendiente, distinto de esta restricción.
+- De cada enlace se guarda el **hash** del token (`hash('sha256', $token)`), **nunca el token**. Si alguien leyera la tabla, no podría usar los enlaces. Es el mismo criterio que con las contraseñas.
+- El token es de **un solo uso** y **vence a las 24 horas**. Los registros pendientes vencidos los borra la tarea diaria (`scripts/borrar-registros-vencidos.php`).
+- **Un mail tiene a lo sumo un registro pendiente:** registrarse otra vez con el mismo mail lo reemplaza, y el enlace anterior deja de servir. Si alguien registra un mail ajeno y nunca abre el enlace, el dueño de ese mail se registra igual.
+- Si el mail no se puede enviar (Mailpit apagado, SMTP o Brevo mal configurados), el registro **igual responde `202`**: el envío nunca lanza excepciones, el error queda en el log, y la persona pide otro enlace desde `post-registro.html` (`POST /reenviar-registro`).
+- **Cuentas viejas sin verificar** (creadas antes del 19/11): siguen como estaban (decisión del 19/11). Pueden iniciar sesión, ven un aviso en su home con el botón "Reenviar" (`POST /reenviar-verificacion`), y para reservar necesitan el mail confirmado (`Autorizacion::requiereMailVerificado()`). Su enlace sale de la tabla `verificaciones_mail` y solo marca `mail_verificado_en`.
+- **Google** no cambia: las cuentas que crea ya nacen verificadas, porque Google verificó el mail.
 
 ### `POST /verificar-mail`
 
@@ -54,13 +59,28 @@ Backend busca el hash, controla que no esté usado ni vencido → usuarios.mail_
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `200` | `{"ok": "Tu mail quedó verificado"}` | El token era válido. Se guarda `usuarios.mail_verificado_en = NOW()` y el token queda usado. Si el usuario tenía la sesión abierta en ese navegador, además se le refresca (`mail_verificado` pasa a `true`). |
+| `201` | `{"ok": "Tu cuenta quedó creada", "usuario": {...}}` | Era el enlace de un **registro**: se creó la cuenta (con `mail_verificado: true`) y quedó la **sesión iniciada** en ese navegador. `usuario` tiene el mismo formato que en `POST /iniciar-sesion`. |
+| `200` | `{"ok": "Tu mail quedó verificado"}` | Era el enlace de una **cuenta vieja** sin verificar. Se guarda `usuarios.mail_verificado_en = NOW()` y el token queda usado. Si el usuario tenía la sesión abierta en ese navegador, además se le refresca (`mail_verificado` pasa a `true`). |
+| `409` | `{"error": "Ese DNI ya tiene una cuenta. Si es tuya, iniciá sesión."}` | Mientras el registro esperaba, otra cuenta ocupó el mail, el DNI o el CUIT (cada uno tiene su mensaje). No se crea nada y el registro pendiente se borra. |
 | `422` | `{"error": "El enlace no es válido"}` | Falta el token o no tiene el formato esperado. |
 | `422` | `{"error": "El enlace no es válido o venció. Pedí uno nuevo desde el aviso de tu home."}` | No existe ese token, ya se usó, o pasaron más de 24 horas. |
 
+### `POST /reenviar-registro`
+
+**No requiere sesión**: la cuenta todavía no existe. Lo usa el botón "Reenviar el mail" de `post-registro.html`.
+
+**Envía:** `{"mail": "ana@mail.com"}`
+
+**Responde:**
+
+| Código | Cuerpo | Cuándo |
+|---|---|---|
+| `200` | `{"ok": "Si hay un registro pendiente para ana@mail.com, te mandamos un enlace nuevo. Revisá también la carpeta de spam."}` | **Siempre el mismo mensaje**, haya o no un registro pendiente con ese mail: así no se puede averiguar quién se está registrando. Si lo hay y el último mail salió hace más de un minuto, genera un enlace nuevo (el anterior deja de servir), extiende el vencimiento 24 horas y lo manda. |
+| `422` | `{"error": "El mail no es válido"}` | Falta el mail o no tiene formato válido. |
+
 ### `POST /reenviar-verificacion`
 
-**Requiere sesión** (cualquier rol). El id sale de la sesión, no del cuerpo: no se envía nada.
+Solo para las **cuentas viejas** sin verificar (las nuevas nacen verificadas). **Requiere sesión** (cualquier rol). El id sale de la sesión, no del cuerpo: no se envía nada.
 
 **Responde:**
 

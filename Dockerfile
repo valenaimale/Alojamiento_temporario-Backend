@@ -7,8 +7,11 @@ FROM composer:2 AS dependencias
 WORKDIR /app
 # primero solo composer.json y composer.lock: si no cambian, Docker reutiliza esta capa y no reinstala todo
 COPY composer.json composer.lock ./
-# --ignore-platform-req=ext-gmp: esta imagen solo descarga las dependencias; gmp está en la imagen final (abajo)
-RUN composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader --ignore-platform-req=ext-gmp
+# Esta imagen solo descarga las dependencias; el código corre en la imagen final (abajo), con PHP 8.5 y gmp. Por eso:
+# --ignore-platform-req=ext-gmp: gmp está recién en la imagen final.
+# --ignore-platform-req=php+: composer:2 trae la última versión de PHP (8.6 desde nov/2026) y algunas dependencias
+#   (league/oauth2-client) piden "< 8.6". "php+" ignora solo ese tope; el mínimo de versión se sigue controlando.
+RUN composer install --no-dev --no-interaction --prefer-dist --no-scripts --no-autoloader --ignore-platform-req=ext-gmp --ignore-platform-req=php+
 # después el resto del código, y el autoload optimizado
 COPY . .
 RUN composer dump-autoload --no-dev --optimize

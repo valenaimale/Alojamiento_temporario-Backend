@@ -130,6 +130,58 @@ class LiquidacionesController
         echo json_encode(['comprobante' => $comprobante]);
     }
 
+    //GET /backoffice/liquidaciones: todas las liquidaciones, de la más nueva a la más vieja, para que el backoffice
+    //las pueda generar y pagar a mano sin esperar al cron. Trae también cuántas reservas están listas para liquidarse
+    //y todavía no se liquidaron ('sin_liquidar'): son las que crea el botón "Generar".
+    //Por cada una, 'situacion' dice qué se puede hacer:
+    //  - 'para_pagar': pendiente, con las billeteras cargadas y sin pagos anotados: se puede pagar;
+    //  - 'saliendo': ya se mandó (o la está mandando el cron) y falta que se confirme en la red;
+    //  - 'sin_billetera': falta la billetera del propietario o del administrador (#44);
+    //  - 'retenida': retenida por deuda (RN-16);
+    //  - 'pagada'.
+    public function todas()
+    {
+        Autorizacion::requiere('backoffice');
+
+        $liquidaciones = [];
+        foreach ($this->buscar('1 = 1', []) as $fila) {
+            $liquidaciones[] = [
+                'id'                     => (int) $fila['id'],
+                'estado'                 => $fila['estado'],
+                'situacion'              => $this->situacion($fila),
+                'motivo'                 => $this->motivo($fila),
+                'creado_en'              => $this->momento($fila['creado_en']),
+                'liquidada_en'           => $this->momento($fila['liquidada_en']),
+                'transaccion'            => $this->transaccion($fila),
+                'reserva'                => $this->reservaDe($fila),
+                'propietario'            => $fila['propietario'],
+                'administrador'          => $fila['administrador'],
+                'importe_cobrado'        => $fila['importe_cobrado'],
+                'importe_propietario'    => $fila['importe_propietario'],
+                'comision_administrador' => $fila['comision_administrador'],
+                'comision_plataforma'    => $fila['comision_plataforma'],
+                'excepcion'              => $fila['excepcion'],
+                'faltante'               => $this->faltante($fila),
+                'faltan_billeteras'      => $this->faltanBilleteras($fila),
+            ];
+        }
+
+        http_response_code(200);
+        echo json_encode(['liquidaciones' => $liquidaciones, 'sin_liquidar' => count(Liquidacion::reservasSinLiquidar())]);
+    }
+
+    //Qué se puede hacer con la liquidación (ver todas())
+    private function situacion(array $fila): string
+    {
+        return match (true) {
+            $fila['estado'] === 'pagada'             => 'pagada',
+            $fila['estado'] === 'retenida_por_deuda' => 'retenida',
+            (bool) $fila['tiene_pagos']              => 'saliendo',
+            $this->faltanBilleteras($fila) !== []    => 'sin_billetera',
+            default                                  => 'para_pagar',
+        };
+    }
+
     //POST /liquidaciones/generar: calcula y guarda las liquidaciones de las estadías que todavía no se liquidaron.
     //Solo el backoffice: es la plataforma la que liquida, no el propietario.
     //Es idempotente: pedirla dos veces no duplica nada.
@@ -235,6 +287,8 @@ class LiquidacionesController
                     r.estado AS reserva_estado, r.fecha_ingreso, r.fecha_egreso, r.cantidad_personas, r.importe_total,
                     r.extiende_reserva_id,
                     t.tx_hash, t.red AS tx_red,
+                    EXISTS (SELECT 1 FROM pagos e WHERE e.reserva_id = q.reserva_id
+                              AND e.tipo IN (" . PagoDeLiquidacion::TIPOS . ")) AS tiene_pagos,
                     u.id AS unidad_id, u.nombre AS unidad, l.nombre AS localidad, l.provincia,
                     h.nombre AS huesped,
                     pu.nombre AS propietario, pu.dni AS propietario_dni,

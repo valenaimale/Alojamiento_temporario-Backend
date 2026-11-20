@@ -193,7 +193,7 @@ POST /registrarse
 
 | Código | Cuerpo | Cuándo |
 |---|---|---|
-| `201` | `{"ok": "Cuenta creada exitosamente", "usuario": {...}}` (ver [El objeto `usuario`](#el-objeto-usuario)) | El usuario se registró. Además, **queda con la sesión iniciada**: el backend envía la cookie de sesión, igual que en el login. |
+| `202` | `{"ok": "Te enviamos un mail a ana@mail.com. Abrí el enlace para crear tu cuenta.", "mail": "ana@mail.com"}` | Los datos son válidos. **Todavía no hay cuenta ni sesión**: queda un registro pendiente y se manda un mail con un enlace. La cuenta se crea al abrir ese enlace (`POST /verificar-mail`), que además deja la sesión iniciada. |
 | `422` | `{"error": "Todos los campos son obligatorios"}` | Falta algún campo o está vacío. |
 | `422` | `{"error": "El mail es invalido"}` | El mail no tiene formato válido. |
 | `422` | `{"error": "La contraseña debe tener entre 8 y 72 caracteres"}` | Contraseña demasiado corta o larga. |
@@ -201,7 +201,7 @@ POST /registrarse
 | `422` | `{"error": "El rol no existe"}` | El rol no es uno de los permitidos. |
 | `422` | `{"error": "El mail ya esta registrado"}` | Ya existe una cuenta con ese mail. |
 
-**Inicio de sesión automático:** al registrarse, el usuario no tiene que iniciar sesión aparte. El backend guarda sus datos en la sesión y responde el `usuario` con el mismo formato que `POST /iniciar-sesion`, así que el frontend puede usar `usuario.rol` para llevarlo al home que corresponde. Para que la cookie de sesión quede guardada, el `fetch` del registro tiene que incluir **`credentials: 'include'`** (ver [Autenticación](#autenticación-sesiones-de-php)).
+**El mail se verifica antes de crear la cuenta (desde el 19/11):** así un mail falso o ajeno nunca ocupa un mail, un DNI o un CUIT. Al abrir el enlace del mail, `POST /verificar-mail` crea la cuenta (con el mail ya verificado) y deja la sesión iniciada, con el `usuario` en el mismo formato que `POST /iniciar-sesion`. Ese `fetch` tiene que incluir **`credentials: 'include'`** para que la cookie de sesión quede guardada (ver [Autenticación](#autenticación-sesiones-de-php)). El detalle está en [`docs/api/verificacion-y-backoffice.md`](docs/api/verificacion-y-backoffice.md).
 
 ### Autenticación (sesiones de PHP)
 
@@ -382,7 +382,7 @@ Así, nadie tiene que modificar su base a mano: después de un `git pull`, con u
 | `vendor/bin/phinx status` | Muestra qué migraciones están aplicadas y cuáles no. |
 | `vendor/bin/phinx create NombreEnCamelCase` | Crea una migración nueva en `db/migrations/`. |
 | `vendor/bin/phinx rollback` | Deshace la última migración. |
-| `vendor/bin/phinx seed:run -s DatosDeEjemplo` | Carga los datos de ejemplo de desarrollo: las dos propietarias (una que discrimina IVA y otra que no), el administrador, la operadora, dos huéspedes, cuatro unidades con temporadas y precios, y seis reservas, una por cada estado, con sus pagos, estadías y libro de huéspedes. **Solo en una base local:** las contraseñas son conocidas. |
+| `vendor/bin/phinx seed:run -s DatosDeEjemplo` | Carga los datos de ejemplo de desarrollo: las dos propietarias (una que discrimina IVA y otra que no), el administrador, la operadora, dos huéspedes, una cuenta de backoffice (`rocio@ejemplo.local`), cuatro unidades con temporadas y precios, y seis reservas, una por cada estado, con sus pagos, estadías y libro de huéspedes. **Solo en una base local:** las contraseñas son conocidas. |
 
 > **Regla del equipo:** una migración que ya se subió al repo **no se modifica**. Si hay que cambiar algo, se crea una migración nueva.
 

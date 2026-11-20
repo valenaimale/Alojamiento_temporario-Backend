@@ -4,16 +4,17 @@ namespace App\Controllers;
 
 use App\Request\Request;
 use App\Database\Conexion;
-use App\Autorizacion\SesionUsuario;
 use App\Mail\VerificacionMail;
 use App\Validacion\ValidadorDocumentos;
 use App\Validacion\DatosFiscales;
+use App\Validacion\RegistroPendiente;
 
-//Si el rol es propietario o administrador, además de la fila en usuarios se crea su fila
-//en propietarios o en administradores, con sus datos fiscales y bancarios.
+//El registro con mail y contraseña. Desde el 19/11 se verifica el mail ANTES de crear la cuenta:
+//POST /registrarse deja un registro pendiente y la cuenta se crea al abrir el enlace del mail (VerificacionMailController).
+//Si el rol es propietario o administrador, al crearse la cuenta también se crea su fila en propietarios o en
+//administradores, con los datos fiscales y bancarios que se validaron acá.
 class RegistroController{
-    //POST /registrarse: valida los datos, crea la cuenta (y, si corresponde, sus datos fiscales y bancarios),
-    //manda el mail de verificación e inicia la sesión
+    //POST /registrarse: valida los datos, guarda el registro pendiente y manda el mail con el enlace que crea la cuenta
     public function registrar(){
         $datos_registro = Request::datosJson();//Request::datosJson decodifica el json a php (y controla su forma) de manera tal
         //que la funcion de json_decode devuelve el json en formato de array asociativo, en este caso
@@ -92,51 +93,48 @@ class RegistroController{
         if($fiscales !== null && DatosFiscales::cuitRegistrado($fiscales['cuit'])){
             return $this->error('El CUIT ya está registrado');
         }
-        $hashContra = password_hash($contrasenia, PASSWORD_DEFAULT);
+        //Todavía NO se crea la cuenta: se guarda un registro pendiente y se manda el enlace por mail.
+        //La cuenta se crea cuando alguien abre ese enlace (POST /verificar-mail), así un mail falso o ajeno nunca
+        //ocupa un mail, un DNI o un CUIT. Si ese mail ya tenía un registro pendiente, este lo reemplaza.
+        $token = RegistroPendiente::guardar([
+            'nombre'         => $nombre,
+            'mail'           => $mail,
+            'dni'            => $dni,
+            'contrasenia'    => $contrasenia,//se hashea adentro
+            'rol'            => $rol,
+            'datos_fiscales' => $fiscales,
+        ]);
+        VerificacionMail::enviarParaCrearCuenta($mail, $nombre, $token);//nunca lanza excepciones
 
-        //usuario + (si es propietario o administrador) su fila con los datos fiscales van juntos: si falla uno, no queda guardado ninguno
-        $pdo->beginTransaction();
-        try {
-            $consulta3 = $pdo->prepare(
-            'INSERT INTO usuarios (nombre, mail, dni, contrasenia, rol) VALUES (:nombre, :mail, :dni, :contrasenia, :rol)'
-            );
-            $consulta3->execute([
-                'nombre'      => $nombre,
-                'mail'        => $mail,
-                'dni'         => $dni,
-                'contrasenia' => $hashContra,
-                'rol'         => $rol,
-            ]);
-            $idUsuario = (int) $pdo->lastInsertId();// el id que MySQL le asignó al usuario recién creado
+        //202: el pedido se aceptó, pero la cuenta todavía no existe. No se inicia sesión.
+        http_response_code(202);
+        echo json_encode([
+            'ok'   => "Te enviamos un mail a $mail. Abrí el enlace para crear tu cuenta.",
+            'mail' => $mail,
+        ]);
+    }
 
-            if($fiscales !== null){
-                DatosFiscales::guardar($rol, $idUsuario, $fiscales);//en propietarios o en administradores, según el rol
-            }
-            $pdo->commit();
-        } catch (\Throwable $e) {
-            $pdo->rollBack();
-            //23000 es el codigo de "valor repetido en un indice unico": pasa si dos personas se registran
-            //al mismo tiempo con el mismo mail, DNI o CUIT y las dos pasaron los controles de arriba
-            if($e instanceof \PDOException && $e->getCode() === '23000'){
-                return $this->error('El mail, el DNI o el CUIT ya están registrados');
-            }
-            throw $e;//lo atrapa el router y responde 500
+    //POST /reenviar-registro {"mail"}: manda un enlace nuevo para un registro pendiente (el de post-registro.html).
+    //No requiere sesión: todavía no hay cuenta. Responde siempre lo mismo, exista o no un registro pendiente con
+    //ese mail, para no revelar quién se está registrando. Como mucho un mail por minuto (RegistroPendiente::reenviar).
+    public function reenviar(){
+        $datos = Request::datosJson();
+        $mail = strtolower(trim(is_string($datos['mail'] ?? null) ? $datos['mail'] : ''));
+        if(!filter_var($mail, FILTER_VALIDATE_EMAIL)){
+            return $this->error('El mail no es válido');
         }
 
-        VerificacionMail::enviar($idUsuario);//Tarea 2: manda el mail de verificación (nunca lanza excepciones)
-        $usuario = SesionUsuario::iniciar($idUsuario);//igual que en el login: arma la sesión y regenera el ID
+        $enlace = RegistroPendiente::reenviar($mail);
+        if($enlace !== null){
+            VerificacionMail::enviarParaCrearCuenta($mail, $enlace['nombre'], $enlace['token']);
+        }
 
-        return $this->respuesta('Cuenta creada exitosamente', $usuario);
+        http_response_code(200);
+        echo json_encode(['ok' => "Si hay un registro pendiente para $mail, te mandamos un enlace nuevo. Revisá también la carpeta de spam."]);
     }
     //Responde un error en JSON con su código HTTP
     private function error(string $mensaje, int $codigo = 422){
         http_response_code($codigo);
         echo json_encode(['error' => $mensaje]);
-    }
-    //Responde la cuenta creada, con los datos del usuario
-    private function respuesta(string $mensaje, array $datosUsuario, int $codigo =201){
-        http_response_code($codigo);
-        echo json_encode(['ok'=>$mensaje,
-        'usuario'=>$datosUsuario]);
     }
 }

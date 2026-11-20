@@ -68,6 +68,7 @@ class Router {
     public function cargar_rutas(){
         // ---------- Base (Fase 0) ----------
         $this->register('POST@/registrarse', 'RegistroController@registrar');
+        $this->register('POST@/reenviar-registro', 'RegistroController@reenviar');//sin sesión: la cuenta todavía no existe
         $this->register('POST@/iniciar-sesion', 'InicioSesionController@iniciaSesion');
         $this->register('POST@/cerrar-sesion', 'InicioSesionController@cierraSesion');
         $this->register('GET@/sesion', 'InicioSesionController@dameSesion');
@@ -90,6 +91,7 @@ class Router {
         $this->register('GET@/backoffice/usuarios', 'BackofficeController@listar');
         $this->register('GET@/backoffice/usuario', 'BackofficeController@detalle');
         $this->register('POST@/backoffice/usuario/estado', 'BackofficeController@cambiarEstado');
+        $this->register('GET@/backoffice/liquidaciones', 'LiquidacionesController@todas');
         // ---------- fin Tarea 2 ----------
 
         // ---------- Tarea 3: sesiones escalables ----------
