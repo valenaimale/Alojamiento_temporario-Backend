@@ -204,6 +204,10 @@ class Router {
         $this->register('GET@/reservas/extension', 'ExtensionesController@cotizar');//rama extension-back (US7.1)
         $this->register('POST@/reservas/extender', 'ExtensionesController@extender');
         // ---------- fin La 25 ----------
+
+        // ---------- Entrega final del 28/11: estadísticas (RF-12) ----------
+        $this->register('GET@/unidades/estadisticas', 'EstadisticasController@ver');
+        // ---------- fin estadísticas ----------
     }
     //Registra las rutas en el ROUTER
     public function register($method_http_y_path, $controller_y_action){

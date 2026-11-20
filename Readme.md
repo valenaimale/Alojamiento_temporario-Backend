@@ -352,6 +352,7 @@ Las funcionalidades que salieron de la devolución del profesor se documentan en
 | [`docs/api/unidades-grupales.md`](docs/api/unidades-grupales.md) | Unidades grupales (US4.4): el administrador agrupa unidades que administra y la búsqueda las ofrece con las unidades libres para esas fechas. |
 | [`docs/api/reserva-grupal.md`](docs/api/reserva-grupal.md) | Reserva grupal (US4.4 y US8.5): reservar varias unidades, pagar la seña y el saldo juntos (`pagarSenaGrupal` y `pagarSaldoGrupal`) y cancelar cada una por separado. |
 | [`docs/api/liquidaciones.md`](docs/api/liquidaciones.md) | Liquidaciones del propietario y comisiones del administrador, con su comprobante sin valor fiscal (RF-09, RF-13, RF-19). |
+| [`docs/api/estadisticas.md`](docs/api/estadisticas.md) | Estadísticas de una unidad por temporada: ocupación, tarifa promedio, estadía promedio, cancelaciones por tramo y huéspedes recurrentes (RF-12). |
 
 | [`docs/api/pagos.md`](docs/api/pagos.md) | Pago de la seña y del saldo en ETH de prueba (pesos → wei), vencimiento de las reservas pendientes y aviso si un pago falla (L2-28, L2-30, L2-6, RF-26). Verificador simulado hasta que esté el contrato. |
 | [`docs/pagos-decisiones.md`](docs/pagos-decisiones.md) · [`docs/pagos-front.md`](docs/pagos-front.md) | Las decisiones del back de pagos y qué tiene que adaptar el front. |
