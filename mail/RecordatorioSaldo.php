@@ -5,14 +5,16 @@ namespace App\Mail;
 use App\Config\Config;
 use App\Log\Log;
 
-//Le avisa al huésped que le falta pagar el saldo de su reserva (RF-25).
-//Lo manda scripts/enviar-recordatorios.php, con lo que le pasa App\Validacion\CobroDelSaldo.
+//Le avisa al huésped que le falta pagar el saldo de su reserva (RF-25 y decisión #75).
+//Lo manda scripts/enviar-recordatorios.php, con lo que le pasa App\Validacion\CobroDelSaldo: sale 3 días antes del
+//último día para pagar, el día anterior y el mismo día.
 //Regla: nunca lanza excepciones. Si el mail falla, queda en el log y el script sigue con los demás;
 //el recordatorio ya quedó anotado, así que no se reintenta en la misma corrida.
 //
-//TODOS los recordatorios dicen hasta qué día se puede pagar y qué pasa si no se paga (decisión #23 de
-//docs/pagos-decisiones.md): pasado ese plazo la reserva se cancela sola, con la retención del tramo de
+//TODOS los recordatorios dicen hasta qué día se puede pagar y qué pasa si no se paga (#75): el plazo es hasta el
+//final de ese día, sin días de gracia, y pasado ese día la reserva se cancela sola, con la retención del tramo de
 //menos de 15 días. No se avisa solo en el último: el huésped tiene que poder decidir desde el primero.
+//Todos enlazan la guía "Cómo pagar", para quien nunca pagó con billetera.
 class RecordatorioSaldo
 {
     //Manda el recordatorio. $recordatorio es una fila de CobroDelSaldo::pendientes().
@@ -24,21 +26,23 @@ class RecordatorioSaldo
             $desde = self::dia($recordatorio['ingreso']);
             $hasta = self::dia($recordatorio['egreso']);
             $limite = self::dia($recordatorio['limite']);
-            $venceHoy = (bool) ($recordatorio['vence_hoy'] ?? false);
+            $dias = (int) ($recordatorio['dias_restantes'] ?? 0);
+            $unidad = $recordatorio['unidad'];
 
             $asunto = match (true) {
-                $venceHoy                => "Hoy es el último día para pagar el saldo de tu reserva en {$recordatorio['unidad']}",
-                $recordatorio['ultimo']  => "Último aviso: falta pagar el saldo de tu reserva en {$recordatorio['unidad']}",
-                default                  => "Te falta pagar el saldo de tu reserva en {$recordatorio['unidad']}",
+                $dias <= 0 => "Hoy es el último día para pagar el saldo de tu reserva en $unidad",
+                $dias === 1 => "Mañana es el último día para pagar el saldo de tu reserva en $unidad",
+                default     => "Te quedan $dias días para pagar el saldo de tu reserva en $unidad",
             };
 
-            $texto = "Tu estadía en {$recordatorio['unidad']}, del $desde al $hasta, tiene un saldo de $monto "
+            $texto = "Tu estadía en $unidad, del $desde al $hasta, tiene un saldo de $monto "
                 . 'sin pagar. Podés pagarlo desde tus reservas, con la misma billetera con la que pagaste la seña.';
 
             //El plazo y la consecuencia, en todos los recordatorios
-            $plazo = $venceHoy
-                ? "Hoy es el último día para pagarlo: si no lo pagás hoy, tu reserva se cancela."
-                : "Tenés tiempo hasta el $limite: si no lo pagás antes de esa fecha, tu reserva se cancela.";
+            $plazo = $dias <= 0
+                ? 'Hoy es el último día para pagarlo, hasta las 23:59 (hora de Argentina): si no lo pagás hoy, tu reserva se cancela.'
+                : "Tenés tiempo hasta el $limite a las 23:59 (hora de Argentina), sin días de gracia: si no lo pagás para"
+                  . ' entonces, tu reserva se cancela.';
             $plazo .= ' Si se cancela, te devolvemos la seña menos la retención que indica la política de'
                 . ' cancelación de la unidad (el tramo de menos de 15 días, porque ya estamos en la fecha de cobro).';
 
@@ -73,8 +77,11 @@ class RecordatorioSaldo
         $enlace = Config::obtener('app.url_front') . '/vistas/reservas/mis-reservas.html';
         $boton = "<p><a href=\"{$enlace}\" style=\"display:inline-block;padding:12px 20px;border-radius:6px;background-color:#1f6f54;color:#ffffff;font-weight:bold;text-decoration:none\">Pagar el saldo</a></p>";
 
-        $html = "<p>¡Hola, {$nombre}!</p><p>{$textoHtml}</p><p><strong>{$plazoHtml}</strong></p>{$boton}<p>{$cierreHtml}</p>";
-        $textoPlano = "¡Hola, {$huesped['nombre']}!\n\n{$texto}\n\n{$plazo}\n\nTus reservas: {$enlace}\n\n{$cierre}";
+        $guia = Config::obtener('app.url_front') . AvisoPagoMail::GUIA_PAGOS;
+        $guiaHtml = "<p>¿Es la primera vez que pagás con billetera? La <a href=\"{$guia}\">guía \"Cómo pagar\"</a> te explica los pasos.</p>";
+
+        $html = "<p>¡Hola, {$nombre}!</p><p>{$textoHtml}</p><p><strong>{$plazoHtml}</strong></p>{$boton}{$guiaHtml}<p>{$cierreHtml}</p>";
+        $textoPlano = "¡Hola, {$huesped['nombre']}!\n\n{$texto}\n\n{$plazo}\n\nTus reservas: {$enlace}\n\nCómo pagar: {$guia}\n\n{$cierre}";
 
         EnviadorMail::enviar($huesped['mail'], $huesped['nombre'], $asunto, $html, $textoPlano);
     }

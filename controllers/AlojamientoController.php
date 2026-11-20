@@ -160,7 +160,9 @@ class AlojamientoController
 
         $estadia = Estadia::calcular((int) $unidad['id'], $fechas['ingreso'], $fechas['egreso']);
         if ($estadia['disponible']) {
-            $estadia['sena'] = Estadia::sena($estadia['precio_total'], $unidad['porcentaje_sena']);
+            //con 5 días o menos para el ingreso, lo que se paga al reservar es el total (#75): pago_total lo avisa al front
+            $estadia['sena'] = Estadia::senaAlReservar($estadia['precio_total'], $unidad['porcentaje_sena'], $fechas['ingreso']);
+            $estadia['pago_total'] = bccomp($estadia['sena'], $estadia['precio_total'], 2) === 0;
         }
         return $estadia;
     }

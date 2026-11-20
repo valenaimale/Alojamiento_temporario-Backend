@@ -11,6 +11,7 @@ use App\Validacion\Estadia;
 use App\Validacion\ReservaGrupal;
 use App\Validacion\ResultadoVerificacion;
 use App\Validacion\TipoDeCambio;
+use App\Validacion\ValidadorFechas;
 use App\Validacion\VencimientoReserva;
 use App\Validacion\Verificadores;
 
@@ -212,8 +213,11 @@ class ReservasGrupalesController
         if ($confirmado) {
             if ($tipo === ReservaGrupal::SENA) {
                 $saldo = $this->saldoDelGrupo($grupoId, $huespedId);
-                AvisoPagoMail::senaConfirmada($huesped, $nombres, $primera['fecha_ingreso'], $primera['fecha_egreso'], $total, $saldo);
-                $ok = "Pagaste la seña: tu reserva grupal ($nombres) está confirmada";
+                //sin saldo después de la seña: reservó con 5 días o menos y pagó el total de todas las unidades (#75)
+                AvisoPagoMail::senaConfirmada($huesped, $nombres, $primera['fecha_ingreso'], $primera['fecha_egreso'], $total, $saldo, $saldo === null);
+                $ok = $saldo === null
+                    ? "Pagaste el total: tu reserva grupal ($nombres) está confirmada y paga"
+                    : "Pagaste la seña: tu reserva grupal ($nombres) está confirmada";
             } else {
                 AvisoPagoMail::saldoConfirmado($huesped, $nombres, $primera['fecha_ingreso'], $total);
                 $ok = "Pagaste el saldo: tu reserva grupal ($nombres) está paga";
@@ -253,6 +257,12 @@ class ReservasGrupalesController
         $problema = ReservaGrupal::problemaParaPagar($tipo, $reservas, $aPagar);
         if ($problema !== null) {
             return $this->error(...$problema);
+        }
+        //Sin días de gracia (#75): pasado el último día no se arma un pago nuevo del saldo del grupo (se cancelan todas).
+        $limite = $tipo === ReservaGrupal::SALDO ? $this->limite($aPagar) : null;
+        if ($limite !== null && $limite < ValidadorFechas::hoy()->format('Y-m-d')) {
+            return $this->error('Se venció el plazo para pagar el saldo del grupo (era hasta el '
+                . ValidadorFechas::fecha($limite)->format('d/m/Y') . '): las reservas se cancelan solas', 409);
         }
 
         $pesosPorEth = TipoDeCambio::pesosPorEth();
@@ -303,8 +313,8 @@ class ReservasGrupalesController
         ];
     }
 
-    //El último día para pagar el saldo del grupo: el plazo de siempre (CobroDelSaldo) contado desde la fecha de cobro
-    //más temprana, y nunca después del ingreso más temprano
+    //El último día para pagar el saldo del grupo (#75): la fecha de cobro más temprana, sin días de gracia, y nunca
+    //después del ingreso más temprano (CobroDelSaldo::limiteDePago)
     private function limite(array $aPagar): ?string
     {
         $fechaCobro = ReservaGrupal::fechaCobro($aPagar);

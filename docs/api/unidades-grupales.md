@@ -85,7 +85,7 @@ Es público, igual que el detalle de una unidad. Las fechas y las personas son *
         "deposito_garantia": "50000.00", "porcentaje_sena": "20.00",
         "politica": {"retencion_mas_de_30": "30.00", "retencion_de_15_a_30": "50.00", "retencion_menos_de_15": "70.00"},
         "estadia": {"noches": 7, "importe_sin_descuento": "490000.00", "porcentaje_descuento": "0.00",
-                    "precio_total": "490000.00", "sena": "98000.00"}
+                    "precio_total": "490000.00", "sena": "98000.00", "pago_total": false}
       }
     ]
   }

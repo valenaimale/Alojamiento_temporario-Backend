@@ -73,7 +73,8 @@ class Devolucion
 
         //Decisión #62 (reemplaza a la #31): si el huésped ya pagó el saldo, se retiene TODO lo que pagó.
         //Solo recupera algo si el propietario le da una excepción en las 48 hs siguientes (PoliticaExcepcion).
-        if ($retenerConSaldo && bccomp($saldoWei, '0', 0) > 0) {
+        //Lo mismo si pagó todo junto al reservar, con 5 días o menos (#75): la seña ya incluía el saldo.
+        if ($retenerConSaldo && (bccomp($saldoWei, '0', 0) > 0 || self::pagoTotal($reserva, $senaWei))) {
             return [
                 'tramo'                => $tramo,
                 'dias_hasta_cobro'     => $dias,
@@ -100,5 +101,13 @@ class Devolucion
             'billetera'            => $billetera,
             'pesos_por_eth'        => $pesosPorEth,
         ];
+    }
+
+    //Si la reserva se pagó entera con la seña (#75): pagó la seña y no le queda saldo (monto_faltante en 0).
+    //Una reserva común con la seña paga todavía debe el saldo; las viejas sin monto_faltante (null) no cuentan.
+    private static function pagoTotal(array $reserva, string $senaWei): bool
+    {
+        $faltante = $reserva['monto_faltante'] ?? null;
+        return $faltante !== null && bccomp((string) $faltante, '0', 2) === 0 && bccomp($senaWei, '0', 0) > 0;
     }
 }

@@ -109,4 +109,49 @@ final class DevolucionTest extends TestCase
 
         $this->assertSame(['33.33', '66.68', '666766670000'], [$resultado['retencion'], $resultado['devolucion'], $resultado['devolucion_wei']]);
     }
+
+    //Quien reservó con 5 días o menos pagó todo con la seña (#75): cancelar es como cancelar con el saldo pagado (#62),
+    //no se devuelve nada y solo le queda la excepción del propietario
+    public function test_ElPagoTotalAlReservarNoSeDevuelveComoElSaldoPagado(): void
+    {
+        // Arrange
+        $reserva = $this->reserva() + ['monto_faltante' => '0.00'];
+        $pagos = [$this->pago('sena', '210000.00', '2100000000000000')];
+
+        // Act
+        $resultado = Devolucion::calcular($reserva, $pagos, new \DateTimeImmutable('2026-12-01'));
+
+        // Assert
+        $this->assertSame(['100.00', '210000.00', '0.00', '0'], [
+            $resultado['porcentaje_retencion'], $resultado['retencion'], $resultado['devolucion'], $resultado['devolucion_wei'],
+        ]);
+    }
+
+    //Una reserva común con la seña paga todavía debe el saldo (monto_faltante > 0): se retiene solo el % de la seña
+    public function test_ConSaldoPendienteSeRetieneSoloElPorcentajeDeLaSena(): void
+    {
+        // Arrange
+        $reserva = $this->reserva() + ['monto_faltante' => '168000.00'];
+        $pagos = [$this->pago('sena', '42000.00', '420000000000000')];
+
+        // Act
+        $resultado = Devolucion::calcular($reserva, $pagos, new \DateTimeImmutable('2026-12-01'));
+
+        // Assert
+        $this->assertSame(['70.00', '29400.00', '12600.00'], [$resultado['porcentaje_retencion'], $resultado['retencion'], $resultado['devolucion']]);
+    }
+
+    //Si cancela el propietario una reserva de pago total, se le devuelve todo igual (#63)
+    public function test_SiElPropietarioCancelaUnPagoTotalSeDevuelveTodo(): void
+    {
+        // Arrange
+        $reserva = $this->reserva() + ['monto_faltante' => '0.00'];
+        $pagos = [$this->pago('sena', '210000.00', '2100000000000000')];
+
+        // Act
+        $resultado = Devolucion::total($reserva, $pagos, new \DateTimeImmutable('2026-12-01'));
+
+        // Assert
+        $this->assertSame(['210000.00', '2100000000000000'], [$resultado['devolucion'], $resultado['devolucion_wei']]);
+    }
 }

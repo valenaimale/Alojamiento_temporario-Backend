@@ -12,20 +12,35 @@ use App\Validacion\VencimientoReserva;
 //Regla: nunca lanza excepciones (si el mail falla, el pago ya quedó registrado y la respuesta no tiene que fallar).
 class AvisoPagoMail
 {
+    //La guía "Cómo pagar" del front (L2-58): la enlazan los mails que piden pagar el saldo
+    public const GUIA_PAGOS = '/vistas/ayuda/pagos.html';
+
     //"Tu reserva en Cabaña del Mar está confirmada"
     //$saldo: lo que falta pagar ($saldo['monto'], 'fecha_cobro', 'limite' y 'retencion', el % de la seña del tramo de
-    //menos de 15 días), o null si no queda saldo. Decisión #23: se le avisa desde la seña hasta cuándo puede pagarlo
-    //y qué pasa si no lo paga.
-    public static function senaConfirmada(array $huesped, string $unidad, string $ingreso, string $egreso, string $monto, ?array $saldo = null): void
+    //menos de 15 días), o null si no queda saldo. Desde la seña se le avisa hasta cuándo puede pagarlo, sin días de
+    //gracia, y qué pasa si no lo paga (decisiones #23 y #75).
+    //$pagoTotal: reservó con 5 días o menos y pagó todo junto (#75): no le queda saldo.
+    public static function senaConfirmada(array $huesped, string $unidad, string $ingreso, string $egreso, string $monto, ?array $saldo = null, bool $pagoTotal = false): void
     {
-        $texto = 'Recibimos el pago de la seña ($' . number_format((float) $monto, 2, ',', '.') . ") de tu estadía en $unidad, del "
-            . self::dia($ingreso) . ' al ' . self::dia($egreso) . '. Tu reserva está confirmada.';
-        if ($saldo !== null) {
-            $texto .= ' Te queda pagar el saldo de ' . self::pesos($saldo['monto']) . '. Lo podés pagar desde ya, desde tus reservas;'
-                . ' se cobra a partir del ' . self::dia($saldo['fecha_cobro']) . ' y tenés tiempo hasta el ' . self::dia($saldo['limite']) . ' inclusive.'
-                . ' Si no lo pagás para esa fecha, la reserva se cancela sola: según la política de cancelación que aceptaste, se retiene el '
-                . self::porcentaje($saldo['retencion']) . ' de la seña y se te devuelve el resto.';
+        $estadia = "de tu estadía en $unidad, del " . self::dia($ingreso) . ' al ' . self::dia($egreso);
+        if ($pagoTotal) {
+            $texto = 'Recibimos el pago del total (' . self::pesos($monto) . ") $estadia. Tu reserva está confirmada y paga:"
+                . ' como reservaste con 5 días o menos de anticipación, no te queda saldo por pagar.';
+            self::avisar($huesped, "Tu reserva en $unidad está confirmada", $texto);
+            return;
         }
+        $texto = 'Recibimos el pago de la seña (' . self::pesos($monto) . ") $estadia. Tu reserva está confirmada.";
+        if ($saldo === null) {
+            self::avisar($huesped, "Tu reserva en $unidad está confirmada", $texto);
+            return;
+        }
+        $texto .= ' Te queda pagar el saldo de ' . self::pesos($saldo['monto']) . '. Lo podés pagar desde ya, desde tus reservas,'
+            . ' y tenés tiempo hasta el ' . self::dia($saldo['limite']) . ' a las 23:59 (hora de Argentina), sin días de gracia.'
+            . ' Te lo vamos a recordar 3 días antes, el día anterior y ese mismo día.'
+            . ' Si no lo pagás para esa fecha, la reserva se cancela sola: según la política de cancelación que aceptaste, se retiene el '
+            . self::porcentaje($saldo['retencion']) . ' de la seña y se te devuelve el resto.'
+            . ' Si es la primera vez que pagás con billetera, la guía "Cómo pagar" te explica los pasos: '
+            . Config::obtener('app.url_front') . self::GUIA_PAGOS;
         self::avisar($huesped, "Tu reserva en $unidad está confirmada", $texto);
     }
 
@@ -55,12 +70,13 @@ class AvisoPagoMail
     }
 
     //"No pudimos confirmar el pago del saldo de tu reserva en Cabaña del Mar" (RF-26)
-    //$limite: el último día para pagarlo (decisión #23), o null si no se sabe.
+    //$limite: el último día para pagarlo (decisión #75), o null si no se sabe.
     public static function saldoFallido(array $huesped, string $unidad, string $motivo, ?string $limite): void
     {
         $plazo = $limite === null
             ? ' Podés volver a pagarlo desde tus reservas.'
-            : ' Podés volver a pagarlo hasta el ' . self::dia($limite) . ' inclusive: si no, la reserva se cancela sola.';
+            : ' Podés volver a pagarlo hasta el ' . self::dia($limite) . ' a las 23:59: si no, la reserva se cancela sola.'
+              . ' La guía "Cómo pagar" te explica los pasos: ' . Config::obtener('app.url_front') . self::GUIA_PAGOS;
         self::avisar(
             $huesped,
             "No pudimos confirmar el pago del saldo de tu reserva en $unidad",

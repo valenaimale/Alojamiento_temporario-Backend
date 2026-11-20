@@ -4,7 +4,8 @@ namespace Tests\Integracion;
 
 use Tests\Soporte\EntornoDePrueba;
 
-//Los recordatorios del saldo (RF-25): a quién se le avisa, cada cuánto y hasta cuándo.
+//Los recordatorios del saldo (RF-25 y decisión #75): a quién se le avisa y qué días (3 días antes del último día
+//para pagar, el día anterior y el mismo día).
 //Corre scripts/enviar-recordatorios.php de verdad, como lo correría el cron de Railway, contra la base
 //de prueba, y después mira qué quedó anotado en recordatorios_saldo.
 //Los mails en sí no se revisan acá: RecordatorioSaldo nunca falla y el envío ya se prueba en otros tests.
@@ -26,176 +27,219 @@ final class RecordatoriosSaldoTest extends CasoDeIntegracion
         $this->reservas = [];
     }
 
-    //Una reserva confirmada con el saldo sin pagar y la fecha de cobro ya cumplida recibe su recordatorio
-    public function testLeRecuerdaElSaldoAQuienNoLoPago(): void
+    //A 3 días del último día para pagar (la fecha de cobro) le llega el primer recordatorio (#75)
+    public function test_TresDiasAntesLeLlegaElPrimerRecordatorio(): void
     {
-        $reserva = $this->reservaConSaldoImpago();
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+3 days']);
 
+        // Act
         $salida = $this->correrScript(true);
 
+        // Assert
         $this->assertStringContainsString("reserva $reserva", $salida);
         $this->assertSame([1], $this->recordatoriosDe($reserva));
     }
 
     //Sin --enviar no manda ni anota nada: solo dice a quién le escribiría
-    public function testSinEnviarNoAnotaNada(): void
+    public function test_SinEnviarNoAnotaNada(): void
     {
-        $reserva = $this->reservaConSaldoImpago();
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+3 days']);
 
+        // Act
         $salida = $this->correrScript(false);
 
+        // Assert
         $this->assertStringContainsString('[simulacion]', $salida);
         $this->assertStringContainsString("reserva $reserva", $salida);
         $this->assertSame([], $this->recordatoriosDe($reserva));
     }
 
-    //Correrlo dos veces seguidas no le manda dos mails: entre uno y otro tienen que pasar
-    //horas_entre_recordatorios (24 por defecto)
-    public function testNoLoAtosigaSiSeCorreDosVecesElMismoDia(): void
+    //Correrlo dos veces el mismo día no le manda dos mails: cada recordatorio sale una sola vez
+    public function test_CorrerloDosVecesElMismoDiaNoRepiteElMail(): void
     {
-        $reserva = $this->reservaConSaldoImpago();
-
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+3 days']);
         $this->correrScript(true);
+
+        // Act
         $this->correrScript(true);
 
+        // Assert
         $this->assertSame([1], $this->recordatoriosDe($reserva));
     }
 
-    //Pasadas las horas, le toca el segundo
-    public function testAlDiaSiguienteLeTocaElSegundo(): void
+    //A 4 días todavía no se le escribe: el primero sale a los 3
+    public function test_ConCuatroDiasTodaviaNoSeLeEscribe(): void
     {
-        $reserva = $this->reservaConSaldoImpago();
-        $this->correrScript(true);
-        $this->envejecerRecordatorios($reserva, '2 days');
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+4 days']);
 
-        $this->correrScript(true);
-
-        $this->assertSame([1, 2], $this->recordatoriosDe($reserva));
-    }
-
-    //Después del último (max_recordatorios_cobro, 3 por defecto) no se le manda nada más:
-    //de ahí en adelante es una deuda, no un olvido
-    public function testDespuesDelTerceroNoSeLeMandaMas(): void
-    {
-        $reserva = $this->reservaConSaldoImpago();
-        for ($vuelta = 1; $vuelta <= 3; $vuelta++) {
-            $this->correrScript(true);
-            $this->envejecerRecordatorios($reserva, '2 days');
-        }
-
+        // Act
         $this->correrScript(true);
 
-        $this->assertSame([1, 2, 3], $this->recordatoriosDe($reserva));
-    }
-
-    //Si ya pagó todo, no hay nada que recordarle
-    public function testNoLeRecuerdaNadaAQuienYaPago(): void
-    {
-        $reserva = $this->reservaConSaldoImpago();
-        $this->pagarEnBase($reserva, 'saldo', '320000.00');
-
-        $this->correrScript(true);
-
+        // Assert
         $this->assertSame([], $this->recordatoriosDe($reserva));
     }
 
-    //Si todavía falta mucho para el ingreso, el saldo no se pide: no es momento
-    public function testNoPideElSaldoAntesDeTiempo(): void
+    //El día anterior le toca el segundo
+    public function test_ElDiaAnteriorLeTocaElSegundo(): void
     {
-        $reserva = $this->reservaConSaldoImpago(['ingreso' => '+40 days', 'egreso' => '+45 days']);
+        // Arrange: ya recibió el de los 3 días, y ahora falta 1
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+3 days']);
+        $this->correrScript(true);
+        $this->moverFechaDeCobro($reserva, '+1 day');
 
+        // Act
         $this->correrScript(true);
 
+        // Assert
+        $this->assertSame([1, 2], $this->recordatoriosDe($reserva));
+    }
+
+    //El mismo día le toca el tercero, el último; después de ese no se le manda nada más
+    public function test_ElMismoDiaLeTocaElUltimo(): void
+    {
+        // Arrange: ya recibió los dos primeros, y hoy es el último día
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+3 days']);
+        $this->correrScript(true);
+        $this->moverFechaDeCobro($reserva, '+1 day');
+        $this->correrScript(true);
+        $this->moverFechaDeCobro($reserva, 'today');
+
+        // Act
+        $this->correrScript(true);
+        $this->correrScript(true);
+
+        // Assert
+        $this->assertSame([1, 2, 3], $this->recordatoriosDe($reserva));
+    }
+
+    //Si el cron no corrió el día del primero, no se le mandan los atrasados: el día anterior recibe solo el segundo
+    public function test_NoSeMandanLosRecordatoriosAtrasados(): void
+    {
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+1 day']);
+
+        // Act
+        $this->correrScript(true);
+
+        // Assert
+        $this->assertSame([2], $this->recordatoriosDe($reserva));
+    }
+
+    //Si ya pagó todo, no hay nada que recordarle
+    public function test_NoLeRecuerdaNadaAQuienYaPago(): void
+    {
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+3 days']);
+        $this->pagarEnBase($reserva, 'saldo', '320000.00');
+
+        // Act
+        $this->correrScript(true);
+
+        // Assert
+        $this->assertSame([], $this->recordatoriosDe($reserva));
+    }
+
+    //Quien reservó con 5 días o menos pagó todo con la seña (#75): no le queda saldo ni recibe recordatorios
+    public function test_QuienPagoElTotalAlReservarNoRecibeRecordatorios(): void
+    {
+        // Arrange: una reserva de pago total (porcentaje_sena 100, sin saldo)
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => 'today', 'pago_total' => true]);
+
+        // Act
+        $this->correrScript(true);
+
+        // Assert
         $this->assertSame([], $this->recordatoriosDe($reserva));
     }
 
     //Si el huésped ya ingresó, el saldo se resuelve en el mostrador y no por mail
-    public function testNoLeEscribeAQuienYaIngreso(): void
+    public function test_NoLeEscribeAQuienYaIngreso(): void
     {
-        $reserva = $this->reservaConSaldoImpago();
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => 'today', 'ingreso' => 'today', 'egreso' => '+3 days']);
         $operador = $this->crearUsuarioEnBase('operador');
         $this->pdo()->prepare(
             'INSERT INTO estadias (reserva_id, ingreso_en, ingreso_registrado_en, ingreso_operador_id, ingreso_evento_id)
              VALUES (?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), ?, ?)'
         )->execute([$reserva, $operador['id'], $this->uuid()]);
 
+        // Act
         $this->correrScript(true);
 
+        // Assert
         $this->assertSame([], $this->recordatoriosDe($reserva));
     }
 
     //Una reserva pendiente (ni siquiera pagó la seña) no entra: lo que vence ahí es el bloqueo, no el saldo
-    public function testUnaReservaPendienteNoRecibeRecordatorioDeSaldo(): void
+    public function test_UnaReservaPendienteNoRecibeRecordatorioDeSaldo(): void
     {
-        $reserva = $this->reservaConSaldoImpago(['estado' => 'pendiente', 'pagar_sena' => false]);
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+3 days', 'estado' => 'pendiente', 'pagar_sena' => false]);
 
+        // Act
         $this->correrScript(true);
 
+        // Assert
         $this->assertSame([], $this->recordatoriosDe($reserva));
     }
 
-    //Una reserva cancelada no recibe recordatorios: ya no hay reserva que salvar pagando el saldo.
-    //Es el estado en el que la deja la cancelación automática del saldo vencido (#23).
-    public function testUnaReservaCanceladaNoRecibeRecordatorios(): void
+    //Una reserva cancelada no recibe recordatorios: es el estado en el que la deja la cancelación automática (#23)
+    public function test_UnaReservaCanceladaNoRecibeRecordatorios(): void
     {
-        $reserva = $this->reservaConSaldoImpago(['estado' => 'cancelada']);
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+3 days', 'estado' => 'cancelada']);
 
+        // Act
         $this->correrScript(true);
 
+        // Assert
         $this->assertSame([], $this->recordatoriosDe($reserva));
     }
 
-    //Pasado el plazo para pagar el saldo (la fecha de cobro más dias_vencimiento_saldo, 3 por defecto)
-    //no se le manda otro mail: lo que corresponde es cancelarla, no volver a pedirle la plata (#23)
-    public function testNoLeEscribeSiYaSeLePasoElPlazo(): void
+    //Pasada la fecha de cobro no hay más días de gracia (#75): no se le escribe, lo que corresponde es cancelarla
+    public function test_PasadaLaFechaDeCobroNoSeLeEscribe(): void
     {
-        $reserva = $this->reservaConSaldoImpago([
-            'ingreso' => '+10 days', 'egreso' => '+15 days', 'fecha_cobro' => '-4 days',
-        ]);
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '-1 day']);
 
+        // Act
         $this->correrScript(true);
 
+        // Assert
         $this->assertSame([], $this->recordatoriosDe($reserva));
     }
 
-    //El último día del plazo todavía recibe su recordatorio: ese día puede pagarlo, incluso al ingresar (#23 y #25)
-    public function testElUltimoDiaDelPlazoTodaviaRecibeRecordatorio(): void
+    //El recordatorio dice hasta qué día se puede pagar: la fecha de cobro, el mismo plazo que usa la cancelación
+    public function test_ElRecordatorioAnunciaLaFechaDeCobroComoPlazo(): void
     {
-        $reserva = $this->reservaConSaldoImpago([
-            'ingreso' => '+10 days', 'egreso' => '+15 days', 'fecha_cobro' => '-3 days',
-        ]);
+        // Arrange
+        $reserva = $this->reservaConSaldoImpago(['fecha_cobro' => '+3 days']);
 
-        $this->correrScript(true);
-
-        $this->assertSame([1], $this->recordatoriosDe($reserva));
-    }
-
-    //El recordatorio dice hasta qué día se puede pagar: es el plazo que después usa la cancelación automática.
-    //Con el ingreso en 3 días y la fecha de cobro hace 2, el plazo se corta en el ingreso y no a los 3 días.
-    public function testElRecordatorioAnunciaElPlazoParaPagar(): void
-    {
-        $reserva = $this->reservaConSaldoImpago();
-        $limite = $this->fecha('+1 day');   //la fecha de cobro (hace 2 días) más los 3 días del plazo
-
+        // Act
         $salida = $this->correrScript(true);
 
+        // Assert
         $this->assertStringContainsString("reserva $reserva", $salida);
-        $this->assertStringContainsString("paga hasta el $limite", $salida);
+        $this->assertStringContainsString('paga hasta el ' . $this->fecha('+3 days'), $salida);
     }
 
     // ---------- Ayudas de este test ----------
 
-    //Una reserva confirmada de 5 noches que empiezan en 3 días, con la seña pagada y el saldo sin pagar.
+    //Una reserva confirmada de 5 noches que empiezan en 8 días, con la seña pagada y el saldo sin pagar.
     //Como la hace el Rol 2 al reservar: con monto_faltante (el saldo) y fecha_cobro, que es de donde salen
-    //el importe que se reclama y el plazo que anuncia el mail.
-    //Opciones: ingreso, egreso, estado, pagar_sena y fecha_cobro (por defecto, 5 días antes del ingreso,
-    //que es dias_cobro_saldo).
+    //el importe que se reclama y el plazo que anuncia el mail (el último día para pagar es la fecha de cobro, #75).
+    //Opciones: ingreso, egreso, estado, pagar_sena, fecha_cobro (por defecto, 5 días antes del ingreso,
+    //que es dias_cobro_saldo) y pago_total (reservó con 5 días o menos: la seña es el total y no queda saldo).
     //Devuelve el id de la reserva.
     private function reservaConSaldoImpago(array $opciones = []): int
     {
         $opciones = array_merge([
-            'ingreso' => '+3 days', 'egreso' => '+8 days', 'estado' => 'confirmada', 'pagar_sena' => true,
-            'fecha_cobro' => null,
+            'ingreso' => '+8 days', 'egreso' => '+13 days', 'estado' => 'confirmada', 'pagar_sena' => true,
+            'fecha_cobro' => null, 'pago_total' => false,
         ], $opciones);
 
         $propietario = $this->crearPropietarioEnBase();
@@ -212,16 +256,18 @@ final class RecordatoriosSaldoTest extends CasoDeIntegracion
                                    importe_total, porcentaje_sena, importe_sena, monto_faltante, fecha_cobro,
                                    retencion_mas_de_30, retencion_de_15_a_30, retencion_menos_de_15,
                                    politica_aceptada_en, creado_en)
-             VALUES (?, ?, ?, ?, 2, ?, '400000.00', 20, '80000.00', '320000.00', ?, 30, 50, 70,
+             VALUES (?, ?, ?, ?, 2, ?, '400000.00', ?, ?, ?, ?, 30, 50, 70,
                      UTC_TIMESTAMP(), UTC_TIMESTAMP() - INTERVAL 20 DAY)"
         )->execute([
-            $unidad, $huesped['id'], $ingreso, $this->fecha($opciones['egreso']), $opciones['estado'], $fechaCobro,
+            $unidad, $huesped['id'], $ingreso, $this->fecha($opciones['egreso']), $opciones['estado'],
+            ...($opciones['pago_total'] ? ['100', '400000.00', '0.00'] : ['20', '80000.00', '320000.00']),
+            $fechaCobro,
         ]);
         $reserva = (int) $this->pdo()->lastInsertId();
         $this->reservas[] = $reserva;
 
         if ($opciones['pagar_sena']) {
-            $this->pagarEnBase($reserva, 'sena', '80000.00');
+            $this->pagarEnBase($reserva, 'sena', $opciones['pago_total'] ? '400000.00' : '80000.00');
         }
         return $reserva;
     }
@@ -246,12 +292,10 @@ final class RecordatoriosSaldoTest extends CasoDeIntegracion
         }
     }
 
-    //Mueve para atrás los recordatorios de la reserva, para simular que pasaron los días
-    private function envejecerRecordatorios(int $reservaId, string $cuanto): void
+    //Acerca la fecha de cobro, para simular que pasaron los días (los recordatorios se cuentan hacia esa fecha)
+    private function moverFechaDeCobro(int $reservaId, string $fecha): void
     {
-        $atras = (new \DateTimeImmutable("now -$cuanto", new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
-        $this->pdo()->prepare('UPDATE recordatorios_saldo SET enviado_en = ? WHERE reserva_id = ?')
-            ->execute([$atras, $reservaId]);
+        $this->pdo()->prepare('UPDATE reservas SET fecha_cobro = ? WHERE id = ?')->execute([$this->fecha($fecha), $reservaId]);
     }
 
     //Los números de los recordatorios que se le mandaron a esa reserva, en orden

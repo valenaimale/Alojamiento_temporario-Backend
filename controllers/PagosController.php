@@ -163,14 +163,18 @@ class PagosController
                 Extension::avisarConfirmada((int) $reserva['id']);//al huésped y al propietario
                 $ok = "Pagaste la extensión: tu estadía en $unidad sigue hasta el " . ValidadorFechas::fecha($reserva['fecha_egreso'])->format('d/m/Y');
             } elseif ($tipo === self::SENA) {
-                //decisión #23: desde la seña se le avisa hasta cuándo puede pagar el saldo y qué pasa si no lo paga
+                //decisiones #23 y #75: desde la seña se le avisa hasta cuándo puede pagar el saldo y qué pasa si no lo paga
                 $limite = $this->limiteDelSaldo($reserva);
                 $saldo = $limite !== null && bccomp($reserva['monto_faltante'], '0', 2) > 0
                     ? ['monto' => $reserva['monto_faltante'], 'fecha_cobro' => $reserva['fecha_cobro'], 'limite' => $limite,
                        'retencion' => $reserva['retencion_menos_de_15']]
                     : null;
-                AvisoPagoMail::senaConfirmada($huesped, $unidad, $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $montoPesos, $saldo);
-                $ok = "Pagaste la seña: tu reserva en $unidad está confirmada";
+                //reservó con 5 días o menos y la seña fue el total (#75)
+                $pagoTotal = $reserva['monto_faltante'] !== null && bccomp($reserva['monto_faltante'], '0', 2) === 0;
+                AvisoPagoMail::senaConfirmada($huesped, $unidad, $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $montoPesos, $saldo, $pagoTotal);
+                $ok = $pagoTotal
+                    ? "Pagaste el total: tu reserva en $unidad está confirmada y paga"
+                    : "Pagaste la seña: tu reserva en $unidad está confirmada";
             } else {
                 AvisoPagoMail::saldoConfirmado($huesped, $unidad, $reserva['fecha_ingreso'], $montoPesos);
                 $ok = "Pagaste el saldo: tu reserva en $unidad está paga";
@@ -217,6 +221,13 @@ class PagosController
         $problema = $this->problemaParaPagar($tipo, $reserva);
         if ($problema !== null) {
             return $this->error(...$problema);
+        }
+        //Sin días de gracia (#75): pasado el último día ya no se arma un pago nuevo del saldo; la reserva se cancela sola.
+        //Solo acá, al pedir los datos: si firmó la transacción antes y se confirma después, se registra igual.
+        $limite = $tipo === self::SALDO ? $this->limiteDelSaldo($reserva) : null;
+        if ($limite !== null && $limite < ValidadorFechas::hoy()->format('Y-m-d')) {
+            return $this->error('Se venció el plazo para pagar el saldo (era hasta el '
+                . ValidadorFechas::fecha($limite)->format('d/m/Y') . '): la reserva se cancela sola', 409);
         }
 
         $montoPesos = $this->monto($tipo, $reserva);
@@ -311,7 +322,7 @@ class PagosController
         return $fechaCobro !== null && $fechaCobro < ValidadorFechas::hoy()->format('Y-m-d');
     }
 
-    //El último día para pagar el saldo (decisión #23): el mismo que anuncian los recordatorios y que usa la cancelación
+    //El último día para pagar el saldo (decisión #75: la fecha de cobro, sin gracia): el mismo que anuncian los recordatorios y que usa la cancelación
     //automática (CobroDelSaldo::limiteDePago). null en las reservas viejas sin fecha_cobro.
     private function limiteDelSaldo(array $reserva): ?string
     {

@@ -6,11 +6,12 @@
 //    php scripts/enviar-recordatorios.php            muestra a quién le escribiría, sin mandar nada
 //    php scripts/enviar-recordatorios.php --enviar    manda los mails
 //
-//Quién recibe un recordatorio y cada cuánto lo decide App\Validacion\CobroDelSaldo, con los parámetros
-//dias_cobro_saldo, horas_entre_recordatorios y max_recordatorios_cobro, que administra el backoffice.
-//Cada mail dice hasta qué día se puede pagar el saldo (dias_vencimiento_saldo, 3 por defecto) y que, pasado
-//ese plazo, la reserva se cancela sola (decisión #23 de docs/pagos-decisiones.md). Una reserva ya cancelada,
-//o a la que se le pasó ese plazo, no recibe más recordatorios.
+//Quién recibe un recordatorio lo decide App\Validacion\CobroDelSaldo (decisión #75 de docs/pagos-decisiones.md):
+//salen 3 días antes del último día para pagar (la fecha_cobro), el día anterior y el mismo día. Corre con las
+//tareas diarias (6 de Argentina), así el del mismo día llega a la mañana.
+//Cada mail dice hasta qué día se puede pagar el saldo (hasta las 23:59 de la fecha de cobro, sin días de gracia) y
+//que, pasado ese plazo, la reserva se cancela sola (#23). Una reserva ya cancelada, o a la que se le pasó ese
+//plazo, no recibe más recordatorios. Una reserva grupal recibe uno solo para todas sus unidades.
 //Correrlo dos veces el mismo día no manda nada dos veces: cada recordatorio se anota antes de mandarse
 //y la base no deja anotar dos veces el mismo (índice único de reserva_id y número).
 //La carpeta scripts/ está fuera de index/, así que el servidor web no la expone.
