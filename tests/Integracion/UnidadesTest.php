@@ -301,6 +301,8 @@ final class UnidadesTest extends CasoDeIntegracion
             'deposito_garantia'  => '15000.00',
             'estado_publicacion' => 'borrador',
             'es_propietario'     => true,
+            'latitud' => null, 'longitud' => null, 'barrio' => null,
+            'metros_playa' => null, 'metros_centro' => null,
         ], $unidad);
         $this->assertSame([0, 1], array_column($fotos, 'orden'));
         $this->assertSame(self::FOTO . 'foto-0.jpg', $fotos[0]['url']);
@@ -460,5 +462,22 @@ final class UnidadesTest extends CasoDeIntegracion
             $this->assertSame(404, $respuesta->codigo);
         }
         $this->assertNull($this->filaUnidad($unidadId)['deposito_garantia']);
+    }
+
+    // Un cliente anterior puede editar el nombre sin borrar el punto público.
+    public function test_EditarSinCamposDeMapaConservaLaUbicacion(): void
+    {
+        // Arrange
+        $cliente = $this->iniciarSesion($this->crearPropietarioEnBase()['mail']);
+        $alta = $cliente->post('/unidades/crear', $this->datosValidos(['latitud' => -37.3, 'longitud' => -57.1]));
+        $id = $alta->json()['id'];
+
+        // Act
+        $respuesta = $cliente->post('/unidades/editar', $this->datosValidos(['unidad_id' => $id]));
+
+        // Assert
+        $this->assertSame(200, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame('-37.300000', $this->filaUnidad($id)['latitud']);
+        $this->assertSame('-57.100000', $this->filaUnidad($id)['longitud']);
     }
 }

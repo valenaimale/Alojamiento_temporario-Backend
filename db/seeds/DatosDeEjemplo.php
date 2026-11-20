@@ -103,6 +103,8 @@ final class DatosDeEjemplo extends AbstractSeed
 
         //3. Publicada y administrada por Cacho, con una sola temporada media (mínimo 3 noches)
         $casa = $this->crearUnidad($marisa, 'Mar de las Pampas', [
+            'latitud' => -37.3271, 'longitud' => -57.0214, 'barrio' => 'Bosque', // punto ilustrativo para la demo
+            'metros_playa' => 400, 'metros_centro' => 600,
             'nombre' => 'Casa del Bosque', 'direccion' => 'Santiago Ramón y Cajal 300', 'capacidad' => 6,
             'caracteristicas' => 'Entre los pinos, a 400 metros del mar. Tres dormitorios.',
             'deposito_garantia' => 80000, 'estado_publicacion' => 'publicada', 'operador_id' => $nadia,

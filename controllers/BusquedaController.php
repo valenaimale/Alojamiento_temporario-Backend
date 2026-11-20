@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Database\Conexion;
 use App\Request\Request;
 use App\Validacion\Estadia;
+use App\Validacion\Ubicacion;
 use App\Validacion\UnidadGrupal;
 
 //La búsqueda de unidades disponibles (US3.2). Es pública: se usa con o sin sesión.
@@ -42,7 +43,7 @@ class BusquedaController
         }
 
         //las candidatas: publicadas, disponibles, en una localidad activa y con lugar para todos
-        $sql = 'SELECT u.id, u.nombre, u.capacidad, l.nombre AS localidad, l.provincia,
+        $sql = 'SELECT u.id, u.nombre, u.capacidad, u.latitud, u.longitud, u.barrio, u.metros_playa, u.metros_centro, l.nombre AS localidad, l.provincia,
                        (SELECT f.url FROM fotos_unidad f WHERE f.unidad_id = u.id AND f.orden = 0) AS foto_principal
                 FROM unidades u
                 JOIN localidades l ON l.id = u.localidad_id
@@ -75,6 +76,7 @@ class BusquedaController
                 'importe_sin_descuento' => $estadia['importe_sin_descuento'],
                 'porcentaje_descuento'  => $estadia['porcentaje_descuento'],
                 'precio_total'   => $estadia['precio_total'],
+                ...($unidad['latitud'] === null ? [] : ['ubicacion' => Ubicacion::publica($unidad)]),
             ];
         }
         usort($unidades, fn ($a, $b) => (float) $a['precio_total'] <=> (float) $b['precio_total']);
