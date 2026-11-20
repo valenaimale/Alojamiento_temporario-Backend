@@ -173,7 +173,56 @@ La plataforma manda **una** transacción `liquidar(reservaId, destinatarios[], m
 | `409` | `{"error": "A esta reserva no le queda nada en el contrato de la red 84532: …"}` | Se pagó en otra red (por ejemplo, la simulada) |
 | `409` | `{"error": "Esa liquidación está retenida: todavía no se cobró toda la estadía"}` | RN-16 |
 | `409` | `{"error": "El propietario todavía no cargó su billetera de cobro: ..."}` | Falta una billetera (#44). También el caso del administrador y el de los dos |
+| `202` | `{"ok": "La liquidación quedó anotada: sale en unos minutos", "tx_hash": null}` | Otro proceso estaba mandando esa reserva justo en ese momento: no se manda dos veces, sale con el reintento del cron |
 | `404` | `{"error": "No encontramos esa liquidación"}` | |
+
+### Listado del backoffice
+
+```
+GET /backoffice/liquidaciones
+```
+
+Todas las liquidaciones, de la más nueva a la más vieja, para la pantalla del backoffice que genera y paga a mano sin esperar al cron. Trae también `sin_liquidar`: cuántas reservas están listas para liquidarse y todavía no se liquidaron (las que crea `POST /liquidaciones/generar`).
+
+```json
+{
+  "sin_liquidar": 2,
+  "liquidaciones": [
+    {
+      "id": 3, "estado": "pendiente", "situacion": "para_pagar", "motivo": "estadia",
+      "creado_en": "2026-11-20T13:00:00Z", "liquidada_en": null, "transaccion": null,
+      "reserva": {"id": 12, "ingreso": "2026-11-08", "egreso": "2026-11-13", "noches": 5, "huesped": "Juan Pérez", "unidad": {"nombre": "Casa del Bosque", "...": "..."}},
+      "propietario": "Marisa Gómez", "administrador": "Cacho Fernández",
+      "importe_cobrado": "425000.00", "importe_propietario": "329375.00",
+      "comision_administrador": "63750.00", "comision_plataforma": "31875.00", "excepcion": "0.00",
+      "faltante": null, "faltan_billeteras": []
+    }
+  ]
+}
+```
+
+`situacion` dice qué se puede hacer con cada una:
+
+| `situacion` | Qué significa |
+|---|---|
+| `para_pagar` | Pendiente, con las billeteras cargadas y sin pagos anotados: se puede pagar |
+| `saliendo` | Ya tiene pagos anotados: salió (o la está mandando el cron) y falta que se confirme |
+| `sin_billetera` | Falta la billetera del propietario o del administrador (`faltan_billeteras`, #44) |
+| `retenida` | Retenida por deuda (RN-16) |
+| `pagada` | Pagada |
+
+`401` sin sesión, `403` si no es del backoffice.
+
+### Que no se pague dos veces
+
+El backoffice y el cron pueden querer pagar la misma liquidación a la vez. Hay cuatro protecciones, de la base al contrato:
+
+1. **Al generar**: el índice único de `reserva_id` en `liquidaciones`. Si los dos generan a la vez, el segundo choca con la clave duplicada y lo saltea.
+2. **Al anotar los pagos**: `PagoDeLiquidacion::pagar` traba la fila de la liquidación (`SELECT … FOR UPDATE`) y, con la fila trabada, se fija si ya hay pagos de esa reserva con una lectura con bloqueo, que ve lo último confirmado. El segundo pedido espera al primero, ve sus pagos y responde `409`.
+3. **Al mandar la transacción**: un candado de MySQL por reserva (`GET_LOCK('liquidar_reserva_<id>')`). Mientras uno la manda, el otro no hace nada. El `tx_hash` se anota **apenas sale la transacción**, antes de esperar la confirmación: si el proceso se corta mientras espera, el cron solo pregunta cómo terminó y no la vuelve a mandar. Además, el cron solo reintenta lo que tiene más de 5 minutos, y dos copias del cron no corren a la vez (`GET_LOCK('pagar_liquidaciones')`).
+4. **En el contrato**: `liquidar()` nunca deja sacar de una reserva más de lo que entró (`FondosInsuficientes`). Aunque todo lo anterior fallara, una segunda transacción revertiría sin mover ETH.
+
+Lo prueba `LiquidacionesTest::testSiOtroProcesoLaEstaMandandoNoSeMandaDosVeces`: con la reserva trabada por otro proceso, el pedido del backoffice la deja anotada (`202`), un segundo pedido da `409`, y el cron la manda una sola vez.
 
 
 ## Tablas
