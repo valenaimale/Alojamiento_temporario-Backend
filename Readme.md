@@ -349,6 +349,8 @@ Las funcionalidades que salieron de la devolución del profesor se documentan en
 | [`docs/recordatorios-del-saldo.md`](docs/recordatorios-del-saldo.md) | Los recordatorios para que el huésped pague el saldo de su reserva: a quién se le avisa, cada cuánto y cómo se corre el script (RF-25). |
 
 
+| [`docs/api/unidades-grupales.md`](docs/api/unidades-grupales.md) | Unidades grupales (US4.4): el administrador agrupa unidades que administra y la búsqueda las ofrece con las unidades libres para esas fechas. |
+| [`docs/api/reserva-grupal.md`](docs/api/reserva-grupal.md) | Reserva grupal (US4.4 y US8.5): reservar varias unidades, pagar la seña y el saldo juntos (`pagarSenaGrupal` y `pagarSaldoGrupal`) y cancelar cada una por separado. |
 | [`docs/api/liquidaciones.md`](docs/api/liquidaciones.md) | Liquidaciones del propietario y comisiones del administrador, con su comprobante sin valor fiscal (RF-09, RF-13, RF-19). |
 
 | [`docs/api/pagos.md`](docs/api/pagos.md) | Pago de la seña y del saldo en ETH de prueba (pesos → wei), vencimiento de las reservas pendientes y aviso si un pago falla (L2-28, L2-30, L2-6, RF-26). Verificador simulado hasta que esté el contrato. |

@@ -256,7 +256,7 @@ class PagosController
         }
         $consulta = Conexion::obtener()->prepare(
             'SELECT r.id, r.estado, r.bloqueo_expira_en, r.extiende_reserva_id, r.importe_sena, r.monto_faltante, r.fecha_cobro, r.retencion_menos_de_15,
-                    r.fecha_ingreso, r.fecha_egreso, u.nombre AS unidad_nombre
+                    r.fecha_ingreso, r.fecha_egreso, r.grupo_id, u.nombre AS unidad_nombre
              FROM reservas r JOIN unidades u ON u.id = r.unidad_id
              WHERE r.id = ? AND r.huesped_id = ?' . ($bloquear ? ' FOR UPDATE' : '')
         );
@@ -273,6 +273,10 @@ class PagosController
     //Por qué no se puede pagar la seña o el saldo de esa reserva, como [mensaje, código HTTP], o null si se puede
     private function problemaParaPagar(string $tipo, array $reserva): ?array
     {
+        //una unidad de una reserva grupal se paga con las demás, en una sola transacción (ReservasGrupalesController)
+        if ($reserva['grupo_id'] !== null) {
+            return ['Esta reserva es parte de una reserva grupal: se paga junto con las demás unidades', 409];
+        }
         $problemaDeExtension = Extension::problemaParaPagar($reserva, $tipo);
         if ($problemaDeExtension !== null) {
             return $problemaDeExtension;

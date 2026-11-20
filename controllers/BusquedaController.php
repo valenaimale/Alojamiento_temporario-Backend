@@ -5,9 +5,11 @@ namespace App\Controllers;
 use App\Database\Conexion;
 use App\Request\Request;
 use App\Validacion\Estadia;
+use App\Validacion\UnidadGrupal;
 
 //La búsqueda de unidades disponibles (US3.2). Es pública: se usa con o sin sesión.
 //Fechas obligatorias; localidad opcional (sin localidad, busca en todos los destinos).
+//Además de las unidades sueltas, trae las unidades grupales que corresponden a esa búsqueda (US4.4, UnidadGrupal).
 class BusquedaController
 {
     private const MAXIMO_PERSONAS = 50;
@@ -78,7 +80,51 @@ class BusquedaController
         usort($unidades, fn ($a, $b) => (float) $a['precio_total'] <=> (float) $b['precio_total']);
 
         http_response_code(200);
-        echo json_encode(['unidades' => $unidades]);
+        echo json_encode(['unidades' => $unidades, 'grupales' => $this->grupales($fechas, $personas, $localidadId)]);
+    }
+
+    //Las unidades grupales activas (de esa localidad, si vino) armadas para esas fechas y personas: solo con sus
+    //unidades libres, y solo las que corresponde mostrar (UnidadGrupal::armar). De la más barata a la más cara.
+    private function grupales(array $fechas, int $personas, ?int $localidadId): array
+    {
+        $sql = 'SELECT g.id, g.titulo, l.nombre AS localidad, l.provincia
+                FROM unidades_grupales g
+                JOIN localidades l ON l.id = g.localidad_id
+                WHERE g.activa = 1 AND l.activa = 1';
+        $parametros = [];
+        if ($localidadId !== null) {
+            $sql .= ' AND g.localidad_id = ?';
+            $parametros[] = $localidadId;
+        }
+        $consulta = Conexion::obtener()->prepare($sql);
+        $consulta->execute($parametros);
+
+        $grupales = [];
+        foreach ($consulta->fetchAll() as $grupal) {
+            $armada = UnidadGrupal::armar((int) $grupal['id'], $fechas['ingreso'], $fechas['egreso'], $personas);
+            if ($armada === null) {
+                continue;
+            }
+            $grupales[] = [
+                'id'                    => (int) $grupal['id'],
+                'titulo'                => $grupal['titulo'],
+                'localidad'             => $grupal['localidad'],
+                'provincia'             => $grupal['provincia'],
+                'capacidad'             => $armada['capacidad'],
+                'noches'                => $armada['noches'],
+                'importe_sin_descuento' => $armada['importe_sin_descuento'],
+                'precio_total'          => $armada['precio_total'],
+                //las unidades que ofrece para estas fechas, para la tarjeta (nombre, lugar y foto de cada una)
+                'unidades'              => array_map(fn ($u) => [
+                    'id'             => (int) $u['id'],
+                    'nombre'         => $u['nombre'],
+                    'capacidad'      => (int) $u['capacidad'],
+                    'foto_principal' => $u['foto_principal'],
+                ], $armada['unidades']),
+            ];
+        }
+        usort($grupales, fn ($a, $b) => (float) $a['precio_total'] <=> (float) $b['precio_total']);
+        return $grupales;
     }
 
     //Responde un error en JSON con su código HTTP

@@ -57,6 +57,10 @@ foreach ($pendientes as $recordatorio) {
         echo "  [salteado]   $detalle (ya estaba anotado)\n";
         continue;
     }
+    //en una reserva grupal, el mismo recordatorio cuenta para todas sus unidades (CobroDelSaldo::juntarGrupos)
+    foreach ($recordatorio['otras_reservas'] as $otra) {
+        CobroDelSaldo::anotar($otra, $recordatorio['numero']);
+    }
     RecordatorioSaldo::enviar($recordatorio);
     $enviados++;
     echo "  [enviado]    $detalle\n";
