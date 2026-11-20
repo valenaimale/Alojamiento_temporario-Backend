@@ -227,6 +227,30 @@ Lo que imprime cada corrida queda en los logs del servicio. Si una tarea falla, 
 
 Con MetaMask en Base Sepolia y ETH de prueba de un faucet: pagar una seña, ver el evento `PagoRealizado` en BaseScan, cancelar y ver la devolución (`Devolucion`) en BaseScan.
 
+### 6. Cambiar de contrato (reserva grupal, 20/11)
+
+La reserva grupal necesita un contrato nuevo, con `pagarSenaGrupal` y `pagarSaldoGrupal` (decisión #76 de `pagos-decisiones.md`). Un contrato desplegado no se puede modificar: se despliega otro, con otra dirección. El front no guarda la dirección (se la pide al back en cada pago), así que **solo cambia `CONTRATO_DIRECCION` en Railway**.
+
+El back habla con un solo contrato, y el ETH de cada reserva quedó en el anterior. Por eso **se borran todas las reservas**: al 20/11 son todas de prueba. Si no, el cron intentaría devolver o liquidar contra el contrato nuevo reservas que no están ahí. El ETH de prueba que quedó en el contrato anterior se pierde, y no tiene valor.
+
+Antes de empezar: el PR con `scripts/borrar-reservas-de-prueba.php` tiene que estar mergeado y desplegado en Railway. Conviene avisar al equipo, porque se pierden las reservas de prueba.
+
+1. **Desplegar el contrato nuevo** (repo de contratos, en `main` actualizado; el `.env` con `PLATAFORMA_DIRECCION` y `ETHERSCAN_API_KEY` es el de la primera vez):
+   ```bash
+   forge test
+   forge script script/Desplegar.s.sol --rpc-url base_sepolia --account plataforma --broadcast --verify
+   ```
+   La dueña tiene que ser la **misma billetera** de `PLATAFORMA_CLAVE_PRIVADA` en Railway. Anotar la dirección que imprime ("PasarelaPago desplegado en: 0x…").
+2. **Borrar las reservas** (`railway ssh`, en el servicio del backend):
+   ```bash
+   php scripts/borrar-reservas-de-prueba.php                                  # muestra qué borraría
+   php scripts/borrar-reservas-de-prueba.php --borrar --son-todas-de-prueba   # las borra
+   ```
+3. **Cambiar `CONTRATO_DIRECCION`** en las Variables del servicio del backend y en los dos servicios del cron, si no la referencian. Railway vuelve a desplegar solo.
+4. **Verificar**: `php scripts/verificar-blockchain.php` (con `railway ssh`) tiene que dar todo OK con la dirección nueva. Después, correr el smoke del front a mano (Actions → Smoke → Run workflow).
+5. **Probar de punta a punta** una reserva grupal con MetaMask: buscar para 8 personas en Mar de las Pampas, de 4 noches o más, y pagar la seña. En BaseScan tiene que verse **una** transacción `pagarSenaGrupal` con un `PagoRealizado` por unidad.
+6. Actualizar la dirección en este documento, en `config/configuracion.example.php` y en el README y `docs/contrato.md` del repo de contratos (con el registro de `broadcast/`).
+
 ---
 
 ## Backups
