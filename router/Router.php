@@ -154,6 +154,16 @@ class Router {
         $this->register('POST@/unidades/operador/asignar', 'GestionUnidadController@asignarOperador');
         $this->register('POST@/unidades/operador/quitar', 'GestionUnidadController@quitarOperador');
         $this->register('GET@/administrador/unidades', 'CarteraAdministradorController@listar');
+        //unidades grupales (US4.4): las arma el administrador; el huésped las encuentra en /buscar
+        $this->register('GET@/administrador/grupales', 'UnidadesGrupalesController@listar');
+        $this->register('POST@/administrador/grupales/crear', 'UnidadesGrupalesController@crear');
+        $this->register('POST@/administrador/grupales/editar', 'UnidadesGrupalesController@editar');
+        $this->register('POST@/administrador/grupales/estado', 'UnidadesGrupalesController@cambiarEstado');
+        $this->register('GET@/grupal', 'UnidadesGrupalesController@detalle');
+        $this->register('POST@/reservas/grupal/crear', 'ReservasGrupalesController@crear');//reserva grupal (US4.4)
+        $this->register('GET@/pagos/grupo/sena', 'ReservasGrupalesController@sena');
+        $this->register('GET@/pagos/grupo/saldo', 'ReservasGrupalesController@saldo');
+        $this->register('POST@/pagos/grupo/confirmar', 'ReservasGrupalesController@confirmar');
         // ---------- fin PR 6 ----------
 
         // ---------- Épica 4: reservas (entrega 4, sin pagos) ----------

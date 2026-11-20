@@ -38,6 +38,8 @@ Devuelve las unidades **publicadas**, **disponibles** (no fuera de servicio), de
 | `200` | `{"unidades": [{"id": 1, "nombre": "Cabaña del Mar", "localidad": "Las Grutas", "provincia": "Río Negro", "capacidad": 4, "foto_principal": "https://res.cloudinary.com/...", "noches": 5, "precio_total": "350000.00"}, ...]}` (o `[]`) | |
 | `422` | `{"error": "El ingreso tiene que ser de mañana en adelante"}`, `{"error": "Indicá cuántas personas van a ser (de 1 a 50)"}`, `{"error": "Elegí una localidad de la lista"}` (y uno por cada regla) | Algún parámetro no cumple las reglas. |
 
+La respuesta trae además **`grupales`**: las unidades grupales que corresponden a esa búsqueda (US4.4), armadas con sus unidades libres. Cuándo aparecen y qué traen está en [unidades-grupales.md](unidades-grupales.md).
+
 ## Detalle de un alojamiento
 
 ```

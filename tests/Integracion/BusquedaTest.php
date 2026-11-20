@@ -73,7 +73,7 @@ final class BusquedaTest extends CasoDeIntegracion
             'importe_sin_descuento' => '350000.00',
             'porcentaje_descuento'  => '0.00',//sin descuentos por estadía larga
             'precio_total'   => '350000.00',
-        ]]], $respuesta->json());
+        ]], 'grupales' => []], $respuesta->json());//sin unidades grupales en esta localidad (US4.4)
     }
 
     //Con un descuento por estadía larga (#69), el precio total ya viene con el descuento, y los resultados se
@@ -126,7 +126,7 @@ final class BusquedaTest extends CasoDeIntegracion
     //Sin resultados: la lista vacía
     public function testSinResultadosDevuelveLaListaVacia(): void
     {
-        $this->assertSame(['unidades' => []], $this->buscar($this->localidadNueva(), '+10 days', '+12 days')->json());
+        $this->assertSame(['unidades' => [], 'grupales' => []], $this->buscar($this->localidadNueva(), '+10 days', '+12 days')->json());
     }
 
     // ---------- cada condición ----------
