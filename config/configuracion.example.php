@@ -40,7 +40,7 @@ return [
         'red'     => 84532,                       //BLOCKCHAIN_RED: Base Sepolia
     ],
     'contrato' => [
-        'direccion' => '0xF9d86D0e7c3D2520103fD11e64174C9e6BcFc0F4', //CONTRATO_DIRECCION: PasarelaPago en Base Sepolia
+        'direccion' => '0x00E210a57DC178a9c8bBDAdEf130A86434BFafdd', //CONTRATO_DIRECCION: PasarelaPago en Base Sepolia
     ],
     'plataforma' => [
         'clave_privada' => '',                    //PLATAFORMA_CLAVE_PRIVADA: NUNCA en el repo, solo como variable de Railway

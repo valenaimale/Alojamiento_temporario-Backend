@@ -193,7 +193,7 @@ Por defecto los pagos son **simulados** (`PAGOS_VERIFICADOR` y `PAGOS_FIRMADOR` 
 | Variable | Valor |
 |---|---|
 | `BLOCKCHAIN_RPC_URL` | `https://sepolia.base.org` |
-| `CONTRATO_DIRECCION` | `0xF9d86D0e7c3D2520103fD11e64174C9e6BcFc0F4` |
+| `CONTRATO_DIRECCION` | `0x00E210a57DC178a9c8bBDAdEf130A86434BFafdd` (desde el 20/11, con el pago grupal; el anterior era `0xF9d86D0e7c3D2520103fD11e64174C9e6BcFc0F4`) |
 | `PLATAFORMA_CLAVE_PRIVADA` | La clave de la billetera dueña del contrato. **Solo acá**: nunca en el repo ni en un chat |
 | `BLOCKCHAIN_RED` | Opcional: `84532` por defecto |
 
