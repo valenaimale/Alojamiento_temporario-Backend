@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
+use App\Repository\UnidadRepository;
 use App\Request\Request;
 use App\Request\Respuesta;
 use App\Validacion\ValidadorFechas;
@@ -57,7 +58,7 @@ class BloqueosController
         $pdo->beginTransaction();
         try {
             //traba la fila de la unidad hasta el commit: dos bloqueos a la vez no pueden pisarse
-            $pdo->prepare('SELECT id FROM unidades WHERE id = ? FOR UPDATE')->execute([$unidad['id']]);
+            UnidadRepository::lockPorId((int) $unidad['id']);
 
             $consulta = $pdo->prepare(
                 'SELECT fecha_desde, fecha_hasta FROM bloqueos_calendario

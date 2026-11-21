@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Mail\AvisoGestionMail;
+use App\Repository\UnidadRepository;
 use App\Request\Request;
 use App\Request\Respuesta;
 
@@ -64,7 +65,7 @@ class GestionUnidadController
         $pdo->beginTransaction();
         try {
             //traba la fila de la unidad: dos asignaciones a la vez no pueden dejar dos administradores
-            $pdo->prepare('SELECT id FROM unidades WHERE id = ? FOR UPDATE')->execute([$unidad['id']]);
+            UnidadRepository::lockPorId((int) $unidad['id']);
             $consulta = $pdo->prepare('SELECT 1 FROM administraciones WHERE unidad_id = ?');
             $consulta->execute([$unidad['id']]);
             if ($consulta->fetchColumn()) {
