@@ -6,6 +6,7 @@ use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Mail\AvisoPagoMail;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\CancelacionConDevolucion;
 use App\Validacion\ExcepcionDeCancelacion;
 use App\Validacion\VencimientoReserva;
@@ -34,28 +35,27 @@ class CancelacionPropietarioController
         $motivo = is_string($datos['motivo'] ?? null) ? trim($datos['motivo']) : '';
         $largo = mb_strlen($motivo);
         if ($largo < self::MOTIVO_MINIMO || $largo > self::MOTIVO_MAXIMO) {
-            return $this->error('Contale al huésped por qué cancelás (de ' . self::MOTIVO_MINIMO . ' a ' . self::MOTIVO_MAXIMO . ' caracteres)', 422);
+            return Respuesta::error('Contale al huésped por qué cancelás (de ' . self::MOTIVO_MINIMO . ' a ' . self::MOTIVO_MAXIMO . ' caracteres)', 422);
         }
         $reserva = $this->reserva($datos['reserva_id'] ?? null, $propietarioId);
         if ($reserva === false) {
-            return $this->error('No encontramos esa reserva', 404);
+            return Respuesta::error('No encontramos esa reserva', 404);
         }
         $problema = CancelacionConDevolucion::problema($reserva);
         if ($problema !== null) {
-            return $this->error(...$problema);
+            return Respuesta::error(...$problema);
         }
 
         if (VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']) === 'pendiente') {
             //UPDATE condicional: si el huésped paga la seña al mismo tiempo, solo cambia si sigue pendiente
             if (CancelacionConDevolucion::marcarCancelada((int) $reserva['id'], 'propietario', $motivo, VencimientoReserva::pendienteVigente()) === 0) {
-                return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
+                return Respuesta::error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
             }
             AvisoPagoMail::cancelacionDelPropietario(
                 ['id' => $reserva['huesped_id'], 'nombre' => $reserva['huesped_nombre'], 'mail' => $reserva['huesped_mail']],
                 $reserva['unidad_nombre'], $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $motivo, '0.00', false
             );
-            http_response_code(200);
-            echo json_encode(['ok' => 'Cancelaste la reserva: esas noches quedaron libres y le avisamos al huésped']);
+            Respuesta::json(['ok' => 'Cancelaste la reserva: esas noches quedaron libres y le avisamos al huésped']);
             return;
         }
 
@@ -63,12 +63,11 @@ class CancelacionPropietarioController
         $resultado = CancelacionConDevolucion::cancelar((int) $reserva['id'], fn (array $trabada) =>
             (int) $trabada['propietario_id'] === $propietarioId && CancelacionConDevolucion::problema($trabada) === null, null, $motivo);
         if ($resultado === null) {
-            return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
+            return Respuesta::error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
         }
         ['devolucion' => $devolucion, 'pago_id' => $pagoId, 'envio' => $envio, 'red' => $red] = $resultado;
         $monto = '$' . number_format((float) $devolucion['devolucion'], 2, ',', '.');
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'ok'         => "Cancelaste la reserva: esas noches quedaron libres y le devolvemos $monto al huésped (todo lo que pagó)",
             'devolucion' => [
                 'pagado'     => ['sena' => $devolucion['pagado_sena'], 'saldo' => $devolucion['pagado_saldo']],
@@ -89,10 +88,9 @@ class CancelacionPropietarioController
         $id = $this->id(Request::parametroGet('reserva_id'));
         $reserva = $id === false ? false : ExcepcionDeCancelacion::reserva($id, (int) $_SESSION['usuario']['id']);
         if ($reserva === false) {
-            return $this->error('No encontramos esa reserva', 404);
+            return Respuesta::error('No encontramos esa reserva', 404);
         }
-        http_response_code(200);
-        echo json_encode(ExcepcionDeCancelacion::estado($reserva));
+        Respuesta::json(ExcepcionDeCancelacion::estado($reserva));
     }
 
     //POST /unidades/reservas/excepcion: {"reserva_id", "monto"}. El propietario le devuelve al huésped que canceló
@@ -103,14 +101,13 @@ class CancelacionPropietarioController
         $datos = Request::datosJson();
         $id = $this->id($datos['reserva_id'] ?? null);
         if ($id === false) {
-            return $this->error('No encontramos esa reserva', 404);
+            return Respuesta::error('No encontramos esa reserva', 404);
         }
         $resultado = ExcepcionDeCancelacion::dar($id, $datos['monto'] ?? null, (int) $_SESSION['usuario']['id']);
         if ($resultado['codigo'] >= 400) {
-            return $this->error($resultado['mensaje'], $resultado['codigo']);
+            return Respuesta::error($resultado['mensaje'], $resultado['codigo']);
         }
-        http_response_code(200);
-        echo json_encode(['ok' => $resultado['mensaje']]);
+        Respuesta::json(['ok' => $resultado['mensaje']]);
     }
 
     //POST /unidades/reservas/excepcion/renunciar: {"reserva_id"}. El propietario decide no devolver nada más: se
@@ -121,14 +118,13 @@ class CancelacionPropietarioController
         $datos = Request::datosJson();
         $id = $this->id($datos['reserva_id'] ?? null);
         if ($id === false) {
-            return $this->error('No encontramos esa reserva', 404);
+            return Respuesta::error('No encontramos esa reserva', 404);
         }
         $resultado = ExcepcionDeCancelacion::renunciar($id, (int) $_SESSION['usuario']['id']);
         if ($resultado['codigo'] >= 400) {
-            return $this->error($resultado['mensaje'], $resultado['codigo']);
+            return Respuesta::error($resultado['mensaje'], $resultado['codigo']);
         }
-        http_response_code(200);
-        echo json_encode(['ok' => $resultado['mensaje']]);
+        Respuesta::json(['ok' => $resultado['mensaje']]);
     }
 
     //La reserva de una unidad del propietario, con lo que hace falta para cancelarla, o false si no existe o es de otro
@@ -154,12 +150,5 @@ class CancelacionPropietarioController
     private function id(mixed $valor): int|false
     {
         return is_bool($valor) ? false : filter_var($valor ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

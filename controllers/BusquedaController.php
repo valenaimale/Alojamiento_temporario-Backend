@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\Estadia;
 use App\Validacion\Ubicacion;
 use App\Validacion\UnidadGrupal;
@@ -22,13 +23,13 @@ class BusquedaController
     {
         $fechas = Estadia::validarFechas(Request::parametroGet('ingreso'), Request::parametroGet('egreso'));
         if (isset($fechas['error'])) {
-            return $this->error($fechas['error']);
+            return Respuesta::error($fechas['error']);
         }
         $personas = filter_var(Request::parametroGet('personas'), FILTER_VALIDATE_INT, [
             'options' => ['min_range' => 1, 'max_range' => self::MAXIMO_PERSONAS],
         ]);
         if ($personas === false) {
-            return $this->error('Indicá cuántas personas van a ser (de 1 a ' . self::MAXIMO_PERSONAS . ')');
+            return Respuesta::error('Indicá cuántas personas van a ser (de 1 a ' . self::MAXIMO_PERSONAS . ')');
         }
 
         $pdo = Conexion::obtener();
@@ -38,7 +39,7 @@ class BusquedaController
             $consulta = $pdo->prepare('SELECT 1 FROM localidades WHERE id = ? AND activa = 1');
             $consulta->execute([$localidadId === false ? 0 : $localidadId]);
             if ($localidadId === false || !$consulta->fetchColumn()) {
-                return $this->error('Elegí una localidad de la lista');
+                return Respuesta::error('Elegí una localidad de la lista');
             }
         }
 
@@ -81,8 +82,7 @@ class BusquedaController
         }
         usort($unidades, fn ($a, $b) => (float) $a['precio_total'] <=> (float) $b['precio_total']);
 
-        http_response_code(200);
-        echo json_encode(['unidades' => $unidades, 'grupales' => $this->grupales($fechas, $personas, $localidadId)]);
+        Respuesta::json(['unidades' => $unidades, 'grupales' => $this->grupales($fechas, $personas, $localidadId)]);
     }
 
     //Las unidades grupales activas (de esa localidad, si vino) armadas para esas fechas y personas: solo con sus
@@ -127,12 +127,5 @@ class BusquedaController
         }
         usort($grupales, fn ($a, $b) => (float) $a['precio_total'] <=> (float) $b['precio_total']);
         return $grupales;
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

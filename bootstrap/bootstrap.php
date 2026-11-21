@@ -128,8 +128,7 @@ try {
     //se crea una nueva Cookie (un nuevo id) y $_SESSION queda vacio
 } catch (\Throwable $e) {
     Log::error('No se pudo iniciar la sesión', $e);
-    http_response_code(503);
-    echo json_encode(['error' => 'Estamos con algunos inconvenientes. Vuelva a intentar en unos instantes...']);
+    \App\Request\Respuesta::error('Estamos con algunos inconvenientes. Vuelva a intentar en unos instantes...', 503);
     exit;
 }
 //---------- fin SESIONES ----------

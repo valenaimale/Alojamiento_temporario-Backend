@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\ReglasPublicacion;
 
 //Publicar y pausar una unidad (US3.1). Solo el propietario.
@@ -23,12 +24,11 @@ class PublicacionController
             return $this->responder('La unidad ya está publicada', 'publicada');
         }
         if (!$unidad['disponible']) {//fuera de servicio por un daño (Épica 8)
-            return $this->error('No se puede publicar: la unidad está fuera de servicio', 409);
+            return Respuesta::error('No se puede publicar: la unidad está fuera de servicio', 409);
         }
         $faltantes = ReglasPublicacion::faltantes((int) $unidad['id']);
         if ($faltantes !== []) {
-            http_response_code(422);
-            echo json_encode(['error' => 'Para publicarla te falta completar algunas cosas', 'faltantes' => $faltantes]);
+            Respuesta::json(['error' => 'Para publicarla te falta completar algunas cosas', 'faltantes' => $faltantes], 422);
             return;
         }
 
@@ -46,7 +46,7 @@ class PublicacionController
             return $this->responder('La unidad ya está pausada', 'pausada');
         }
         if ($unidad['estado_publicacion'] !== 'publicada') {//borrador: no tiene sentido pausar algo que nunca se publicó
-            return $this->error('La unidad no está publicada', 409);
+            return Respuesta::error('La unidad no está publicada', 409);
         }
 
         $this->cambiarEstado((int) $unidad['id'], 'pausada');
@@ -62,14 +62,6 @@ class PublicacionController
     //Responde 200 con el mensaje y el estado en que quedó la unidad
     private function responder(string $mensaje, string $estado)
     {
-        http_response_code(200);
-        echo json_encode(['ok' => $mensaje, 'estado_publicacion' => $estado]);
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
+        Respuesta::json(['ok' => $mensaje, 'estado_publicacion' => $estado]);
     }
 }

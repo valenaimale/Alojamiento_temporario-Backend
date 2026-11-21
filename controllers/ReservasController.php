@@ -6,6 +6,7 @@ use App\Autorizacion\Autorizacion;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\CancelacionConDevolucion;
 use App\Validacion\Estadia;
 use App\Validacion\ExcepcionDeCancelacion;
@@ -29,26 +30,26 @@ class ReservasController
         Autorizacion::requiere('huesped');
         Autorizacion::requiereMailVerificado();
         if (trim((string) ($_SESSION['usuario']['dni'] ?? '')) === '') {
-            return $this->error('Completá tu DNI para reservar');
+            return Respuesta::error('Completá tu DNI para reservar');
         }
         $datos = Request::datosJson();
 
         $unidadId = filter_var($datos['unidad_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         if ($unidadId === false || is_bool($datos['unidad_id'] ?? null)) {
-            return $this->error('No encontramos ese alojamiento', 404);
+            return Respuesta::error('No encontramos ese alojamiento', 404);
         }
         $fechas = Estadia::validarFechas((string) ($datos['ingreso'] ?? ''), (string) ($datos['egreso'] ?? ''));
         if (isset($fechas['error'])) {
-            return $this->error($fechas['error']);
+            return Respuesta::error($fechas['error']);
         }
         $personas = is_bool($datos['personas'] ?? null)//filter_var tomaría true como 1
             ? false
             : filter_var($datos['personas'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 50]]);
         if ($personas === false) {
-            return $this->error('Indicá cuántas personas van a ser (de 1 a 50)');
+            return Respuesta::error('Indicá cuántas personas van a ser (de 1 a 50)');
         }
         if (($datos['acepta_politica'] ?? null) !== true) {
-            return $this->error('Para reservar tenés que aceptar la política de cancelación');
+            return Respuesta::error('Para reservar tenés que aceptar la política de cancelación');
         }
 
         $pdo = Conexion::obtener();
@@ -75,7 +76,7 @@ class ReservasController
             }
             if ($problema !== null) {
                 $pdo->rollBack();
-                return $this->error(...$problema);
+                return Respuesta::error(...$problema);
             }
 
             //importe, seña y política se copian de la unidad: son las condiciones que el huésped acepta ahora.
@@ -86,7 +87,7 @@ class ReservasController
             //Una seña de $0 no se podría pagar con el contrato, que rechaza los pagos sin ETH.
             if (bccomp($sena, '0', 2) <= 0) {
                 $pdo->rollBack();
-                return $this->error('El total de la estadía es demasiado bajo para cobrar la seña', 422);
+                return Respuesta::error('El total de la estadía es demasiado bajo para cobrar la seña', 422);
             }
             $estado = 'pendiente';
             $expiraEn = VencimientoReserva::vencimientoDesdeAhora();
@@ -102,8 +103,7 @@ class ReservasController
             throw $e;//lo atrapa el router y responde 500
         }
 
-        http_response_code(201);
-        echo json_encode([
+        Respuesta::json([
             'ok'      => "Reservaste {$unidad['nombre']}: pagá la seña antes de las " . VencimientoReserva::horaArgentina($expiraEn) . ' para confirmarla',
             'reserva' => [
                 'id'            => $reservaId,
@@ -118,7 +118,7 @@ class ReservasController
                 'importe_sena'  => $sena,
                 'vence_en'      => VencimientoReserva::venceEnIso($estado, $expiraEn),
             ],
-        ]);
+        ], 201);
     }
 
     //GET /reservas/mias: las reservas del huésped logueado (todas, también las canceladas y expiradas), de la más nueva
@@ -197,8 +197,7 @@ class ReservasController
             ];
         }
 
-        http_response_code(200);
-        echo json_encode(['reservas' => $reservas]);
+        Respuesta::json(['reservas' => $reservas]);
     }
 
     //GET /reservas/cancelacion?reserva_id=12: cuánto se le devolvería al huésped si cancela ahora, según el tramo
@@ -209,15 +208,14 @@ class ReservasController
 
         $reserva = $this->reservaParaCancelar(Request::parametroGet('reserva_id'));
         if ($reserva === false) {
-            return $this->error('No encontramos esa reserva', 404);
+            return Respuesta::error('No encontramos esa reserva', 404);
         }
         $problema = $this->problemaParaCancelar($reserva);
         if ($problema !== null) {
-            return $this->error(...$problema);
+            return Respuesta::error(...$problema);
         }
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'reserva_id' => (int) $reserva['id'],
             'estado'     => VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']),
         ] + $this->datosDevolucion($this->devolucionDe($reserva)));
@@ -237,20 +235,19 @@ class ReservasController
 
         $reserva = $this->reservaParaCancelar($datos['reserva_id'] ?? null);
         if ($reserva === false) {
-            return $this->error('No encontramos esa reserva', 404);
+            return Respuesta::error('No encontramos esa reserva', 404);
         }
         $problema = $this->problemaParaCancelar($reserva);
         if ($problema !== null) {
-            return $this->error(...$problema);
+            return Respuesta::error(...$problema);
         }
 
         if (VencimientoReserva::estadoVisible($reserva['estado'], $reserva['bloqueo_expira_en']) === 'pendiente') {
             //UPDATE condicional: si llegan dos pedidos juntos, o se paga la seña al mismo tiempo, solo cambia si sigue pendiente
             if (CancelacionConDevolucion::marcarCancelada((int) $reserva['id'], 'huesped', null, VencimientoReserva::pendienteVigente()) === 0) {
-                return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
+                return Respuesta::error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
             }
-            http_response_code(200);
-            echo json_encode(['ok' => 'Cancelaste la reserva: esas noches quedaron libres']);
+            Respuesta::json(['ok' => 'Cancelaste la reserva: esas noches quedaron libres']);
             return;
         }
 
@@ -259,7 +256,7 @@ class ReservasController
         $resultado = CancelacionConDevolucion::cancelar((int) $reserva['id'], fn (array $trabada) =>
             (int) $trabada['huesped_id'] === (int) $_SESSION['usuario']['id'] && $this->problemaParaCancelar($trabada) === null);
         if ($resultado === null) {
-            return $this->error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
+            return Respuesta::error('La reserva cambió mientras la cancelabas: actualizá la página', 409);
         }
         ['devolucion' => $devolucion, 'pago_id' => $pagoId, 'envio' => $envio, 'red' => $red] = $resultado;
         $enCamino = $pagoId !== null && ($envio === null || !$envio->confirmada);
@@ -270,8 +267,7 @@ class ReservasController
             $enCamino        => "Cancelaste la reserva: esas noches quedaron libres. La devolución de $monto está en proceso: te avisamos por mail",
             default          => "Cancelaste la reserva: esas noches quedaron libres. Te devolvimos $monto a tu billetera",
         };
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'ok'         => $ok,
             'devolucion' => $this->datosDevolucion($devolucion) + [
                 'estado'  => $pagoId === null ? null : ($envio !== null && $envio->confirmada ? 'confirmado' : 'pendiente'),
@@ -352,8 +348,7 @@ class ReservasController
             }
         }
 
-        http_response_code(200);
-        echo json_encode(['reservas' => $reservas, 'canceladas' => $canceladas]);
+        Respuesta::json(['reservas' => $reservas, 'canceladas' => $canceladas]);
     }
 
     //Los nombres de las otras unidades de una reserva grupal, para el administrador
@@ -448,12 +443,5 @@ class ReservasController
             return ["Tiene lugar para {$unidad['capacidad']} personas", 422];
         }
         return null;
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

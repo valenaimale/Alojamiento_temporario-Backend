@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Log\Log;
 use App\Database\Conexion;
 use App\Config\Config;
@@ -105,20 +106,20 @@ class OAuthController{
         Autorizacion::requiereSesion();//sin sesión responde 401 y corta acá
 
         if($_SESSION['usuario']['dni'] !== null){
-            return $this->error('Tu DNI ya está cargado', 409);
+            return Respuesta::error('Tu DNI ya está cargado', 409);
         }
 
         $datos = Request::datosJson();
         $dni = ValidadorDocumentos::normalizarDni(trim($datos['dni'] ?? ''));//"30.123.456" pasa a "30123456"
         if(!ValidadorDocumentos::esDniValido($dni)){
-            return $this->error('El DNI tiene que tener 7 u 8 números');
+            return Respuesta::error('El DNI tiene que tener 7 u 8 números');
         }
 
         $pdo = Conexion::obtener();
         $consulta = $pdo->prepare('SELECT 1 FROM usuarios WHERE dni = ? LIMIT 1');
         $consulta->execute([$dni]);
         if($consulta->fetchColumn()){
-            return $this->error('El DNI ya está registrado');
+            return Respuesta::error('El DNI ya está registrado');
         }
 
         try {
@@ -127,14 +128,13 @@ class OAuthController{
         } catch (\PDOException $e) {
             //23000: otro usuario cargó el mismo DNI al mismo tiempo y los dos pasaron el control de arriba
             if($e->getCode() === '23000'){
-                return $this->error('El DNI ya está registrado');
+                return Respuesta::error('El DNI ya está registrado');
             }
             throw $e;//lo atrapa el router y responde 500
         }
 
         SesionUsuario::refrescar();//la sesión tenía dni null: se vuelve a cargar con el DNI nuevo
-        http_response_code(200);
-        echo json_encode(['ok' => 'Datos guardados', 'usuario' => $_SESSION['usuario']]);
+        Respuesta::json(['ok' => 'Datos guardados', 'usuario' => $_SESSION['usuario']]);
     }
 
     //Devuelve el id del usuario vinculado a esa identidad de Google, o null si no hay ninguno
@@ -234,11 +234,5 @@ class OAuthController{
     private function redirigir(string $url): void{
         http_response_code(302);
         header('Location: ' . $url);
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422){
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

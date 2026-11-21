@@ -2,6 +2,7 @@
 
 namespace App\Autorizacion;
 
+use App\Request\Respuesta;
 use App\Database\Conexion;
 
 //PermisosUnidad controla si el usuario logueado puede trabajar sobre una unidad.
@@ -74,8 +75,7 @@ class PermisosUnidad
     //Responde el error en JSON y termina la petición, igual que Autorizacion
     private static function cortar(int $codigo, string $mensaje): void
     {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
+        Respuesta::error($mensaje, $codigo);
         exit;
     }
 }

@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\Estadia;
 use App\Validacion\ValidadorFechas;
 
@@ -21,18 +22,18 @@ class AlojamientoController
     {
         $unidad = $this->unidadPublicada(Request::parametroGet('id'));
         if ($unidad === null) {
-            return $this->error('No encontramos ese alojamiento', 404);
+            return Respuesta::error('No encontramos ese alojamiento', 404);
         }
 
         $estadia = null;
         if (Request::parametroGet('ingreso') !== '' || Request::parametroGet('egreso') !== '') {
             $fechas = Estadia::validarFechas(Request::parametroGet('ingreso'), Request::parametroGet('egreso'));
             if (isset($fechas['error'])) {
-                return $this->error($fechas['error']);
+                return Respuesta::error($fechas['error']);
             }
             $estadia = $this->estadia($unidad, $fechas, Request::parametroGet('personas'));
             if (isset($estadia['error'])) {
-                return $this->error($estadia['error']);
+                return Respuesta::error($estadia['error']);
             }
         }
 
@@ -43,8 +44,7 @@ class AlojamientoController
         $consulta = $pdo->prepare("SELECT valor FROM parametros WHERE clave = 'dias_cobro_saldo'");
         $consulta->execute();
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'alojamiento' => [
                 'id'                => (int) $unidad['id'],
                 'nombre'            => $unidad['nombre'],
@@ -73,17 +73,17 @@ class AlojamientoController
     {
         $unidad = $this->unidadPublicada(Request::parametroGet('id'));
         if ($unidad === null) {
-            return $this->error('No encontramos ese alojamiento', 404);
+            return Respuesta::error('No encontramos ese alojamiento', 404);
         }
 
         $mes = \DateTimeImmutable::createFromFormat('!Y-m', Request::parametroGet('mes'), new \DateTimeZone('America/Argentina/Buenos_Aires'));
         if ($mes === false || $mes->format('Y-m') !== Request::parametroGet('mes')) {
-            return $this->error('El mes tiene que tener el formato AAAA-MM');
+            return Respuesta::error('El mes tiene que tener el formato AAAA-MM');
         }
         $hoy = ValidadorFechas::hoy();
         $esteMes = $hoy->modify('first day of this month');
         if ($mes < $esteMes || $mes > $esteMes->modify('+' . self::MESES_HACIA_ADELANTE . ' months')) {
-            return $this->error('Podés ver desde este mes hasta dentro de dos años');
+            return Respuesta::error('Podés ver desde este mes hasta dentro de dos años');
         }
 
         $primera = $mes->format('Y-m-d');
@@ -121,8 +121,7 @@ class AlojamientoController
             ];
         }
 
-        http_response_code(200);
-        echo json_encode(['noches' => $noches]);
+        Respuesta::json(['noches' => $noches]);
     }
 
     //La unidad publicada y disponible con ese id, con su localidad; o null si no existe, no está publicada
@@ -176,12 +175,5 @@ class AlojamientoController
             }
         }
         return 1;
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

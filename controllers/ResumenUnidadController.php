@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Validacion\ReglasPublicacion;
+use App\Request\Respuesta;
 
 //La página central de una unidad (configurar-unidad.html): su nombre, su estado y qué le falta para publicarse.
 //Desde ahí se entra a cada sección: datos y fotos, gestión, temporadas y precios, política, publicación y bloqueos.
@@ -19,8 +20,7 @@ class ResumenUnidadController
         $consulta->execute([$unidad['localidad_id']]);
         $localidad = $consulta->fetch();
 
-        http_response_code(200);
-        echo json_encode(['unidad' => [
+        Respuesta::json(['unidad' => [
             'id'                   => (int) $unidad['id'],
             'nombre'               => $unidad['nombre'],
             'localidad'            => $localidad['nombre'],

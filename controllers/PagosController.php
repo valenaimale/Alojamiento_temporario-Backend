@@ -6,6 +6,7 @@ use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Mail\AvisoPagoMail;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\CobroDelSaldo;
 use App\Validacion\Extension;
 use App\Validacion\ResultadoVerificacion;
@@ -57,12 +58,12 @@ class PagosController
 
         $txHash = $datos['tx_hash'] ?? null;
         if (!is_string($txHash) || preg_match('/^0x[0-9a-fA-F]{64}$/', $txHash) !== 1) {
-            return $this->error('El hash de la transacción no es válido');
+            return Respuesta::error('El hash de la transacción no es válido');
         }
         $txHash = strtolower($txHash);//el mismo hash en mayúsculas es la misma transacción
         $tipoPedido = $datos['tipo'] ?? null;
         if ($tipoPedido !== null && !isset(self::NOMBRES[$tipoPedido])) {
-            return $this->error('El tipo de pago tiene que ser sena o saldo');
+            return Respuesta::error('El tipo de pago tiene que ser sena o saldo');
         }
 
         $pdo = Conexion::obtener();
@@ -75,7 +76,7 @@ class PagosController
             $reserva = $this->reservaDelHuesped($datos['reserva_id'] ?? null, true);
             if ($reserva === false) {
                 $pdo->rollBack();
-                return $this->error('No encontramos esa reserva', 404);
+                return Respuesta::error('No encontramos esa reserva', 404);
             }
             $tipo = $tipoPedido ?? ($reserva['estado'] === 'pendiente' ? self::SENA : self::SALDO);
             $problema = $this->problemaParaPagar($tipo, $reserva);
@@ -86,7 +87,7 @@ class PagosController
                 } else {
                     $pdo->rollBack();
                 }
-                return $this->error(...$problema);
+                return Respuesta::error(...$problema);
             }
 
             //una transacción paga una sola cosa (la base solo lo asegura por billetera: acá, para cualquiera)
@@ -95,7 +96,7 @@ class PagosController
             $usado = $consulta->fetch();
             if ($usado !== false) {
                 $pdo->rollBack();
-                return $this->error($usado['estado'] === 'fallido' && (int) $usado['reserva_id'] === (int) $reserva['id']
+                return Respuesta::error($usado['estado'] === 'fallido' && (int) $usado['reserva_id'] === (int) $reserva['id']
                     ? 'Esa transacción ya falló: tenés que pagar de nuevo'
                     : 'Esa transacción ya se usó para otro pago', 409);
             }
@@ -108,8 +109,7 @@ class PagosController
 
             if ($resultado->estado === ResultadoVerificacion::PENDIENTE) {
                 $pdo->rollBack();
-                http_response_code(202);
-                echo json_encode(['pendiente' => true, 'mensaje' => 'La transacción todavía no se confirmó en la red. Esperá unos segundos y volvé a intentar']);
+                Respuesta::json(['pendiente' => true, 'mensaje' => 'La transacción todavía no se confirmó en la red. Esperá unos segundos y volvé a intentar'], 202);
                 return;
             }
 
@@ -145,7 +145,7 @@ class PagosController
             }
             //23000: otra petición guardó la misma transacción al mismo tiempo (tx_hash y billetera son únicos)
             if ($e->getCode() === '23000') {
-                return $this->error('Esa transacción ya se usó para otro pago', 409);
+                return Respuesta::error('Esa transacción ya se usó para otro pago', 409);
             }
             throw $e;
         } catch (\Throwable $e) {
@@ -179,8 +179,7 @@ class PagosController
                 AvisoPagoMail::saldoConfirmado($huesped, $unidad, $reserva['fecha_ingreso'], $montoPesos);
                 $ok = "Pagaste el saldo: tu reserva en $unidad está paga";
             }
-            http_response_code(200);
-            echo json_encode([
+            Respuesta::json([
                 'ok'      => $ok,
                 'tipo'    => $tipo,
                 'reserva' => ['id' => (int) $reserva['id'], 'estado' => 'confirmada'],
@@ -201,12 +200,11 @@ class PagosController
             $plazo = ' ' . $this->plazoDelSaldo($reserva);
             $extra = ['fecha_cobro' => $reserva['fecha_cobro'], 'limite_pago' => $this->limiteDelSaldo($reserva)];
         }
-        http_response_code(402);
-        echo json_encode([
+        Respuesta::json([
             'error'  => 'No pudimos confirmar el pago ' . self::NOMBRES[$tipo] . ": {$resultado->motivo}.$plazo",
             'tipo'   => $tipo,
             'motivo' => $resultado->motivo,
-        ] + $extra);
+        ] + $extra, 402);
     }
 
     //Responde lo que necesita el front para pagar la seña o el saldo de una reserva del huésped logueado
@@ -216,17 +214,17 @@ class PagosController
 
         $reserva = $this->reservaDelHuesped(Request::parametroGet('reserva_id'));
         if ($reserva === false) {
-            return $this->error('No encontramos esa reserva', 404);
+            return Respuesta::error('No encontramos esa reserva', 404);
         }
         $problema = $this->problemaParaPagar($tipo, $reserva);
         if ($problema !== null) {
-            return $this->error(...$problema);
+            return Respuesta::error(...$problema);
         }
         //Sin días de gracia (#75): pasado el último día ya no se arma un pago nuevo del saldo; la reserva se cancela sola.
         //Solo acá, al pedir los datos: si firmó la transacción antes y se confirma después, se registra igual.
         $limite = $tipo === self::SALDO ? $this->limiteDelSaldo($reserva) : null;
         if ($limite !== null && $limite < ValidadorFechas::hoy()->format('Y-m-d')) {
-            return $this->error('Se venció el plazo para pagar el saldo (era hasta el '
+            return Respuesta::error('Se venció el plazo para pagar el saldo (era hasta el '
                 . ValidadorFechas::fecha($limite)->format('d/m/Y') . '): la reserva se cancela sola', 409);
         }
 
@@ -240,8 +238,7 @@ class PagosController
             : ['fecha_cobro' => $reserva['fecha_cobro'], 'vencido' => $this->saldoVencido($reserva['fecha_cobro']),
                'limite_pago' => $this->limiteDelSaldo($reserva)];//el último día para pagarlo (decisión #23)
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'reserva_id'    => (int) $reserva['id'],
             'tipo'          => $tipo,
             'monto_pesos'   => $montoPesos,
@@ -338,12 +335,5 @@ class PagosController
         }
         $dia = ValidadorFechas::fecha($limite)->format('d/m/Y');
         return "Tenés tiempo hasta el $dia inclusive: si no, la reserva se cancela sola.";
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

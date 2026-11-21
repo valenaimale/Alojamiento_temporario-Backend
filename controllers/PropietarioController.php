@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Database\Conexion;
 use App\Autorizacion\Autorizacion;
 use App\Autorizacion\SesionUsuario;
@@ -19,19 +20,19 @@ class PropietarioController{
         $usuario = $_SESSION['usuario'];//el id sale siempre de la sesion, nunca de lo que manda el front
 
         if($usuario['rol'] === 'propietario'){
-            return $this->error('Ya sos propietario', 409);
+            return Respuesta::error('Ya sos propietario', 409);
         }
         if($usuario['dni'] === null){//pasa con las cuentas creadas con Google
-            return $this->error('Completá tu DNI antes de hacerte propietario');
+            return Respuesta::error('Completá tu DNI antes de hacerte propietario');
         }
 
         $datos = Request::datosJson();
         $fiscales = DatosFiscales::validar($datos);//los mismos datos que en el registro como propietario
         if(isset($fiscales['error'])){
-            return $this->error($fiscales['error']);
+            return Respuesta::error($fiscales['error']);
         }
         if(DatosFiscales::cuitRegistrado($fiscales['cuit'])){
-            return $this->error('El CUIT ya está registrado');
+            return Respuesta::error('El CUIT ya está registrado');
         }
 
         //el cambio de rol y la fila en propietarios van juntos: si falla uno, no queda guardado ninguno
@@ -48,8 +49,7 @@ class PropietarioController{
         }
 
         SesionUsuario::refrescar();//la sesion tenia rol huesped: se vuelve a cargar para que tenga el rol nuevo
-        http_response_code(200);
-        echo json_encode(['ok' => 'Ya sos propietario', 'usuario' => $_SESSION['usuario']]);
+        Respuesta::json(['ok' => 'Ya sos propietario', 'usuario' => $_SESSION['usuario']]);
     }
 
     //GET /datos-fiscales: los datos fiscales y bancarios del propietario o administrador logueado, para el perfil
@@ -57,7 +57,7 @@ class PropietarioController{
         Autorizacion::requiereSesion();
         $usuario = $_SESSION['usuario'];//el id sale siempre de la sesion
         if($usuario['rol'] !== 'propietario' && $usuario['rol'] !== 'administrador'){
-            return $this->error('No tenés permiso para hacer esto', 403);
+            return Respuesta::error('No tenés permiso para hacer esto', 403);
         }
 
         $datos = DatosFiscales::buscar($usuario['rol'], $usuario['id']);
@@ -66,8 +66,7 @@ class PropietarioController{
             throw new \RuntimeException("El usuario {$usuario['id']} ({$usuario['rol']}) no tiene sus datos fiscales");
         }
 
-        http_response_code(200);
-        echo json_encode(['datos_fiscales' => $datos]);
+        Respuesta::json(['datos_fiscales' => $datos]);
     }
 
     //POST /datos-fiscales/billetera: carga o cambia la billetera de cobro del propietario o administrador logueado.
@@ -76,26 +75,19 @@ class PropietarioController{
         Autorizacion::requiereSesion();
         $usuario = $_SESSION['usuario'];//el id sale siempre de la sesion, nunca de lo que manda el front
         if($usuario['rol'] !== 'propietario' && $usuario['rol'] !== 'administrador'){
-            return $this->error('No tenés permiso para hacer esto', 403);
+            return Respuesta::error('No tenés permiso para hacer esto', 403);
         }
 
         $datos = Request::datosJson();
         $billetera = DatosFiscales::validarBilletera($datos['billetera'] ?? '');
         if(isset($billetera['error'])){
-            return $this->error($billetera['error']);
+            return Respuesta::error($billetera['error']);
         }
         if(!DatosFiscales::cambiarBilletera($usuario['rol'], $usuario['id'], $billetera['billetera'])){
             //no deberia pasar: todo propietario y todo administrador tiene su fila con los datos fiscales
             throw new \RuntimeException("El usuario {$usuario['id']} ({$usuario['rol']}) no tiene sus datos fiscales");
         }
 
-        http_response_code(200);
-        echo json_encode(['ok' => 'Guardamos tu billetera', 'datos_fiscales' => DatosFiscales::buscar($usuario['rol'], $usuario['id'])]);
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422){
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
+        Respuesta::json(['ok' => 'Guardamos tu billetera', 'datos_fiscales' => DatosFiscales::buscar($usuario['rol'], $usuario['id'])]);
     }
 }

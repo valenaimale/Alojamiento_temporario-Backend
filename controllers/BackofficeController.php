@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Validacion\DatosFiscales;
@@ -90,12 +91,12 @@ class BackofficeController{
 
         $id = (int) ($_GET['id'] ?? 0);
         if($id <= 0){
-            return $this->error('Usuario inválido');
+            return Respuesta::error('Usuario inválido');
         }
 
         $usuario = $this->buscarUsuario($id);
         if($usuario === null){
-            return $this->error('El usuario no existe', 404);
+            return Respuesta::error('El usuario no existe', 404);
         }
 
         return $this->respuesta(['usuario' => $usuario]);
@@ -110,17 +111,17 @@ class BackofficeController{
         $activo = $datos['activo'] ?? null;
 
         if($id <= 0){
-            return $this->error('Usuario inválido');
+            return Respuesta::error('Usuario inválido');
         }
         if(!is_bool($activo)){//tiene que llegar true o false, no "1" ni 1
-            return $this->error('El estado es inválido');
+            return Respuesta::error('El estado es inválido');
         }
         //para que el backoffice no se quede afuera del sistema sin que nadie pueda reactivarlo
         if($id === (int) $_SESSION['usuario']['id']){
-            return $this->error('No podés deshabilitar tu propia cuenta');
+            return Respuesta::error('No podés deshabilitar tu propia cuenta');
         }
         if($this->buscarUsuario($id) === null){
-            return $this->error('El usuario no existe', 404);
+            return Respuesta::error('El usuario no existe', 404);
         }
 
         $consulta = Conexion::obtener()->prepare('UPDATE usuarios SET activo = ? WHERE id = ?');
@@ -168,14 +169,8 @@ class BackofficeController{
         ];
     }
 
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422){
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
-    }
     //Responde un éxito en JSON con su código HTTP
     private function respuesta(array $cuerpo, int $codigo = 200){
-        http_response_code($codigo);
-        echo json_encode($cuerpo);
+        Respuesta::json($cuerpo, $codigo);
     }
 }

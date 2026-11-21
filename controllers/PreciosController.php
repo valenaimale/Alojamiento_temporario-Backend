@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\ValidadorFechas;
 
 //El precio de cada noche de una unidad (US2.7), con su historial.
@@ -27,7 +28,7 @@ class PreciosController
 
         $rango = $this->validarRango((string) ($_GET['desde'] ?? ''), (string) ($_GET['hasta'] ?? ''));
         if (isset($rango['error'])) {
-            return $this->error($rango['error']);
+            return Respuesta::error($rango['error']);
         }
         [$desde, $hasta] = $rango;
         $pdo = Conexion::obtener();
@@ -61,8 +62,7 @@ class PreciosController
         $consulta = $pdo->prepare('SELECT cobra_iva FROM propietarios WHERE usuario_id = ?');
         $consulta->execute([$unidad['propietario_id']]);
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'cobra_iva' => (bool) $consulta->fetchColumn(),//si cobra IVA, la pantalla aclara que el precio lo incluye (RN-13)
             'noches'    => $noches,
         ]);
@@ -77,15 +77,15 @@ class PreciosController
 
         $rango = $this->validarRango((string) ($datos['desde'] ?? ''), (string) ($datos['hasta'] ?? ''));
         if (isset($rango['error'])) {
-            return $this->error($rango['error']);
+            return Respuesta::error($rango['error']);
         }
         [$desde, $hasta] = $rango;
         if ($desde < ValidadorFechas::hoy()) {
-            return $this->error('Solo podés cargar precios de hoy en adelante');
+            return Respuesta::error('Solo podés cargar precios de hoy en adelante');
         }
         $precio = $this->validarPrecio($datos['precio'] ?? '');
         if ($precio === null) {
-            return $this->error('El precio tiene que ser un monto mayor que 0, con hasta 2 decimales');
+            return Respuesta::error('El precio tiene que ser un monto mayor que 0, con hasta 2 decimales');
         }
 
         $unidadId = (int) $unidad['id'];
@@ -131,7 +131,7 @@ class PreciosController
             $pdo->rollBack();
             //la clave primaria es (unidad_id, fecha, vigente_desde): dos cambios de la misma noche en el mismo segundo chocan
             if ($e->getCode() === '23000') {
-                return $this->error('Esperá un momento y volvé a intentar', 409);
+                return Respuesta::error('Esperá un momento y volvé a intentar', 409);
             }
             throw $e;//lo atrapa el router y responde 500
         } catch (\Throwable $e) {
@@ -139,8 +139,7 @@ class PreciosController
             throw $e;
         }
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'ok'               => $cambiadas === 0 ? 'Esas noches ya tenían ese precio' : "Guardamos el precio de $cambiadas " . ($cambiadas === 1 ? 'noche' : 'noches'),
             'noches_cambiadas' => $cambiadas,
         ]);
@@ -193,12 +192,5 @@ class PreciosController
     private function bloquearUnidad(int $unidadId): void
     {
         Conexion::obtener()->prepare('SELECT id FROM unidades WHERE id = ? FOR UPDATE')->execute([$unidadId]);
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

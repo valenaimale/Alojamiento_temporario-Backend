@@ -7,6 +7,7 @@ use App\Database\Conexion;
 use App\Validacion\ValidadorFechas;
 use App\Validacion\PlazoIngreso;
 use App\Validacion\VencimientoReserva;
+use App\Request\Respuesta;
 
 //La agenda del operador de estadías (RF-10): los ingresos y egresos de las unidades que tiene asignadas.
 //El operador recibe a los huéspedes: ve la dirección de la unidad y el nombre del huésped, pero nunca los montos (RN-19).
@@ -92,7 +93,6 @@ class AgendaOperadorController
             ];
         }
 
-        http_response_code(200);
-        echo json_encode(['reservas' => $reservas]);
+        Respuesta::json(['reservas' => $reservas]);
     }
 }

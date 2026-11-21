@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Database\Conexion;
 use App\Autorizacion\SesionUsuario;
 use App\Autorizacion\Autorizacion;
@@ -25,10 +26,10 @@ class InicioSesionController{
         //contrasenia NULL = cuenta creada solo con Google: no puede entrar con contraseña.
         //Mismo mensaje en todos los casos, para no revelar qué mails tienen cuenta.
         if(!$fila || $fila['contrasenia'] === null || !password_verify($contrasenia, $fila['contrasenia'])){
-            return $this->error('Mail o contraseña incorrectos');
+            return Respuesta::error('Mail o contraseña incorrectos', 401);
         }
         if(!$fila['activo']){//la cuenta existe pero un administrador la deshabilito
-            return $this->error('Tu cuenta está deshabilitada', 403);
+            return Respuesta::error('Tu cuenta está deshabilitada', 403);
         }
         //SesionUsuario arma $_SESSION['usuario'] (id, nombre, mail, dni, rol, mail_verificado) y regenera el ID de sesión
         // Capturar la versión de la misma lectura que verificó la contraseña evita que un
@@ -48,25 +49,17 @@ class InicioSesionController{
         Autorizacion::requiereSesion();//sin sesión (o con la cuenta deshabilitada) responde 401 y corta acá
         return $this->respuestaGetSesion($_SESSION['usuario']);
     }
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 401){
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
-    }
     //Responde el inicio de sesión exitoso, con los datos del usuario
     private function respuestaInicioSesion(string $mensaje, array $datosUsuario, int $codigo =200){
-        http_response_code($codigo);
-        echo json_encode(['ok'=>$mensaje,
-        'usuario'=>$datosUsuario]);
+        Respuesta::json(['ok'=>$mensaje,
+        'usuario'=>$datosUsuario], $codigo);
     }
     //Responde los datos del usuario logueado
     private function respuestaGetSesion(array $datosUsuario, int $codigo =200){
-        http_response_code($codigo);
-        echo json_encode(['usuario'=>$datosUsuario]);
+        Respuesta::json(['usuario'=>$datosUsuario], $codigo);
     }
     //Responde el cierre de sesión exitoso
     private function respuestaSesionCerrada(string $mensaje, int $codigo=200){
-        http_response_code($codigo);
-        echo json_encode(['ok'=>$mensaje]);
+        Respuesta::json(['ok'=>$mensaje], $codigo);
     }
 }

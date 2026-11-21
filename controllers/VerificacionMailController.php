@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Autorizacion\Autorizacion;
 use App\Autorizacion\SesionUsuario;
 use App\Database\Conexion;
@@ -24,7 +25,7 @@ class VerificacionMailController{
         //el token son 64 caracteres hexadecimales (bin2hex de 32 bytes): si no tiene esa forma,
         //no hace falta ni consultar la base
         if($token === '' || !preg_match('/^[0-9a-f]{64}$/', $token)){
-            return $this->error('El enlace no es válido');
+            return Respuesta::error('El enlace no es válido');
         }
 
         //Primero, el enlace de un registro: la cuenta se crea ahora y queda la sesión iniciada en este navegador
@@ -32,11 +33,10 @@ class VerificacionMailController{
         $registro = RegistroPendiente::confirmar($token);
         if($registro !== null){
             if(isset($registro['error'])){
-                return $this->error($registro['error'], 409);
+                return Respuesta::error($registro['error'], 409);
             }
             $usuario = SesionUsuario::iniciar($registro['usuario_id']);//igual que el login: arma la sesión y regenera el ID
-            http_response_code(201);
-            echo json_encode(['ok' => 'Tu cuenta quedó creada', 'usuario' => $usuario]);
+            Respuesta::json(['ok' => 'Tu cuenta quedó creada', 'usuario' => $usuario], 201);
             return;
         }
 
@@ -51,7 +51,7 @@ class VerificacionMailController{
         $consulta->execute([hash('sha256', $token)]);
         $fila = $consulta->fetch();//devuelve false si no encontro ninguna fila
         if(!$fila){
-            return $this->error('El enlace no es válido o venció. Pedí uno nuevo desde el aviso de tu home.');
+            return Respuesta::error('El enlace no es válido o venció. Pedí uno nuevo desde el aviso de tu home.');
         }
 
         //marcar el mail como verificado y quemar el token van juntos: si falla uno, no queda guardado ninguno
@@ -84,7 +84,7 @@ class VerificacionMailController{
         $usuario = $_SESSION['usuario'];//el id sale siempre de la sesión, nunca del cuerpo de la petición
 
         if($usuario['mail_verificado']){
-            return $this->error('Tu mail ya está verificado', 409);
+            return Respuesta::error('Tu mail ya está verificado', 409);
         }
 
         //para que no se pueda usar el reenvío para mandarle muchos mails a una casilla
@@ -95,21 +95,15 @@ class VerificacionMailController{
         );
         $consulta->execute([$usuario['id']]);
         if($consulta->fetchColumn()){
-            return $this->error('Esperá un minuto antes de pedir otro mail', 429);
+            return Respuesta::error('Esperá un minuto antes de pedir otro mail', 429);
         }
 
         VerificacionMail::enviar($usuario['id']);//nunca lanza excepciones
         return $this->respuesta('Te enviamos un nuevo mail de verificación a ' . $usuario['mail']);
     }
 
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422){
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
-    }
     //Responde un éxito en JSON con su código HTTP
     private function respuesta(string $mensaje, int $codigo = 200){
-        http_response_code($codigo);
-        echo json_encode(['ok' => $mensaje]);
+        Respuesta::json(['ok' => $mensaje], $codigo);
     }
 }

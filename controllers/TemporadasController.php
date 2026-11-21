@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\ValidadorFechas;
 
 //Las temporadas de una unidad (US2.7, US2.9): alta, media o baja, con sus fechas y su mínimo de noches.
@@ -38,8 +39,7 @@ class TemporadasController
             $temporada['minimo_noches'] = (int) $temporada['minimo_noches'];
         }
 
-        http_response_code(200);
-        echo json_encode(['temporadas' => $temporadas]);
+        Respuesta::json(['temporadas' => $temporadas]);
     }
 
     //POST /unidades/temporadas/crear: {"unidad_id", "nombre", "fecha_inicio", "fecha_fin", "minimo_noches"}
@@ -50,7 +50,7 @@ class TemporadasController
 
         $temporada = $this->validar($datos);
         if (isset($temporada['error'])) {
-            return $this->error($temporada['error']);
+            return Respuesta::error($temporada['error']);
         }
 
         $pdo = Conexion::obtener();
@@ -60,7 +60,7 @@ class TemporadasController
             $superpuesta = $this->superpuesta((int) $unidad['id'], $temporada);
             if ($superpuesta !== null) {
                 $pdo->rollBack();
-                return $this->error($superpuesta, 409);
+                return Respuesta::error($superpuesta, 409);
             }
 
             $consulta = $pdo->prepare(
@@ -76,8 +76,7 @@ class TemporadasController
             throw $e;//lo atrapa el router y responde 500
         }
 
-        http_response_code(201);
-        echo json_encode(['ok' => 'Creaste la temporada', 'id' => $id]);
+        Respuesta::json(['ok' => 'Creaste la temporada', 'id' => $id], 201);
     }
 
     //POST /unidades/temporadas/editar: {"unidad_id", "temporada_id", "nombre", "fecha_inicio", "fecha_fin", "minimo_noches"}
@@ -89,11 +88,11 @@ class TemporadasController
 
         $temporadaId = $this->idTemporada($datos);
         if ($temporadaId === null) {
-            return $this->error('Temporada inválida');
+            return Respuesta::error('Temporada inválida');
         }
         $temporada = $this->validar($datos);
         if (isset($temporada['error'])) {
-            return $this->error($temporada['error']);
+            return Respuesta::error($temporada['error']);
         }
 
         $pdo = Conexion::obtener();
@@ -106,17 +105,17 @@ class TemporadasController
             $finActual = $consulta->fetchColumn();//false si no existe o es de otra unidad
             if ($finActual === false) {
                 $pdo->rollBack();
-                return $this->error('No encontramos esa temporada', 404);
+                return Respuesta::error('No encontramos esa temporada', 404);
             }
             if ($finActual < ValidadorFechas::hoy()->format('Y-m-d')) {//las fechas AAAA-MM-DD se pueden comparar como texto
                 $pdo->rollBack();
-                return $this->error('Esa temporada ya terminó: no se puede editar', 409);
+                return Respuesta::error('Esa temporada ya terminó: no se puede editar', 409);
             }
 
             $superpuesta = $this->superpuesta((int) $unidad['id'], $temporada, $temporadaId);
             if ($superpuesta !== null) {
                 $pdo->rollBack();
-                return $this->error($superpuesta, 409);
+                return Respuesta::error($superpuesta, 409);
             }
 
             $consulta = $pdo->prepare(
@@ -131,8 +130,7 @@ class TemporadasController
             throw $e;
         }
 
-        http_response_code(200);
-        echo json_encode(['ok' => 'Guardamos los cambios de la temporada']);
+        Respuesta::json(['ok' => 'Guardamos los cambios de la temporada']);
     }
 
     //POST /unidades/temporadas/borrar: {"unidad_id", "temporada_id"}.
@@ -144,17 +142,16 @@ class TemporadasController
 
         $temporadaId = $this->idTemporada($datos);
         if ($temporadaId === null) {
-            return $this->error('Temporada inválida');
+            return Respuesta::error('Temporada inválida');
         }
 
         $consulta = Conexion::obtener()->prepare('DELETE FROM temporadas WHERE id = ? AND unidad_id = ?');
         $consulta->execute([$temporadaId, $unidad['id']]);
         if ($consulta->rowCount() === 0) {//no existe, o es de otra unidad
-            return $this->error('No encontramos esa temporada', 404);
+            return Respuesta::error('No encontramos esa temporada', 404);
         }
 
-        http_response_code(200);
-        echo json_encode(['ok' => 'Borraste la temporada']);
+        Respuesta::json(['ok' => 'Borraste la temporada']);
     }
 
     //Valida los datos de una temporada (crear y editar). Devuelve los datos listos para guardar, o ['error' => mensaje].
@@ -232,12 +229,5 @@ class TemporadasController
             ValidadorFechas::fecha($otra['fecha_inicio'])->format('d/m/Y'),
             ValidadorFechas::fecha($otra['fecha_fin'])->format('d/m/Y')
         );
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

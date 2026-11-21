@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\Estadia;
 use App\Validacion\UnidadGrupal;
 use App\Validacion\VencimientoReserva;
@@ -65,8 +66,7 @@ class UnidadesGrupalesController
             ];
         }
 
-        http_response_code(200);
-        echo json_encode(['grupales' => $grupales]);
+        Respuesta::json(['grupales' => $grupales]);
     }
 
     //POST /administrador/grupales/crear: {"titulo", "unidad_ids": [4, 5, 6]}. Nace activa.
@@ -77,7 +77,7 @@ class UnidadesGrupalesController
 
         $grupal = UnidadGrupal::validar(Request::datosJson(['unidad_ids']), $administradorId);
         if (isset($grupal['error'])) {
-            return $this->error($grupal['error']);
+            return Respuesta::error($grupal['error']);
         }
 
         $pdo = Conexion::obtener();
@@ -96,8 +96,7 @@ class UnidadesGrupalesController
             throw $e;
         }
 
-        http_response_code(201);
-        echo json_encode(['ok' => "Creaste la reserva grupal \"{$grupal['titulo']}\"", 'id' => $id]);
+        Respuesta::json(['ok' => "Creaste la reserva grupal \"{$grupal['titulo']}\"", 'id' => $id], 201);
     }
 
     //POST /administrador/grupales/editar: {"id", "titulo", "unidad_ids": [..]}. Las reservas ya hechas no cambian.
@@ -109,11 +108,11 @@ class UnidadesGrupalesController
 
         $id = $this->grupalPropia($datos['id'] ?? null, $administradorId);
         if ($id === null) {
-            return $this->error('No encontramos esa reserva grupal', 404);
+            return Respuesta::error('No encontramos esa reserva grupal', 404);
         }
         $grupal = UnidadGrupal::validar($datos, $administradorId);
         if (isset($grupal['error'])) {
-            return $this->error($grupal['error']);
+            return Respuesta::error($grupal['error']);
         }
 
         $pdo = Conexion::obtener();
@@ -131,8 +130,7 @@ class UnidadesGrupalesController
             throw $e;
         }
 
-        http_response_code(200);
-        echo json_encode(['ok' => 'Guardaste los cambios de la reserva grupal']);
+        Respuesta::json(['ok' => 'Guardaste los cambios de la reserva grupal']);
     }
 
     //POST /administrador/grupales/estado: {"id", "activa": true|false}. Una desactivada no aparece en la búsqueda.
@@ -145,18 +143,17 @@ class UnidadesGrupalesController
 
         $id = $this->grupalPropia($datos['id'] ?? null, $administradorId);
         if ($id === null) {
-            return $this->error('No encontramos esa reserva grupal', 404);
+            return Respuesta::error('No encontramos esa reserva grupal', 404);
         }
         if (!is_bool($datos['activa'] ?? null)) {
-            return $this->error('Indicá si la reserva grupal queda activa o no');
+            return Respuesta::error('Indicá si la reserva grupal queda activa o no');
         }
         if ($datos['activa'] && count(UnidadGrupal::vigentes($id)) < UnidadGrupal::MINIMO_UNIDADES) {
-            return $this->error('Para activarla tiene que tener al menos ' . UnidadGrupal::MINIMO_UNIDADES . ' unidades que administres', 409);
+            return Respuesta::error('Para activarla tiene que tener al menos ' . UnidadGrupal::MINIMO_UNIDADES . ' unidades que administres', 409);
         }
 
         Conexion::obtener()->prepare('UPDATE unidades_grupales SET activa = ? WHERE id = ?')->execute([$datos['activa'] ? 1 : 0, $id]);
-        http_response_code(200);
-        echo json_encode(['ok' => $datos['activa'] ? 'La reserva grupal aparece en la búsqueda' : 'La reserva grupal ya no aparece en la búsqueda']);
+        Respuesta::json(['ok' => $datos['activa'] ? 'La reserva grupal aparece en la búsqueda' : 'La reserva grupal ya no aparece en la búsqueda']);
     }
 
     //GET /grupal?id=3&ingreso=2027-01-02&egreso=2027-01-09&personas=10: el detalle de una grupal para esas fechas.
@@ -178,25 +175,24 @@ class UnidadesGrupalesController
             $grupal = $consulta->fetch();
         }
         if ($grupal === false) {
-            return $this->error('No encontramos esa reserva grupal', 404);
+            return Respuesta::error('No encontramos esa reserva grupal', 404);
         }
 
         $fechas = Estadia::validarFechas(Request::parametroGet('ingreso'), Request::parametroGet('egreso'));
         if (isset($fechas['error'])) {
-            return $this->error($fechas['error']);
+            return Respuesta::error($fechas['error']);
         }
         $personas = filter_var(Request::parametroGet('personas'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 50]]);
         if ($personas === false) {
-            return $this->error('Indicá cuántas personas van a ser (de 1 a 50)');
+            return Respuesta::error('Indicá cuántas personas van a ser (de 1 a 50)');
         }
 
         $armada = UnidadGrupal::armar((int) $grupal['id'], $fechas['ingreso'], $fechas['egreso'], $personas);
         if ($armada === null) {
-            return $this->error('Esta reserva grupal no está disponible para esas fechas y esa cantidad de personas', 409);
+            return Respuesta::error('Esta reserva grupal no está disponible para esas fechas y esa cantidad de personas', 409);
         }
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'grupal' => [
                 'id'                    => (int) $grupal['id'],
                 'titulo'                => $grupal['titulo'],
@@ -270,12 +266,5 @@ class UnidadesGrupalesController
         $consulta->execute([$grupalId, $administradorId]);
         $fila = $consulta->fetchColumn();
         return $fila === false ? null : (int) $fila;
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

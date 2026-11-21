@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use PDO;
 
 //Las fotos de una unidad (US2.1). Las imágenes las sube el navegador directo a Cloudinary: acá solo se guarda su URL y su orden.
@@ -34,7 +35,7 @@ class FotosUnidadController
         $url = is_string($datos['url'] ?? null) ? trim($datos['url']) : '';
         if (!str_starts_with($url, self::PREFIJO_URL) || strlen($url) === strlen(self::PREFIJO_URL)
             || strlen($url) > 500 || filter_var($url, FILTER_VALIDATE_URL) === false) {
-            return $this->error('La foto no es válida');
+            return Respuesta::error('La foto no es válida');
         }
 
         $pdo = Conexion::obtener();
@@ -48,7 +49,7 @@ class FotosUnidadController
             $cantidad = (int) $consulta->fetchColumn();
             if ($cantidad >= self::MAXIMO_FOTOS) {
                 $pdo->rollBack();
-                return $this->error('Podés tener hasta ' . self::MAXIMO_FOTOS . ' fotos por unidad');
+                return Respuesta::error('Podés tener hasta ' . self::MAXIMO_FOTOS . ' fotos por unidad');
             }
 
             $pdo->prepare('INSERT INTO fotos_unidad (unidad_id, url, orden) VALUES (?, ?, ?)')
@@ -62,12 +63,11 @@ class FotosUnidadController
             throw $e;//lo atrapa el router y responde 500
         }
 
-        http_response_code(201);
-        echo json_encode([
+        Respuesta::json([
             'ok'    => 'Agregamos la foto',
             'foto'  => ['id' => $fotoId, 'url' => $url, 'orden' => $cantidad],
             'fotos' => self::fotosDe((int) $unidad['id']),
-        ]);
+        ], 201);
     }
 
     //POST /unidades/fotos/quitar: el propietario o su administrador quita una foto y las que estaban después bajan un lugar.
@@ -85,7 +85,7 @@ class FotosUnidadController
             $foto = $this->buscarFoto($pdo, $datos['foto_id'] ?? '', $unidad['id']);
             if ($foto === null) {
                 $pdo->rollBack();
-                return $this->error('No encontramos esa foto', 404);
+                return Respuesta::error('No encontramos esa foto', 404);
             }
 
             $pdo->prepare('DELETE FROM fotos_unidad WHERE id = ?')->execute([$foto['id']]);
@@ -100,8 +100,7 @@ class FotosUnidadController
             throw $e;
         }
 
-        http_response_code(200);
-        echo json_encode(['ok' => 'Quitamos la foto', 'fotos' => self::fotosDe((int) $unidad['id'])]);
+        Respuesta::json(['ok' => 'Quitamos la foto', 'fotos' => self::fotosDe((int) $unidad['id'])]);
     }
 
     //POST /unidades/fotos/principal: el propietario o su administrador elige la foto principal (pasa a orden 0).
@@ -119,7 +118,7 @@ class FotosUnidadController
             $foto = $this->buscarFoto($pdo, $datos['foto_id'] ?? '', $unidad['id']);
             if ($foto === null) {
                 $pdo->rollBack();
-                return $this->error('No encontramos esa foto', 404);
+                return Respuesta::error('No encontramos esa foto', 404);
             }
 
             if ($foto['orden'] > 0) {//si ya es la principal, no hay nada que mover
@@ -138,8 +137,7 @@ class FotosUnidadController
             throw $e;
         }
 
-        http_response_code(200);
-        echo json_encode(['ok' => 'Elegiste la foto principal', 'fotos' => self::fotosDe((int) $unidad['id'])]);
+        Respuesta::json(['ok' => 'Elegiste la foto principal', 'fotos' => self::fotosDe((int) $unidad['id'])]);
     }
 
     //POST /unidades/fotos/mover: inserta una foto en la posición elegida (desde 1).
@@ -151,7 +149,7 @@ class FotosUnidadController
         $valor = $datos['posicion'] ?? null;
         $posicion = is_bool($valor) ? false : filter_var($valor, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 10]]);
         if ($posicion === false) {
-            return $this->error('Elegí una posición válida para la foto', 422);
+            return Respuesta::error('Elegí una posición válida para la foto', 422);
         }
 
         $pdo = Conexion::obtener();
@@ -161,13 +159,13 @@ class FotosUnidadController
             $foto = $this->buscarFoto($pdo, $datos['foto_id'] ?? '', $unidad['id']);
             if ($foto === null) {
                 $pdo->rollBack();
-                return $this->error('No encontramos esa foto', 404);
+                return Respuesta::error('No encontramos esa foto', 404);
             }
             $cantidad = $pdo->prepare('SELECT COUNT(*) FROM fotos_unidad WHERE unidad_id = ?');
             $cantidad->execute([$unidad['id']]);
             if ($posicion > (int) $cantidad->fetchColumn()) {
                 $pdo->rollBack();
-                return $this->error('Elegí una posición válida para la foto', 422);
+                return Respuesta::error('Elegí una posición válida para la foto', 422);
             }
             $destino = $posicion - 1;
             if ($destino !== $foto['orden']) {
@@ -192,8 +190,7 @@ class FotosUnidadController
             throw $e;
         }
 
-        http_response_code(200);
-        echo json_encode(['ok' => 'Guardamos el orden de las fotos', 'fotos' => $fotos]);
+        Respuesta::json(['ok' => 'Guardamos el orden de las fotos', 'fotos' => $fotos]);
     }
 
     //Las fotos de la unidad ordenadas (la principal primero), como las devuelve la API: [{id, url, orden}].
@@ -227,12 +224,5 @@ class FotosUnidadController
         $consulta->execute([$id, $unidadId]);
         $foto = $consulta->fetch();
         return $foto === false ? null : ['id' => (int) $foto['id'], 'orden' => (int) $foto['orden']];
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

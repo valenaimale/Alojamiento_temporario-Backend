@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 
 //La política de cancelación y el % de seña de una unidad (US2.8). Es una sola por unidad (no cambia por temporada).
 //La seña es el % del total que paga el huésped al reservar: de 1 a 100 (decisión #52 de docs/pagos-decisiones.md:
@@ -46,8 +47,7 @@ class PoliticaController
         }
         $politica['dias_cobro_saldo'] = (int) $consulta->fetchColumn();
 
-        http_response_code(200);
-        echo json_encode(['politica' => $politica]);
+        Respuesta::json(['politica' => $politica]);
     }
 
     //POST /unidades/politica: {"unidad_id", "porcentaje_sena", "retencion_mas_de_30", "retencion_de_15_a_30", "retencion_menos_de_15"}
@@ -60,12 +60,12 @@ class PoliticaController
         foreach (self::SENA + self::RETENCIONES as $campo => $nombre) {
             $porcentaje = $this->validarPorcentaje($datos[$campo] ?? '');
             if ($porcentaje === null) {
-                return $this->error("$nombre tiene que ser un porcentaje de 0 a 100, con hasta 2 decimales");
+                return Respuesta::error("$nombre tiene que ser un porcentaje de 0 a 100, con hasta 2 decimales");
             }
             $porcentajes[$campo] = $porcentaje;
         }
         if ((float) $porcentajes['porcentaje_sena'] < self::SENA_MINIMA) {
-            return $this->error('La seña tiene que ser de al menos el ' . self::SENA_MINIMA . ' %: sin seña, el huésped no podría pagar el saldo');
+            return Respuesta::error('La seña tiene que ser de al menos el ' . self::SENA_MINIMA . ' %: sin seña, el huésped no podría pagar el saldo');
         }
 
         //cada retención tiene que ser menor o igual que la siguiente (la misma regla que el CHECK de la base)
@@ -74,7 +74,7 @@ class PoliticaController
             [$actual, $siguiente] = [$campos[$i], $campos[$i + 1]];
             if ((float) $porcentajes[$actual] > (float) $porcentajes[$siguiente]) {
                 //"La retención de más de 30 días no puede ser mayor que la retención de 15 a 30 días"
-                return $this->error(self::RETENCIONES[$actual] . ' no puede ser mayor que ' . lcfirst(self::RETENCIONES[$siguiente]));
+                return Respuesta::error(self::RETENCIONES[$actual] . ' no puede ser mayor que ' . lcfirst(self::RETENCIONES[$siguiente]));
             }
         }
 
@@ -85,8 +85,7 @@ class PoliticaController
         );
         $consulta->execute([...array_values($porcentajes), $unidad['id']]);
 
-        http_response_code(200);
-        echo json_encode(['ok' => 'Guardamos la política de cancelación y la seña', 'politica' => $porcentajes]);
+        Respuesta::json(['ok' => 'Guardamos la política de cancelación y la seña', 'politica' => $porcentajes]);
     }
 
     //El porcentaje como texto con 2 decimales ("20.00"), o null si no es un número de 0 a 100 con hasta 2 decimales.
@@ -101,12 +100,5 @@ class PoliticaController
             return null;
         }
         return number_format((float) $texto, 2, '.', '');
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }
