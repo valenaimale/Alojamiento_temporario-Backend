@@ -55,16 +55,45 @@ class PagosController
         Autorizacion::requiere('huesped');
         $datos = Request::datosJson();
 
-        $txHash = $datos['tx_hash'] ?? null;
-        if (!is_string($txHash) || preg_match('/^0x[0-9a-fA-F]{64}$/', $txHash) !== 1) {
-            return $this->error('El hash de la transacción no es válido');
-        }
-        $txHash = strtolower($txHash);//el mismo hash en mayúsculas es la misma transacción
-        $tipoPedido = $datos['tipo'] ?? null;
-        if ($tipoPedido !== null && !isset(self::NOMBRES[$tipoPedido])) {
-            return $this->error('El tipo de pago tiene que ser sena o saldo');
+        $pedido = $this->pedidoDeConfirmacion($datos);
+        if ($pedido === null) {
+            return;//el pedido no es válido: pedidoDeConfirmacion ya respondió
         }
 
+        $pago = $this->registrarPago($pedido['tx_hash'], $pedido['tipo'], $datos['reserva_id'] ?? null);
+        if ($pago === null) {
+            return;//no se pudo pagar: registrarPago ya respondió el error o el 202
+        }
+
+        if ($pago['confirmado']) {
+            $this->responderConfirmado($pago);
+            return;
+        }
+        $this->responderFallido($pago);
+    }
+
+    //Lo que manda el front: el hash de la transacción y, si viene, el tipo de pago.
+    //Devuelve ['tx_hash', 'tipo'] ('tipo' en null si no vino) o null si ya respondió el error.
+    private function pedidoDeConfirmacion(array $datos): ?array
+    {
+        $txHash = $datos['tx_hash'] ?? null;
+        if (!is_string($txHash) || preg_match('/^0x[0-9a-fA-F]{64}$/', $txHash) !== 1) {
+            $this->error('El hash de la transacción no es válido');
+            return null;
+        }
+        $tipo = $datos['tipo'] ?? null;
+        if ($tipo !== null && !isset(self::NOMBRES[$tipo])) {
+            $this->error('El tipo de pago tiene que ser sena o saldo');
+            return null;
+        }
+        return ['tx_hash' => strtolower($txHash), 'tipo' => $tipo];//el mismo hash en mayúsculas es la misma transacción
+    }
+
+    //Verifica la transacción y guarda el pago, todo dentro de una transacción de base.
+    //Devuelve lo que necesitan el aviso y la respuesta, o null si no se pudo pagar: en ese caso ya respondió
+    //(el error, o el 202 de la transacción que todavía no está en un bloque).
+    private function registrarPago(string $txHash, ?string $tipoPedido, mixed $reservaId): ?array
+    {
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
         try {
@@ -72,32 +101,25 @@ class PagosController
             //ya pagada (así nunca hay dos pagos confirmados de lo mismo). Mientras tanto se consulta la red:
             //con el verificador real conviene que tarde poco, con un timeout.
             //Si es una extensión, primero se traba su reserva original, en el mismo orden que el egreso (Extension::trabarOriginal)
-            $reserva = $this->reservaDelHuesped($datos['reserva_id'] ?? null, true);
+            $reserva = $this->reservaDelHuesped($reservaId, true);
             if ($reserva === false) {
                 $pdo->rollBack();
-                return $this->error('No encontramos esa reserva', 404);
+                $this->error('No encontramos esa reserva', 404);
+                return null;
             }
             $tipo = $tipoPedido ?? ($reserva['estado'] === 'pendiente' ? self::SENA : self::SALDO);
+
             $problema = $this->problemaParaPagar($tipo, $reserva);
             if ($problema !== null) {
-                if (VencimientoReserva::vencida($reserva['estado'], $reserva['bloqueo_expira_en'])) {
-                    $pdo->prepare("UPDATE reservas SET estado = 'expirada' WHERE id = ? AND estado = 'pendiente'")->execute([$reserva['id']]);
-                    $pdo->commit();
-                } else {
-                    $pdo->rollBack();
-                }
-                return $this->error(...$problema);
+                $this->cerrarSinPagar($pdo, $reserva);
+                $this->error(...$problema);
+                return null;
             }
-
-            //una transacción paga una sola cosa (la base solo lo asegura por billetera: acá, para cualquiera)
-            $consulta = $pdo->prepare('SELECT reserva_id, estado FROM pagos WHERE tx_hash = ? LIMIT 1');
-            $consulta->execute([$txHash]);
-            $usado = $consulta->fetch();
-            if ($usado !== false) {
+            $yaUsado = $this->problemaDelTxHash($pdo, $txHash, (int) $reserva['id']);
+            if ($yaUsado !== null) {
                 $pdo->rollBack();
-                return $this->error($usado['estado'] === 'fallido' && (int) $usado['reserva_id'] === (int) $reserva['id']
-                    ? 'Esa transacción ya falló: tenés que pagar de nuevo'
-                    : 'Esa transacción ya se usó para otro pago', 409);
+                $this->error(...$yaUsado);
+                return null;
             }
 
             $montoPesos = $this->monto($tipo, $reserva);
@@ -110,7 +132,7 @@ class PagosController
                 $pdo->rollBack();
                 http_response_code(202);
                 echo json_encode(['pendiente' => true, 'mensaje' => 'La transacción todavía no se confirmó en la red. Esperá unos segundos y volvé a intentar']);
-                return;
+                return null;
             }
 
             $confirmado = $resultado->estado === ResultadoVerificacion::CONFIRMADO;
@@ -119,33 +141,30 @@ class PagosController
             if ($confirmado && $resultado->montoWei !== null) {
                 $montoWei = $resultado->montoWei;
             }
-            //un intento fallido se guarda si se sabe quién lo pagó (pagos.billetera es obligatoria);
-            //una transacción que ni existe no deja rastro, solo el aviso
-            if ($resultado->billetera !== null) {
-                $ahora = VencimientoReserva::ahora();
-                $pdo->prepare(
-                    'INSERT INTO pagos (reserva_id, tipo, monto_pesos, monto_wei, pesos_por_eth, billetera, red, tx_hash, estado, creado_en, confirmado_en)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-                )->execute([
-                    $reserva['id'], $tipo, $montoPesos, $montoWei, $pesosPorEth,
-                    strtolower($resultado->billetera), $verificador->red(), $txHash, $resultado->estado,
-                    $ahora, $confirmado ? $ahora : null,
-                ]);
-            }
-            if ($confirmado) {
-                $pdo->prepare($tipo === self::SENA
-                    ? "UPDATE reservas SET estado = 'confirmada' WHERE id = ?"
-                    : 'UPDATE reservas SET monto_faltante = 0 WHERE id = ?'
-                )->execute([$reserva['id']]);
-            }
+            $pago = [
+                'reserva'       => $reserva,
+                'tipo'          => $tipo,
+                'confirmado'    => $confirmado,
+                'estado'        => $resultado->estado,
+                'motivo'        => $resultado->motivo,
+                'billetera'     => $resultado->billetera,
+                'monto_pesos'   => $montoPesos,
+                'monto_wei'     => $montoWei,
+                'pesos_por_eth' => $pesosPorEth,
+                'tx_hash'       => $txHash,
+                'red'           => $verificador->red(),
+            ];
+            $this->anotarPago($pdo, $pago);
             $pdo->commit();
+            return $pago;
         } catch (\PDOException $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             //23000: otra petición guardó la misma transacción al mismo tiempo (tx_hash y billetera son únicos)
             if ($e->getCode() === '23000') {
-                return $this->error('Esa transacción ya se usó para otro pago', 409);
+                $this->error('Esa transacción ya se usó para otro pago', 409);
+                return null;
             }
             throw $e;
         } catch (\Throwable $e) {
@@ -154,58 +173,132 @@ class PagosController
             }
             throw $e;//lo atrapa el router y responde 500
         }
+    }
 
-        $huesped = $_SESSION['usuario'];
-        $unidad = $reserva['unidad_nombre'];
-        $esExtension = $reserva['extiende_reserva_id'] !== null;
-        if ($confirmado) {
-            if ($esExtension) {
-                Extension::avisarConfirmada((int) $reserva['id']);//al huésped y al propietario
-                $ok = "Pagaste la extensión: tu estadía en $unidad sigue hasta el " . ValidadorFechas::fecha($reserva['fecha_egreso'])->format('d/m/Y');
-            } elseif ($tipo === self::SENA) {
-                //decisiones #23 y #75: desde la seña se le avisa hasta cuándo puede pagar el saldo y qué pasa si no lo paga
-                $limite = $this->limiteDelSaldo($reserva);
-                $saldo = $limite !== null && bccomp($reserva['monto_faltante'], '0', 2) > 0
-                    ? ['monto' => $reserva['monto_faltante'], 'fecha_cobro' => $reserva['fecha_cobro'], 'limite' => $limite,
-                       'retencion' => $reserva['retencion_menos_de_15']]
-                    : null;
-                //reservó con 5 días o menos y la seña fue el total (#75)
-                $pagoTotal = $reserva['monto_faltante'] !== null && bccomp($reserva['monto_faltante'], '0', 2) === 0;
-                AvisoPagoMail::senaConfirmada($huesped, $unidad, $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $montoPesos, $saldo, $pagoTotal);
-                $ok = $pagoTotal
-                    ? "Pagaste el total: tu reserva en $unidad está confirmada y paga"
-                    : "Pagaste la seña: tu reserva en $unidad está confirmada";
-            } else {
-                AvisoPagoMail::saldoConfirmado($huesped, $unidad, $reserva['fecha_ingreso'], $montoPesos);
-                $ok = "Pagaste el saldo: tu reserva en $unidad está paga";
-            }
-            http_response_code(200);
-            echo json_encode([
-                'ok'      => $ok,
-                'tipo'    => $tipo,
-                'reserva' => ['id' => (int) $reserva['id'], 'estado' => 'confirmada'],
-                'pago'    => ['monto_pesos' => $montoPesos, 'monto_wei' => $montoWei, 'tx_hash' => $txHash, 'red' => $verificador->red()],
-            ]);
+    //Cierra la transacción cuando no se va a pagar: si a la reserva se le venció el plazo de la seña, la deja
+    //'expirada' (y para eso commitea); si no, no cambia nada.
+    private function cerrarSinPagar(\PDO $pdo, array $reserva): void
+    {
+        if (!VencimientoReserva::vencida($reserva['estado'], $reserva['bloqueo_expira_en'])) {
+            $pdo->rollBack();
             return;
         }
+        $pdo->prepare("UPDATE reservas SET estado = 'expirada' WHERE id = ? AND estado = 'pendiente'")->execute([$reserva['id']]);
+        $pdo->commit();
+    }
 
-        //L2-30 / RF-26: el motivo no se guarda (pagos no tiene dónde), va en la respuesta y en el mail
-        if ($tipo === self::SENA) {
-            AvisoPagoMail::senaFallida($huesped, $unidad, $resultado->motivo, $reserva['bloqueo_expira_en']);
+    //Una transacción paga una sola cosa (la base solo lo asegura por billetera: acá, para cualquiera).
+    //Devuelve [mensaje, código HTTP] si ese hash ya se usó, o null si está libre.
+    private function problemaDelTxHash(\PDO $pdo, string $txHash, int $reservaId): ?array
+    {
+        $consulta = $pdo->prepare('SELECT reserva_id, estado FROM pagos WHERE tx_hash = ? LIMIT 1');
+        $consulta->execute([$txHash]);
+        $usado = $consulta->fetch();
+        if ($usado === false) {
+            return null;
+        }
+        return [
+            $usado['estado'] === 'fallido' && (int) $usado['reserva_id'] === $reservaId
+                ? 'Esa transacción ya falló: tenés que pagar de nuevo'
+                : 'Esa transacción ya se usó para otro pago',
+            409,
+        ];
+    }
+
+    //Anota el pago en la tabla pagos y, si se confirmó, deja la reserva como corresponde:
+    //la seña la confirma y el saldo la deja sin nada que pagar.
+    private function anotarPago(\PDO $pdo, array $pago): void
+    {
+        //un intento fallido se guarda si se sabe quién lo pagó (pagos.billetera es obligatoria);
+        //una transacción que ni existe no deja rastro, solo el aviso
+        if ($pago['billetera'] !== null) {
+            $ahora = VencimientoReserva::ahora();
+            $pdo->prepare(
+                'INSERT INTO pagos (reserva_id, tipo, monto_pesos, monto_wei, pesos_por_eth, billetera, red, tx_hash, estado, creado_en, confirmado_en)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $pago['reserva']['id'], $pago['tipo'], $pago['monto_pesos'], $pago['monto_wei'], $pago['pesos_por_eth'],
+                strtolower($pago['billetera']), $pago['red'], $pago['tx_hash'], $pago['estado'],
+                $ahora, $pago['confirmado'] ? $ahora : null,
+            ]);
+        }
+        if ($pago['confirmado']) {
+            $pdo->prepare($pago['tipo'] === self::SENA
+                ? "UPDATE reservas SET estado = 'confirmada' WHERE id = ?"
+                : 'UPDATE reservas SET monto_faltante = 0 WHERE id = ?'
+            )->execute([$pago['reserva']['id']]);
+        }
+    }
+
+    //El pago entró: le avisa por mail al huésped (y al propietario, si es una extensión) y responde 200.
+    private function responderConfirmado(array $pago): void
+    {
+        $reserva = $pago['reserva'];
+        $huesped = $_SESSION['usuario'];
+        $unidad = $reserva['unidad_nombre'];
+
+        if ($reserva['extiende_reserva_id'] !== null) {
+            Extension::avisarConfirmada((int) $reserva['id']);//al huésped y al propietario
+            $ok = "Pagaste la extensión: tu estadía en $unidad sigue hasta el " . ValidadorFechas::fecha($reserva['fecha_egreso'])->format('d/m/Y');
+        } elseif ($pago['tipo'] === self::SENA) {
+            //reservó con 5 días o menos y la seña fue el total (#75)
+            $pagoTotal = $reserva['monto_faltante'] !== null && bccomp($reserva['monto_faltante'], '0', 2) === 0;
+            //decisiones #23 y #75: desde la seña se le avisa hasta cuándo puede pagar el saldo y qué pasa si no lo paga
+            AvisoPagoMail::senaConfirmada($huesped, $unidad, $reserva['fecha_ingreso'], $reserva['fecha_egreso'], $pago['monto_pesos'], $this->saldoDelAviso($reserva), $pagoTotal);
+            $ok = $pagoTotal
+                ? "Pagaste el total: tu reserva en $unidad está confirmada y paga"
+                : "Pagaste la seña: tu reserva en $unidad está confirmada";
+        } else {
+            AvisoPagoMail::saldoConfirmado($huesped, $unidad, $reserva['fecha_ingreso'], $pago['monto_pesos']);
+            $ok = "Pagaste el saldo: tu reserva en $unidad está paga";
+        }
+
+        http_response_code(200);
+        echo json_encode([
+            'ok'      => $ok,
+            'tipo'    => $pago['tipo'],
+            'reserva' => ['id' => (int) $reserva['id'], 'estado' => 'confirmada'],
+            'pago'    => ['monto_pesos' => $pago['monto_pesos'], 'monto_wei' => $pago['monto_wei'], 'tx_hash' => $pago['tx_hash'], 'red' => $pago['red']],
+        ]);
+    }
+
+    //Lo que falta pagar, para el mail de la seña (decisiones #23 y #75): null si ya está todo pagado o la reserva no tiene fecha de cobro.
+    private function saldoDelAviso(array $reserva): ?array
+    {
+        $limite = $this->limiteDelSaldo($reserva);
+        if ($limite === null || bccomp($reserva['monto_faltante'], '0', 2) <= 0) {
+            return null;
+        }
+        return ['monto' => $reserva['monto_faltante'], 'fecha_cobro' => $reserva['fecha_cobro'], 'limite' => $limite,
+                'retencion' => $reserva['retencion_menos_de_15']];
+    }
+
+    //El pago falló (L2-30 / RF-26): le avisa por mail al huésped y responde 402 con el motivo y hasta cuándo puede
+    //volver a pagar. El motivo no se guarda: pagos no tiene dónde, va en la respuesta y en el mail.
+    private function responderFallido(array $pago): void
+    {
+        $reserva = $pago['reserva'];
+        $huesped = $_SESSION['usuario'];
+        $unidad = $reserva['unidad_nombre'];
+        $motivo = $pago['motivo'];
+
+        if ($pago['tipo'] === self::SENA) {
+            AvisoPagoMail::senaFallida($huesped, $unidad, $motivo, $reserva['bloqueo_expira_en']);
             $plazo = $reserva['bloqueo_expira_en'] === null
                 ? ''
                 : ' Podés pagar de nuevo hasta las ' . VencimientoReserva::horaArgentina($reserva['bloqueo_expira_en']);
             $extra = ['vence_en' => VencimientoReserva::venceEnIso($reserva['estado'], $reserva['bloqueo_expira_en'])];
         } else {
-            AvisoPagoMail::saldoFallido($huesped, $unidad, $resultado->motivo, $this->limiteDelSaldo($reserva));
+            AvisoPagoMail::saldoFallido($huesped, $unidad, $motivo, $this->limiteDelSaldo($reserva));
             $plazo = ' ' . $this->plazoDelSaldo($reserva);
             $extra = ['fecha_cobro' => $reserva['fecha_cobro'], 'limite_pago' => $this->limiteDelSaldo($reserva)];
         }
+
         http_response_code(402);
         echo json_encode([
-            'error'  => 'No pudimos confirmar el pago ' . self::NOMBRES[$tipo] . ": {$resultado->motivo}.$plazo",
-            'tipo'   => $tipo,
-            'motivo' => $resultado->motivo,
+            'error'  => 'No pudimos confirmar el pago ' . self::NOMBRES[$pago['tipo']] . ": {$motivo}.{$plazo}",
+            'tipo'   => $pago['tipo'],
+            'motivo' => $motivo,
         ] + $extra);
     }
 
