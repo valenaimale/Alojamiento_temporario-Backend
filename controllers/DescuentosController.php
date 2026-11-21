@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\Descuentos;
 
 //Los descuentos por estadía larga de una unidad (US2.10, decisión #69). Los ve y los cambia solo el propietario:
@@ -18,8 +19,7 @@ class DescuentosController
     {
         $unidad = PermisosUnidad::delPropietario($_GET['id'] ?? '');//si no puede, responde y corta acá
 
-        http_response_code(200);
-        echo json_encode(['descuentos' => Descuentos::deLaUnidad((int) $unidad['id'])]);
+        Respuesta::json(['descuentos' => Descuentos::deLaUnidad((int) $unidad['id'])]);
     }
 
     //POST /unidades/descuentos: {"unidad_id", "descuentos": [{"noches_minimas", "porcentaje"}]}
@@ -31,7 +31,7 @@ class DescuentosController
 
         $escalones = Descuentos::validar($datos['descuentos'] ?? null);
         if (isset($escalones['error'])) {
-            return $this->error($escalones['error']);
+            return Respuesta::error($escalones['error']);
         }
 
         //se borran y se vuelven a cargar juntos: nadie ve la unidad a medio cambiar
@@ -51,17 +51,9 @@ class DescuentosController
             throw $e;//lo atrapa el router y responde 500
         }
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'ok'         => $escalones === [] ? 'Sacamos los descuentos de la unidad' : 'Guardamos los descuentos',
             'descuentos' => $escalones,
         ]);
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

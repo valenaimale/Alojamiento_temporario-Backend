@@ -6,6 +6,7 @@ use App\Autorizacion\Autorizacion;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\ReglasPublicacion;
 use App\Validacion\Ubicacion;
 
@@ -30,11 +31,11 @@ class UnidadesController
 
         $unidad = $this->validarDatos($datos);
         if (isset($unidad['error'])) {
-            return $this->error($unidad['error']);
+            return Respuesta::error($unidad['error']);
         }
         $deposito = $this->validarDeposito($datos['deposito_garantia'] ?? null);
         if (is_array($deposito)) {
-            return $this->error($deposito['error']);
+            return Respuesta::error($deposito['error']);
         }
 
         //la seña y la política se copian (no se referencian): si el backoffice cambia el parámetro, esta unidad no cambia
@@ -61,8 +62,7 @@ class UnidadesController
             $valores['retencion_menos_de_15'],
         ]);
 
-        http_response_code(201);
-        echo json_encode(['ok' => 'Diste de alta tu unidad', 'id' => (int) Conexion::obtener()->lastInsertId()]);
+        Respuesta::json(['ok' => 'Diste de alta tu unidad', 'id' => (int) Conexion::obtener()->lastInsertId()], 201);
     }
 
     //GET /unidades/mias: las unidades del propietario logueado, de la más nueva a la más vieja, para "Mis hospedajes"
@@ -104,8 +104,7 @@ class UnidadesController
             ];
         }
 
-        http_response_code(200);
-        echo json_encode(['unidades' => $unidades]);
+        Respuesta::json(['unidades' => $unidades]);
     }
 
     //GET /unidades/datos?id=5: todo lo editable de la unidad y sus fotos, para datos-unidad.html.
@@ -114,8 +113,7 @@ class UnidadesController
     {
         $unidad = PermisosUnidad::delPropietarioOAdministrador(Request::parametroGet('id'));//si no puede, responde y corta acá
 
-        http_response_code(200);
-        echo json_encode(['unidad' => [
+        Respuesta::json(['unidad' => [
             'id'                 => (int) $unidad['id'],
             'nombre'             => $unidad['nombre'],
             'localidad_id'       => (int) $unidad['localidad_id'],
@@ -142,7 +140,7 @@ class UnidadesController
         $incluyeUbicacion = (bool) Ubicacion::publica($datos);
         $nuevos = $this->validarDatos($datos);
         if (isset($nuevos['error'])) {
-            return $this->error($nuevos['error']);
+            return Respuesta::error($nuevos['error']);
         }
 
         $camposMapa = $incluyeUbicacion ? ', latitud = ?, longitud = ?, barrio = ?, metros_playa = ?, metros_centro = ?' : '';
@@ -160,8 +158,7 @@ class UnidadesController
             $unidad['id'],
         ]);
 
-        http_response_code(200);
-        echo json_encode(['ok' => 'Guardamos los cambios']);
+        Respuesta::json(['ok' => 'Guardamos los cambios']);
     }
 
     //POST /unidades/deposito: el propietario o el administrador cargan el depósito de garantía (US2.6).
@@ -173,14 +170,13 @@ class UnidadesController
 
         $deposito = $this->validarDeposito($datos['deposito_garantia'] ?? null);
         if (is_array($deposito)) {
-            return $this->error($deposito['error']);
+            return Respuesta::error($deposito['error']);
         }
 
         $consulta = Conexion::obtener()->prepare('UPDATE unidades SET deposito_garantia = ? WHERE id = ?');
         $consulta->execute([$deposito, $unidad['id']]);
 
-        http_response_code(200);
-        echo json_encode(['ok' => 'Guardamos el depósito', 'deposito_garantia' => $deposito]);
+        Respuesta::json(['ok' => 'Guardamos el depósito', 'deposito_garantia' => $deposito]);
     }
 
     //Valida los datos básicos de la unidad (los mismos al crear y al editar).
@@ -278,12 +274,5 @@ class UnidadesController
             $valores[$columna] = $parametros[$clave];
         }
         return $valores;
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

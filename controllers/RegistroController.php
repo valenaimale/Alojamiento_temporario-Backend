@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Database\Conexion;
 use App\Mail\VerificacionMail;
 use App\Validacion\ValidadorDocumentos;
@@ -39,37 +40,37 @@ class RegistroController{
         $rol = $datos_registro['rol'] ?? '';
 
         if($nombre==='' || $dni==='' || $mail === '' || $mailConfirmacion==='' || $contrasenia==='' || $contraseniaConfirmacion==='' || $rol===''){
-            return $this->error('Todos los campos son obligatorios');
+            return Respuesta::error('Todos los campos son obligatorios');
         }
         //backoffice no está en la lista a propósito: esas cuentas no se registran desde la web
         if(!in_array($rol,['huesped', 'propietario','administrador','operador'], true)){
-            return $this->error('El rol no existe');
+            return Respuesta::error('El rol no existe');
         }
         if (mb_strlen($nombre) < 2 || mb_strlen($nombre) > 70) {
-            return $this->error('El nombre debe tener entre 2 y 70 caracteres');
+            return Respuesta::error('El nombre debe tener entre 2 y 70 caracteres');
         }
         $dni = ValidadorDocumentos::normalizarDni($dni);//saca puntos, guiones y espacios: "30.123.456" pasa a "30123456"
         if(!ValidadorDocumentos::esDniValido($dni)){
-            return $this->error('El DNI tiene que tener 7 u 8 números');
+            return Respuesta::error('El DNI tiene que tener 7 u 8 números');
         }
         if(!filter_var($mail, FILTER_VALIDATE_EMAIL)){
-            return $this->error('El mail no es válido');
+            return Respuesta::error('El mail no es válido');
         }
         if($mail !== $mailConfirmacion){
-            return $this->error('Los mails no coinciden');
+            return Respuesta::error('Los mails no coinciden');
         }
         if(strlen($contrasenia)> 72 || strlen($contrasenia)< 8){
-            return $this->error('La contraseña debe tener entre 8 y 72 caracteres');
+            return Respuesta::error('La contraseña debe tener entre 8 y 72 caracteres');
         }
         if($contrasenia !== $contraseniaConfirmacion){
-            return $this->error('Las contraseñas no coinciden');
+            return Respuesta::error('Las contraseñas no coinciden');
         }
         //los datos fiscales y bancarios solo se piden si se registra como propietario o administrador
         $fiscales = null;
         if($rol === 'propietario' || $rol === 'administrador'){
             $fiscales = DatosFiscales::validar($datos_registro);
             if(isset($fiscales['error'])){
-                return $this->error($fiscales['error']);
+                return Respuesta::error($fiscales['error']);
             }
         }
 
@@ -81,17 +82,17 @@ class RegistroController{
         $consulta1->execute([$mail]);
         $existe=$consulta1->fetchColumn();//devuelve false si no encontro ninguna fila
         if($existe){
-            return $this->error('El mail ya está registrado');
+            return Respuesta::error('El mail ya está registrado');
         }
         $consulta2 = $pdo->prepare(
             'SELECT 1 FROM usuarios WHERE dni = ? LIMIT 1'
         );
         $consulta2->execute([$dni]);
         if($consulta2->fetchColumn()){
-            return $this->error('El DNI ya está registrado');
+            return Respuesta::error('El DNI ya está registrado');
         }
         if($fiscales !== null && DatosFiscales::cuitRegistrado($fiscales['cuit'])){
-            return $this->error('El CUIT ya está registrado');
+            return Respuesta::error('El CUIT ya está registrado');
         }
         //Todavía NO se crea la cuenta: se guarda un registro pendiente y se manda el enlace por mail.
         //La cuenta se crea cuando alguien abre ese enlace (POST /verificar-mail), así un mail falso o ajeno nunca
@@ -107,11 +108,10 @@ class RegistroController{
         VerificacionMail::enviarParaCrearCuenta($mail, $nombre, $token);//nunca lanza excepciones
 
         //202: el pedido se aceptó, pero la cuenta todavía no existe. No se inicia sesión.
-        http_response_code(202);
-        echo json_encode([
+        Respuesta::json([
             'ok'   => "Te enviamos un mail a $mail. Abrí el enlace para crear tu cuenta.",
             'mail' => $mail,
-        ]);
+        ], 202);
     }
 
     //POST /reenviar-registro {"mail"}: manda un enlace nuevo para un registro pendiente (el de post-registro.html).
@@ -121,7 +121,7 @@ class RegistroController{
         $datos = Request::datosJson();
         $mail = strtolower(trim(is_string($datos['mail'] ?? null) ? $datos['mail'] : ''));
         if(!filter_var($mail, FILTER_VALIDATE_EMAIL)){
-            return $this->error('El mail no es válido');
+            return Respuesta::error('El mail no es válido');
         }
 
         $enlace = RegistroPendiente::reenviar($mail);
@@ -129,12 +129,6 @@ class RegistroController{
             VerificacionMail::enviarParaCrearCuenta($mail, $enlace['nombre'], $enlace['token']);
         }
 
-        http_response_code(200);
-        echo json_encode(['ok' => "Si hay un registro pendiente para $mail, te mandamos un enlace nuevo. Revisá también la carpeta de spam."]);
-    }
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422){
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
+        Respuesta::json(['ok' => "Si hay un registro pendiente para $mail, te mandamos un enlace nuevo. Revisá también la carpeta de spam."]);
     }
 }

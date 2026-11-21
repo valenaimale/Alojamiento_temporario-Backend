@@ -159,6 +159,7 @@ Recuperación por correo: [rutas, migración, límites e invalidación de sesion
 - **URL base (desarrollo):** `http://localhost:8000`
 - **Formato:** todas las peticiones con cuerpo envían JSON (header `Content-Type: application/json`) y **todas las respuestas son JSON**.
 - **Errores:** siempre tienen la forma `{"error": "mensaje"}`. El mensaje está pensado para mostrárselo al usuario.
+- **En el código:** los controladores responden con `App\Request\Respuesta`: `Respuesta::json($cuerpo, $codigo)` y `Respuesta::error($mensaje, $codigo)` (422 por defecto). Después hacen `return`: no cortan con `exit`. Así el formato de las respuestas está en un solo lugar (`request/Respuesta.php`).
 - **Ruta inexistente:** `404 {"error": "Ruta no encontrada"}`
 - **Error interno del servidor:** `500 {"error": "Estamos con algunos inconvenientes. Vuelva a intentar en unos instantes..."}`
 

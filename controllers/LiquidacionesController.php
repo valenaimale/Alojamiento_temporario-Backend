@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\Liquidacion;
 use App\Validacion\PagoDeLiquidacion;
 use App\Validacion\ValidadorFechas;
@@ -54,8 +55,7 @@ class LiquidacionesController
             ];
         }
 
-        http_response_code(200);
-        echo json_encode(['liquidaciones' => $liquidaciones]);
+        Respuesta::json(['liquidaciones' => $liquidaciones]);
     }
 
     //GET /administrador/comisiones: lo que le corresponde al administrador logueado por cada estadía
@@ -86,8 +86,7 @@ class LiquidacionesController
             ];
         }
 
-        http_response_code(200);
-        echo json_encode(['comisiones' => $comisiones]);
+        Respuesta::json(['comisiones' => $comisiones]);
     }
 
     //GET /liquidaciones/comprobante?id=5: el comprobante SIN VALOR FISCAL de una liquidación (RN-25).
@@ -112,13 +111,13 @@ class LiquidacionesController
                 default         => null,
             };
             if ($condicion === null) {
-                return $this->error('No tenés permiso para ver este comprobante', 403);
+                return Respuesta::error('No tenés permiso para ver este comprobante', 403);
             }
             $parametros = $rol === 'backoffice' ? [$id] : [$id, $usuarioId];
             $fila = $this->buscar($condicion, $parametros)[0] ?? false;
         }
         if ($fila === false) {
-            return $this->error('No encontramos ese comprobante', 404);
+            return Respuesta::error('No encontramos ese comprobante', 404);
         }
 
         //el backoffice ve el del propietario, que es el que tiene todo el reparto
@@ -126,8 +125,7 @@ class LiquidacionesController
             ? $this->comprobanteDelAdministrador($fila)
             : $this->comprobanteDelPropietario($fila);
 
-        http_response_code(200);
-        echo json_encode(['comprobante' => $comprobante]);
+        Respuesta::json(['comprobante' => $comprobante]);
     }
 
     //GET /backoffice/liquidaciones: todas las liquidaciones, de la más nueva a la más vieja, para que el backoffice
@@ -166,8 +164,7 @@ class LiquidacionesController
             ];
         }
 
-        http_response_code(200);
-        echo json_encode(['liquidaciones' => $liquidaciones, 'sin_liquidar' => count(Liquidacion::reservasSinLiquidar())]);
+        Respuesta::json(['liquidaciones' => $liquidaciones, 'sin_liquidar' => count(Liquidacion::reservasSinLiquidar())]);
     }
 
     //Qué se puede hacer con la liquidación (ver todas())
@@ -196,8 +193,7 @@ class LiquidacionesController
             }
         }
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'ok'        => $generadas === 0 ? 'No había estadías sin liquidar' : "Se liquidaron $generadas estadías",
             'generadas' => $generadas,
         ]);
@@ -216,15 +212,14 @@ class LiquidacionesController
             ? false
             : filter_var($datos['liquidacion_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         if ($id === false) {
-            return $this->error('No encontramos esa liquidación', 404);
+            return Respuesta::error('No encontramos esa liquidación', 404);
         }
 
         $resultado = PagoDeLiquidacion::pagar($id);
         if ($resultado['codigo'] >= 400) {
-            return $this->error($resultado['mensaje'], $resultado['codigo']);
+            return Respuesta::error($resultado['mensaje'], $resultado['codigo']);
         }
-        http_response_code($resultado['codigo']);
-        echo json_encode(['ok' => $resultado['mensaje'], 'tx_hash' => $resultado['tx_hash']]);
+        Respuesta::json(['ok' => $resultado['mensaje'], 'tx_hash' => $resultado['tx_hash']], $resultado['codigo']);
     }
 
     //Quiénes de esta liquidación todavía no cargaron su billetera de cobro (#42 y #44 de docs/pagos-decisiones.md).
@@ -427,12 +422,5 @@ class LiquidacionesController
     private function momento(?string $fecha): ?string
     {
         return $fecha === null ? null : str_replace(' ', 'T', $fecha) . 'Z';
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\ValidadorFechas;
 use App\Validacion\VencimientoReserva;
 
@@ -38,8 +39,7 @@ class BloqueosController
             $bloqueo['id'] = (int) $bloqueo['id'];//MySQL lo devuelve como texto
         }
 
-        http_response_code(200);
-        echo json_encode(['bloqueos' => $bloqueos]);
+        Respuesta::json(['bloqueos' => $bloqueos]);
     }
 
     //POST /unidades/bloqueos/crear: {"unidad_id", "fecha_desde", "fecha_hasta", "motivo", "detalle"}
@@ -50,7 +50,7 @@ class BloqueosController
 
         $bloqueo = $this->validar($datos);
         if (isset($bloqueo['error'])) {
-            return $this->error($bloqueo['error']);
+            return Respuesta::error($bloqueo['error']);
         }
 
         $pdo = Conexion::obtener();
@@ -69,7 +69,7 @@ class BloqueosController
             $otro = $consulta->fetch();
             if ($otro !== false) {
                 $pdo->rollBack();
-                return $this->error(sprintf(
+                return Respuesta::error(sprintf(
                     'Se superpone con otro bloqueo, del %s al %s',
                     ValidadorFechas::fecha($otro['fecha_desde'])->format('d/m/Y'),
                     ValidadorFechas::fecha($otro['fecha_hasta'])->format('d/m/Y')
@@ -88,7 +88,7 @@ class BloqueosController
             $reserva = $consulta->fetch();
             if ($reserva !== false) {
                 $pdo->rollBack();
-                return $this->error(sprintf(
+                return Respuesta::error(sprintf(
                     'Esas fechas tienen una reserva, con ingreso el %s y egreso el %s: no se pueden bloquear',
                     ValidadorFechas::fecha($reserva['fecha_ingreso'])->format('d/m/Y'),
                     ValidadorFechas::fecha($reserva['fecha_egreso'])->format('d/m/Y')
@@ -110,8 +110,7 @@ class BloqueosController
             throw $e;//lo atrapa el router y responde 500
         }
 
-        http_response_code(201);
-        echo json_encode(['ok' => 'Bloqueaste esas fechas', 'id' => $id]);
+        Respuesta::json(['ok' => 'Bloqueaste esas fechas', 'id' => $id], 201);
     }
 
     //POST /unidades/bloqueos/liberar: {"unidad_id", "bloqueo_id"}: esas noches se vuelven a poder reservar.
@@ -124,7 +123,7 @@ class BloqueosController
 
         $bloqueoId = filter_var($datos['bloqueo_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         if ($bloqueoId === false) {
-            return $this->error('Bloqueo inválido');
+            return Respuesta::error('Bloqueo inválido');
         }
 
         $pdo = Conexion::obtener();
@@ -132,12 +131,12 @@ class BloqueosController
         $consulta->execute([$bloqueoId, $unidad['id']]);
         $bloqueo = $consulta->fetch();
         if ($bloqueo === false) {//no existe, o es de otra unidad
-            return $this->error('No encontramos ese bloqueo', 404);
+            return Respuesta::error('No encontramos ese bloqueo', 404);
         }
 
         $hoy = ValidadorFechas::hoy();
         if ($bloqueo['fecha_hasta'] < $hoy->format('Y-m-d')) {//AAAA-MM-DD se compara como texto
-            return $this->error('Ese bloqueo ya terminó: las noches pasadas no se liberan', 409);
+            return Respuesta::error('Ese bloqueo ya terminó: las noches pasadas no se liberan', 409);
         }
 
         if ($bloqueo['fecha_desde'] < $hoy->format('Y-m-d')) {
@@ -150,8 +149,7 @@ class BloqueosController
             $mensaje = 'Liberaste esas fechas';
         }
 
-        http_response_code(200);
-        echo json_encode(['ok' => $mensaje]);
+        Respuesta::json(['ok' => $mensaje]);
     }
 
     //Valida los datos de un bloqueo. Devuelve los datos listos para guardar, o ['error' => mensaje].
@@ -191,12 +189,5 @@ class BloqueosController
             'motivo'      => $motivo,
             'detalle'     => $detalle === '' ? null : $detalle,
         ];
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

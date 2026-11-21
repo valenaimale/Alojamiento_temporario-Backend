@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Config\Config;
 use App\Database\Conexion;
 use App\Log\Log;
+use App\Request\Respuesta;
 
 //GET /estado: el health check del backend.
 //Lo consultan Railway (antes de pasarle el tráfico a una versión nueva), el balanceador de la demo
@@ -27,14 +28,13 @@ class EstadoController
         }
         $todoBien = $baseDeDatos === 'ok';
 
-        http_response_code($todoBien ? 200 : 503);
-        echo json_encode([
+        Respuesta::json([
             'estado'   => $todoBien ? 'ok' : 'error',
             'version'  => self::version(),
             'replica'  => gethostname(),//en Docker es el hostname de cada contenedor (backend1, backend2)
             'sesiones' => getenv('SESIONES_DRIVER') ?: Config::obtener('sesiones.driver'),
             'chequeos' => ['base_de_datos' => $baseDeDatos],
-        ]);
+        ], $todoBien ? 200 : 503);
     }
 
     //El commit que está corriendo, para comprobar qué versión se desplegó.

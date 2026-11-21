@@ -6,6 +6,7 @@ use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Mail\AvisoPagoMail;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\CobroDelSaldo;
 use App\Validacion\Estadia;
 use App\Validacion\ReservaGrupal;
@@ -32,41 +33,40 @@ class ReservasGrupalesController
         Autorizacion::requiere('huesped');
         Autorizacion::requiereMailVerificado();
         if (trim((string) ($_SESSION['usuario']['dni'] ?? '')) === '') {
-            return $this->error('Completá tu DNI para reservar');
+            return Respuesta::error('Completá tu DNI para reservar');
         }
         $datos = Request::datosJson(['unidad_ids']);
 
         $grupalId = is_bool($datos['grupal_id'] ?? null) ? false
             : filter_var($datos['grupal_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         if ($grupalId === false) {
-            return $this->error('No encontramos esa reserva grupal', 404);
+            return Respuesta::error('No encontramos esa reserva grupal', 404);
         }
         $fechas = Estadia::validarFechas((string) ($datos['ingreso'] ?? ''), (string) ($datos['egreso'] ?? ''));
         if (isset($fechas['error'])) {
-            return $this->error($fechas['error']);
+            return Respuesta::error($fechas['error']);
         }
         $personas = is_bool($datos['personas'] ?? null) ? false
             : filter_var($datos['personas'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 50]]);
         if ($personas === false) {
-            return $this->error('Indicá cuántas personas van a ser (de 1 a 50)');
+            return Respuesta::error('Indicá cuántas personas van a ser (de 1 a 50)');
         }
         $unidadIds = $this->ids($datos['unidad_ids'] ?? null);
         if ($unidadIds === null) {
-            return $this->error('Elegí las unidades que querés reservar');
+            return Respuesta::error('Elegí las unidades que querés reservar');
         }
         if (($datos['acepta_politica'] ?? null) !== true) {
-            return $this->error('Para reservar tenés que aceptar la política de cancelación de cada unidad');
+            return Respuesta::error('Para reservar tenés que aceptar la política de cancelación de cada unidad');
         }
 
         $resultado = ReservaGrupal::crear((int) $_SESSION['usuario']['id'], $grupalId, $fechas, $personas, $unidadIds);
         if (isset($resultado['error'])) {
-            return $this->error(...$resultado['error']);
+            return Respuesta::error(...$resultado['error']);
         }
 
         $sena = array_reduce($resultado['reservas'], fn ($suma, $r) => bcadd($suma, $r['sena'], 2), '0.00');
         $total = array_reduce($resultado['reservas'], fn ($suma, $r) => bcadd($suma, $r['precio_total'], 2), '0.00');
-        http_response_code(201);
-        echo json_encode([
+        Respuesta::json([
             'ok'    => 'Reservaste ' . count($resultado['reservas']) . ' unidades: pagá la seña antes de las '
                 . VencimientoReserva::horaArgentina($resultado['expira_en']) . ' para confirmarlas',
             'grupo' => [
@@ -79,7 +79,7 @@ class ReservasGrupalesController
                 'vence_en'      => VencimientoReserva::venceEnIso('pendiente', $resultado['expira_en']),
                 'reservas'      => $resultado['reservas'],
             ],
-        ]);
+        ], 201);
     }
 
     //GET /pagos/grupo/sena?grupo_id=3: cuánto es la seña del grupo (en pesos y en wei, en total y por reserva),
@@ -110,12 +110,12 @@ class ReservasGrupalesController
 
         $txHash = $datos['tx_hash'] ?? null;
         if (!is_string($txHash) || preg_match('/^0x[0-9a-fA-F]{64}$/', $txHash) !== 1) {
-            return $this->error('El hash de la transacción no es válido');
+            return Respuesta::error('El hash de la transacción no es válido');
         }
         $txHash = strtolower($txHash);
         $tipo = $datos['tipo'] ?? null;
         if (!isset(self::NOMBRES[$tipo])) {
-            return $this->error('El tipo de pago tiene que ser sena o saldo');
+            return Respuesta::error('El tipo de pago tiene que ser sena o saldo');
         }
         $grupoId = $this->grupoId($datos['grupo_id'] ?? null);
 
@@ -135,7 +135,7 @@ class ReservasGrupalesController
                     }
                 }
                 $pdo->commit();
-                return $this->error(...$problema);
+                return Respuesta::error(...$problema);
             }
 
             //una transacción paga una sola cosa: no puede haberse usado para otro pago
@@ -143,7 +143,7 @@ class ReservasGrupalesController
             $consulta->execute([$txHash]);
             if ($consulta->fetchColumn() !== false) {
                 $pdo->rollBack();
-                return $this->error('Esa transacción ya se usó para otro pago', 409);
+                return Respuesta::error('Esa transacción ya se usó para otro pago', 409);
             }
 
             $pesosPorEth = TipoDeCambio::pesosPorEth();
@@ -158,8 +158,7 @@ class ReservasGrupalesController
 
             if (in_array(ResultadoVerificacion::PENDIENTE, $estados, true)) {
                 $pdo->rollBack();
-                http_response_code(202);
-                echo json_encode(['pendiente' => true, 'mensaje' => 'La transacción todavía no se confirmó en la red. Esperá unos segundos y volvé a intentar']);
+                Respuesta::json(['pendiente' => true, 'mensaje' => 'La transacción todavía no se confirmó en la red. Esperá unos segundos y volvé a intentar'], 202);
                 return;
             }
 
@@ -196,7 +195,7 @@ class ReservasGrupalesController
                 $pdo->rollBack();
             }
             if ($e->getCode() === '23000') {//otra petición guardó la misma transacción al mismo tiempo
-                return $this->error('Esa transacción ya se usó para otro pago', 409);
+                return Respuesta::error('Esa transacción ya se usó para otro pago', 409);
             }
             throw $e;
         } catch (\Throwable $e) {
@@ -222,8 +221,7 @@ class ReservasGrupalesController
                 AvisoPagoMail::saldoConfirmado($huesped, $nombres, $primera['fecha_ingreso'], $total);
                 $ok = "Pagaste el saldo: tu reserva grupal ($nombres) está paga";
             }
-            http_response_code(200);
-            echo json_encode([
+            Respuesta::json([
                 'ok'       => $ok,
                 'tipo'     => $tipo,
                 'grupo_id' => $grupoId,
@@ -238,12 +236,11 @@ class ReservasGrupalesController
         } else {
             AvisoPagoMail::saldoFallido($huesped, $nombres, $motivo, $this->limite($aPagar));
         }
-        http_response_code(402);
-        echo json_encode([
+        Respuesta::json([
             'error'  => 'No pudimos confirmar el pago ' . self::NOMBRES[$tipo] . " de la reserva grupal: $motivo. Podés volver a intentarlo",
             'tipo'   => $tipo,
             'motivo' => $motivo,
-        ]);
+        ], 402);
     }
 
     //Responde lo que necesita el front para pagar la seña o el saldo del grupo
@@ -256,12 +253,12 @@ class ReservasGrupalesController
         $aPagar = ReservaGrupal::aPagar($tipo, $reservas);
         $problema = ReservaGrupal::problemaParaPagar($tipo, $reservas, $aPagar);
         if ($problema !== null) {
-            return $this->error(...$problema);
+            return Respuesta::error(...$problema);
         }
         //Sin días de gracia (#75): pasado el último día no se arma un pago nuevo del saldo del grupo (se cancelan todas).
         $limite = $tipo === ReservaGrupal::SALDO ? $this->limite($aPagar) : null;
         if ($limite !== null && $limite < ValidadorFechas::hoy()->format('Y-m-d')) {
-            return $this->error('Se venció el plazo para pagar el saldo del grupo (era hasta el '
+            return Respuesta::error('Se venció el plazo para pagar el saldo del grupo (era hasta el '
                 . ValidadorFechas::fecha($limite)->format('d/m/Y') . '): las reservas se cancelan solas', 409);
         }
 
@@ -284,8 +281,7 @@ class ReservasGrupalesController
         $pago = $verificador->datosParaPagar((int) $aPagar[0]['id'], $tipo, $totalWei);
         $pago['funcion'] = $tipo === ReservaGrupal::SALDO ? 'pagarSaldoGrupal' : 'pagarSenaGrupal';
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'grupo_id'      => $grupoId,
             'tipo'          => $tipo,
             'monto_pesos'   => $totalPesos,
@@ -343,12 +339,5 @@ class ReservasGrupalesController
     {
         $grupoId = is_bool($id) ? false : filter_var($id ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         return $grupoId === false ? null : $grupoId;
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
     }
 }

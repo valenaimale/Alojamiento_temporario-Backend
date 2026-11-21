@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\PermisosUnidad;
 use App\Validacion\Estadisticas;
 use App\Validacion\ValidadorFechas;
+use App\Request\Respuesta;
 
 //Las estadísticas de una unidad por temporada (RF-12): ocupación, tarifa promedio, estadía promedio,
 //cancelaciones por tramo y huéspedes recurrentes. Las ve el propietario y el administrador asignado a la unidad.
@@ -24,8 +25,7 @@ class EstadisticasController
         $temporadas = Estadisticas::temporadasDeLaUnidad((int) $unidad['id']);
         $temporada  = $this->temporadaPedida($temporadas);
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'unidad'       => ['id' => (int) $unidad['id'], 'nombre' => $unidad['nombre']],
             'temporadas'   => $temporadas,
             'temporada'    => $temporada,
@@ -50,8 +50,7 @@ class EstadisticasController
                 }
             }
             //la temporada no existe o es de otra unidad: se responde igual que con una unidad ajena, sin decir cuál es
-            http_response_code(404);
-            echo json_encode(['error' => 'No encontramos esa temporada']);
+            Respuesta::json(['error' => 'No encontramos esa temporada'], 404);
             exit;
         }
 

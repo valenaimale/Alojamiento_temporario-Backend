@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Database\Conexion;
+use App\Request\Respuesta;
 
 //Las localidades donde opera la plataforma: una lista cerrada (US3.2).
 //La usan la búsqueda (huésped, con o sin sesión) y el alta de una unidad (propietario).
@@ -20,7 +21,6 @@ class LocalidadesController
             $localidad['id'] = (int) $localidad['id'];//MySQL lo devuelve como texto
         }
 
-        http_response_code(200);
-        echo json_encode(['localidades' => $localidades]);
+        Respuesta::json(['localidades' => $localidades]);
     }
 }

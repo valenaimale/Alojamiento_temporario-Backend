@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Autorizacion\Autorizacion;
 use App\Request\Request;
+use App\Request\Respuesta;
 use App\Validacion\Extension;
 use App\Validacion\VencimientoReserva;
 
@@ -24,10 +25,9 @@ class ExtensionesController
             Request::parametroGet('noches')
         );
         if (isset($resultado['error'])) {
-            return $this->error($resultado['error'], $resultado['codigo']);
+            return Respuesta::error($resultado['error'], $resultado['codigo']);
         }
-        http_response_code(200);
-        echo json_encode($resultado['cotizacion']);
+        Respuesta::json($resultado['cotizacion']);
     }
 
     //POST /reservas/extender: {"reserva_id", "noches"} crea la reserva de extensión pendiente de pago
@@ -38,19 +38,11 @@ class ExtensionesController
 
         $resultado = Extension::crear((int) $_SESSION['usuario']['id'], $datos['reserva_id'] ?? null, $datos['noches'] ?? null);
         if (isset($resultado['error'])) {
-            return $this->error($resultado['error'], $resultado['codigo']);
+            return Respuesta::error($resultado['error'], $resultado['codigo']);
         }
-        http_response_code(201);
-        echo json_encode([
+        Respuesta::json([
             'ok'      => 'Pagá la extensión antes de las ' . VencimientoReserva::horaArgentina($resultado['vence_en_utc']) . ' para confirmarla',
             'reserva' => $resultado['reserva'],
-        ]);
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
+        ], 201);
     }
 }

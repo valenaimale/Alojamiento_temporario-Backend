@@ -6,6 +6,7 @@ use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Mail\AvisoGestionMail;
 use App\Request\Request;
+use App\Request\Respuesta;
 
 //Quién gestiona una unidad (US2.2 a US2.4): su administrador, con su comisión, y su operador de estadías.
 //- Administrador: lo asigna, le cambia la comisión y lo quita solo el propietario. Una unidad tiene como mucho uno;
@@ -37,8 +38,7 @@ class GestionUnidadController
             $operador = $consulta->fetch() ?: null;
         }
 
-        http_response_code(200);
-        echo json_encode([
+        Respuesta::json([
             'administrador'  => $administrador,
             'operador'       => $operador,
             'es_propietario' => $unidad['es_propietario'],//false = es el administrador: no puede cambiar su propia asignación
@@ -53,11 +53,11 @@ class GestionUnidadController
 
         $comision = $this->validarComision($datos['porcentaje_comision'] ?? '');
         if ($comision === null) {
-            return $this->error('La comisión tiene que ser un porcentaje mayor que 0 y menor que 100, con hasta 2 decimales');
+            return Respuesta::error('La comisión tiene que ser un porcentaje mayor que 0 y menor que 100, con hasta 2 decimales');
         }
         $administrador = $this->cuentaActiva(trim(strtolower((string) ($datos['mail'] ?? ''))), 'administrador');
         if ($administrador === null) {
-            return $this->error('No hay un administrador registrado con ese mail');
+            return Respuesta::error('No hay un administrador registrado con ese mail');
         }
 
         $pdo = Conexion::obtener();
@@ -69,7 +69,7 @@ class GestionUnidadController
             $consulta->execute([$unidad['id']]);
             if ($consulta->fetchColumn()) {
                 $pdo->rollBack();
-                return $this->error('La unidad ya tiene administrador. Quitalo antes de asignar otro.', 409);
+                return Respuesta::error('La unidad ya tiene administrador. Quitalo antes de asignar otro.', 409);
             }
 
             $pdo->prepare('INSERT INTO administraciones (unidad_id, administrador_id, porcentaje_comision) VALUES (?, ?, ?)')
@@ -81,8 +81,7 @@ class GestionUnidadController
         }
 
         AvisoGestionMail::asignacion($administrador, $unidad['nombre'], $_SESSION['usuario']['nombre'], $comision);
-        http_response_code(200);
-        echo json_encode(['ok' => "Asignaste a {$administrador['nombre']} como administrador"]);
+        Respuesta::json(['ok' => "Asignaste a {$administrador['nombre']} como administrador"]);
     }
 
     //POST /unidades/administrador/comision: {"unidad_id", "porcentaje_comision"}. Solo el propietario.
@@ -94,11 +93,11 @@ class GestionUnidadController
 
         $comision = $this->validarComision($datos['porcentaje_comision'] ?? '');
         if ($comision === null) {
-            return $this->error('La comisión tiene que ser un porcentaje mayor que 0 y menor que 100, con hasta 2 decimales');
+            return Respuesta::error('La comisión tiene que ser un porcentaje mayor que 0 y menor que 100, con hasta 2 decimales');
         }
         $administrador = $this->administradorDe((int) $unidad['id']);
         if ($administrador === null) {
-            return $this->error('La unidad no tiene administrador', 409);
+            return Respuesta::error('La unidad no tiene administrador', 409);
         }
         if ($administrador['porcentaje_comision'] === $comision) {//el mismo %: no hay nada que cambiar ni que avisar
             return $this->ok('La comisión ya era esa');
@@ -119,7 +118,7 @@ class GestionUnidadController
 
         $administrador = $this->administradorDe((int) $unidad['id']);
         if ($administrador === null) {
-            return $this->error('La unidad no tiene administrador', 409);
+            return Respuesta::error('La unidad no tiene administrador', 409);
         }
 
         Conexion::obtener()->prepare('DELETE FROM administraciones WHERE unidad_id = ?')->execute([$unidad['id']]);
@@ -137,14 +136,14 @@ class GestionUnidadController
 
         $operador = $this->cuentaActiva(trim(strtolower((string) ($datos['mail'] ?? ''))), 'operador');
         if ($operador === null) {
-            return $this->error('No hay un operador registrado con ese mail');
+            return Respuesta::error('No hay un operador registrado con ese mail');
         }
 
         //solo si la unidad todavía no tiene operador (en el mismo UPDATE: dos asignaciones a la vez no se pisan)
         $consulta = Conexion::obtener()->prepare('UPDATE unidades SET operador_id = ? WHERE id = ? AND operador_id IS NULL');
         $consulta->execute([$operador['id'], $unidad['id']]);
         if ($consulta->rowCount() === 0) {
-            return $this->error('La unidad ya tiene operador. Quitalo antes de asignar otro.', 409);
+            return Respuesta::error('La unidad ya tiene operador. Quitalo antes de asignar otro.', 409);
         }
 
         $this->ok("Asignaste a {$operador['nombre']} como operador");
@@ -159,7 +158,7 @@ class GestionUnidadController
         $consulta = Conexion::obtener()->prepare('UPDATE unidades SET operador_id = NULL WHERE id = ? AND operador_id IS NOT NULL');
         $consulta->execute([$unidad['id']]);
         if ($consulta->rowCount() === 0) {
-            return $this->error('La unidad no tiene operador', 409);
+            return Respuesta::error('La unidad no tiene operador', 409);
         }
 
         $this->ok('Quitaste al operador');
@@ -205,14 +204,6 @@ class GestionUnidadController
     //Responde 200 con el mensaje
     private function ok(string $mensaje)
     {
-        http_response_code(200);
-        echo json_encode(['ok' => $mensaje]);
-    }
-
-    //Responde un error en JSON con su código HTTP
-    private function error(string $mensaje, int $codigo = 422)
-    {
-        http_response_code($codigo);
-        echo json_encode(['error' => $mensaje]);
+        Respuesta::json(['ok' => $mensaje]);
     }
 }

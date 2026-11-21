@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
+use App\Request\Respuesta;
 
 //La cartera del administrador (US2.5): las unidades que administra, con el estado de cada una y su comisión.
 //De cada propietario muestra solo el nombre (el resto lo tienen por el acuerdo que hicieron por fuera).
@@ -34,7 +35,6 @@ class CarteraAdministradorController
             $unidad['disponible'] = (bool) $unidad['disponible'];
         }
 
-        http_response_code(200);
-        echo json_encode(['unidades' => $unidades]);
+        Respuesta::json(['unidades' => $unidades]);
     }
 }
