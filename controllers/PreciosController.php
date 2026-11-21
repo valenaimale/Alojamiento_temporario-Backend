@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
+use App\Repository\UnidadRepository;
 use App\Request\Request;
 use App\Request\Respuesta;
 use App\Validacion\ValidadorFechas;
@@ -97,7 +98,7 @@ class PreciosController
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
         try {
-            $this->bloquearUnidad($unidadId);
+            UnidadRepository::lockPorId($unidadId);
 
             //1. cierra los precios vigentes del rango que sean distintos del nuevo
             $consulta = $pdo->prepare(
@@ -185,12 +186,5 @@ class PreciosController
             }
         }
         return null;
-    }
-
-    //Traba la fila de la unidad hasta el commit: dos cargas de precios a la vez sobre la misma unidad
-    //se hacen de a una, así cada noche queda con un solo precio vigente.
-    private function bloquearUnidad(int $unidadId): void
-    {
-        Conexion::obtener()->prepare('SELECT id FROM unidades WHERE id = ? FOR UPDATE')->execute([$unidadId]);
     }
 }

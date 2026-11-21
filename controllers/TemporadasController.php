@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
+use App\Repository\UnidadRepository;
 use App\Request\Request;
 use App\Request\Respuesta;
 use App\Validacion\ValidadorFechas;
@@ -56,7 +57,7 @@ class TemporadasController
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
         try {
-            $this->bloquearUnidad((int) $unidad['id']);
+            UnidadRepository::lockPorId((int) $unidad['id']);
             $superpuesta = $this->superpuesta((int) $unidad['id'], $temporada);
             if ($superpuesta !== null) {
                 $pdo->rollBack();
@@ -98,7 +99,7 @@ class TemporadasController
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
         try {
-            $this->bloquearUnidad((int) $unidad['id']);
+            UnidadRepository::lockPorId((int) $unidad['id']);
 
             $consulta = $pdo->prepare('SELECT fecha_fin FROM temporadas WHERE id = ? AND unidad_id = ?');
             $consulta->execute([$temporadaId, $unidad['id']]);
@@ -197,13 +198,6 @@ class TemporadasController
     {
         $id = filter_var($datos['temporada_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         return $id === false ? null : $id;
-    }
-
-    //Traba la fila de la unidad hasta el commit: si llegan dos pedidos juntos para la misma unidad, el segundo
-    //espera al primero. Sin esto, los dos podrían ver que "no hay superposición" y guardar dos temporadas que se pisan.
-    private function bloquearUnidad(int $unidadId): void
-    {
-        Conexion::obtener()->prepare('SELECT id FROM unidades WHERE id = ? FOR UPDATE')->execute([$unidadId]);
     }
 
     //Si la temporada se superpone con otra de la unidad, devuelve el mensaje que lo dice; si no, null.
