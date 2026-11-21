@@ -62,7 +62,8 @@ class ReservaGrupal
             $reservas = [];
             foreach (self::repartirPersonas($unidadIds, $unidades, $personas) as $unidadId => $deEsta) {
                 $estadia = $ofrecidas[$unidadId];
-                $sena = Estadia::sena($estadia['precio_total'], $unidades[$unidadId]['porcentaje_sena']);
+                //el total con 5 días o menos (#75): todas las unidades tienen el mismo ingreso, así que o todas o ninguna
+                $sena = Estadia::senaAlReservar($estadia['precio_total'], $unidades[$unidadId]['porcentaje_sena'], $fechas['ingreso']);
                 if (bccomp($sena, '0', 2) <= 0) {//decisión #52: el contrato no acepta pagos sin ETH
                     $pdo->rollBack();
                     return ['error' => ['El total de la estadía es demasiado bajo para cobrar la seña', 422]];

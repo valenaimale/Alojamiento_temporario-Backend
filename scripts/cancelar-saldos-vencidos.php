@@ -1,10 +1,10 @@
 <?php
 
-//Cancela solas las reservas cuyo saldo no se pagó a tiempo (decisión #23 de docs/pagos-decisiones.md).
-//Pasada la fecha_cobro, el huésped tiene dias_vencimiento_saldo días (3 por defecto) para pagar el saldo, o hasta el
-//día del ingreso si llega antes (CobroDelSaldo::limiteDePago: el MISMO plazo que anuncian el mail de la seña y los
-//recordatorios). Pasado ese día sin pagar, la reserva se cancela como una cancelación del huésped con el tramo de
-//menos de 15 días: se retiene ese % de la seña y se le devuelve el resto (CancelacionConDevolucion).
+//Cancela solas las reservas cuyo saldo no se pagó a tiempo (decisiones #23 y #75 de docs/pagos-decisiones.md).
+//El saldo se paga hasta el final del día de la fecha_cobro, sin días de gracia (CobroDelSaldo::limiteDePago: el MISMO
+//plazo que anuncian el mail de la seña y los recordatorios). Pasado ese día sin pagar, la reserva se cancela como una
+//cancelación del huésped con el tramo de menos de 15 días: se retiene ese % de la seña y se le devuelve el resto
+//(CancelacionConDevolucion). Corre con las tareas diarias (6 de Argentina): la mañana siguiente al último día.
 //Se corre por consola, desde la raíz del backend, a mano o con un cron de Railway (una vez por día alcanza; más seguido
 //no hace daño):
 //

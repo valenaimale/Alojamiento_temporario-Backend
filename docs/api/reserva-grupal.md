@@ -77,7 +77,7 @@ Responden lo que necesita el front para llamar al contrato:
 
 El front llama a `pago.funcion` con los `reserva_id` y los `monto_wei` de `reservas`, **en ese orden**, mandando `monto_wei` en total. El total es la suma de los montos de cada reserva, que es lo que exige el contrato.
 
-En el saldo no viene `vence_en`; vienen `fecha_cobro` (la más temprana del grupo) y `limite_pago` (el último día para pagarlo). Una unidad cancelada no se incluye.
+En el saldo no viene `vence_en`; vienen `fecha_cobro` (la más temprana del grupo) y `limite_pago` (el último día para pagarlo: la misma `fecha_cobro`, sin días de gracia, decisión #75; pasado ese día responde 409). Una unidad cancelada no se incluye. Si el grupo se reservó con 5 días o menos, la seña de cada unidad ya es su total y no hay saldo (#75).
 
 | Error | Cuándo |
 |---|---|

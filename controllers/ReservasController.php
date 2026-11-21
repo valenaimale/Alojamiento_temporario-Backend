@@ -81,7 +81,7 @@ class ReservasController
             //importe, seña y política se copian de la unidad: son las condiciones que el huésped acepta ahora.
             //"Ahora" en UTC como el servidor, calculado en PHP (la base local puede tener otra zona horaria).
             $ahora = VencimientoReserva::ahora();
-            $sena = Estadia::sena($estadia['precio_total'], $unidad['porcentaje_sena']);
+            $sena = Estadia::senaAlReservar($estadia['precio_total'], $unidad['porcentaje_sena'], $fechas['ingreso']);//el total con 5 días o menos (#75)
             //Toda reserva nace pendiente y se confirma al pagar la seña (decisión #52: la seña es de al menos el 1 %).
             //Una seña de $0 no se podría pagar con el contrato, que rechaza los pagos sin ETH.
             if (bccomp($sena, '0', 2) <= 0) {

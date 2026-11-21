@@ -4,43 +4,41 @@ namespace App\Validacion;
 
 use App\Database\Conexion;
 
-//A quién hay que recordarle que pague el saldo de su reserva, y cuántas veces (RF-25).
+//A quién hay que recordarle que pague el saldo de su reserva, y cuándo (RF-25 y decisión #75).
 //
 //Cómo funciona: cuando el huésped paga la seña, la reserva queda confirmada y le queda el saldo.
-//Ese saldo se cobra desde reservas.fecha_cobro (dias_cobro_saldo antes del ingreso). Desde ese día, y mientras
-//no pague, se le manda un recordatorio cada horas_entre_recordatorios, hasta max_recordatorios_cobro.
-//Los tres parámetros los administra el backoffice.
+//El saldo se paga hasta el final del día de reservas.fecha_cobro (dias_cobro_saldo antes del ingreso), sin días de
+//gracia (#75, reemplaza los 3 días de la #23). Se le recuerda tres veces, en días fijos contados hacia ese día:
+//3 días antes, 1 día antes y el mismo día (AVISOS). Pasado ese día sin pagar, la reserva se cancela sola con la
+//retención del tramo de menos de 15 días (scripts/cancelar-saldos-vencidos.php).
+//Quien reserva con dias_cobro_saldo días o menos de anticipación paga todo al reservar (Estadia::senaAlReservar):
+//no le queda saldo, así que no recibe recordatorios.
 //
 //A diferencia del diseño original con tarjeta, la plataforma no puede cobrar sola: el huésped firma la
-//transacción desde su billetera. Por eso lo que se cuenta no son reintentos de cobro sino recordatorios,
-//y por eso el saldo impago tiene una consecuencia: pasado el plazo de la decisión #23 de
-//docs/pagos-decisiones.md, la reserva se cancela sola con la retención del tramo de menos de 15 días.
-//Ese plazo es el que informan los recordatorios, y lo calcula limiteDePago().
+//transacción desde su billetera. Por eso lo que se cuenta no son reintentos de cobro sino recordatorios.
 //
 //No manda los mails: dice a quién hay que mandárselos (mail/RecordatorioSaldo.php los manda, y
 //scripts/enviar-recordatorios.php los junta). Así la decisión de a quién avisarle se puede probar sola.
 class CobroDelSaldo
 {
-    private const MAX_RECORDATORIOS_POR_DEFECTO = 3;
-    private const HORAS_ENTRE_RECORDATORIOS_POR_DEFECTO = 24;
+    //Cuántos días antes del último día para pagar sale cada recordatorio: el 1 a los 3 días, el 2 el día anterior
+    //y el 3 el mismo día. El número de recordatorio es la posición + 1 (el índice único de recordatorios_saldo lo
+    //usa para no mandar el mismo dos veces).
+    public const AVISOS = [3, 1, 0];
+
     private const DIAS_COBRO_SALDO_POR_DEFECTO = 5;
-    private const DIAS_VENCIMIENTO_SALDO_POR_DEFECTO = 3;
 
     //Las reservas a las que hoy les toca un recordatorio del saldo.
     //De cada una devuelve lo que necesita el mail: el huésped, la unidad, las fechas, cuánto debe, hasta cuándo
-    //puede pagarlo ('limite') y qué número de recordatorio es (1, 2 o 3), más 'ultimo', que dice si es el último
-    //que se le va a mandar. Ordenadas por fecha de ingreso: primero el que tiene la estadía más cerca.
+    //puede pagarlo ('limite'), cuántos días le quedan ('dias_restantes') y qué recordatorio es ('numero', de 1 a 3),
+    //más 'ultimo' y 'vence_hoy', que dicen si es el del mismo día. Ordenadas por fecha de ingreso.
+    //En una reserva grupal, el plazo es el de la fecha de cobro más temprana del grupo (como en
+    //ReservaGrupal::limiteDelSaldo) y sale un solo recordatorio para todas sus unidades (juntarGrupos).
     public static function pendientes(): array
     {
-        $maximo = self::parametro('max_recordatorios_cobro', self::MAX_RECORDATORIOS_POR_DEFECTO);
-        $horas = self::parametro('horas_entre_recordatorios', self::HORAS_ENTRE_RECORDATORIOS_POR_DEFECTO);
-        $diasCobro = self::parametro('dias_cobro_saldo', self::DIAS_COBRO_SALDO_POR_DEFECTO);
-        $diasVencimiento = self::parametro('dias_vencimiento_saldo', self::DIAS_VENCIMIENTO_SALDO_POR_DEFECTO);
-
         //Candidatas: reservas confirmadas, con el ingreso todavía por delante y sin el huésped adentro.
         //Las canceladas, las expiradas y las finalizadas no entran por el estado: a una reserva que ya no sigue
-        //en pie no se le pide plata, y la cancelación automática del saldo vencido (#23) la deja 'cancelada'.
-        //Si ya ingresó (tiene estadía), el saldo ya está pagado: sin el saldo no se registra el ingreso (#25).
+        //en pie no se le pide plata. Si ya ingresó (tiene estadía), el saldo ya está pagado (#25).
         $consulta = Conexion::obtener()->prepare(
             "SELECT r.id, r.fecha_ingreso, r.fecha_egreso, r.importe_total, r.creado_en,
                     r.monto_faltante, r.fecha_cobro, r.grupo_id,
@@ -48,8 +46,7 @@ class CobroDelSaldo
                     h.id AS huesped_id, h.nombre AS huesped, h.mail,
                     (SELECT COALESCE(SUM(p.monto_pesos), 0) FROM pagos p
                       WHERE p.reserva_id = r.id AND p.estado = 'confirmado' AND p.tipo IN ('sena', 'saldo')) AS cobrado,
-                    (SELECT COUNT(*) FROM recordatorios_saldo s WHERE s.reserva_id = r.id) AS enviados,
-                    (SELECT MAX(s.enviado_en) FROM recordatorios_saldo s WHERE s.reserva_id = r.id) AS ultimo_envio
+                    (SELECT COALESCE(MAX(s.numero), 0) FROM recordatorios_saldo s WHERE s.reserva_id = r.id) AS ultimo_numero
              FROM reservas r
              JOIN unidades u ON u.id = r.unidad_id
              JOIN usuarios h ON h.id = r.huesped_id
@@ -57,55 +54,83 @@ class CobroDelSaldo
              WHERE r.estado = 'confirmada' AND e.reserva_id IS NULL AND r.fecha_ingreso >= ?
              ORDER BY r.fecha_ingreso, r.id"
         );
-        $consulta->execute([ValidadorFechas::hoy()->format('Y-m-d')]);
-
         $hoy = ValidadorFechas::hoy()->format('Y-m-d');
-        $ahora = self::ahora();
-        $pendientes = [];
+        $consulta->execute([$hoy]);
+        $diasCobro = self::parametro('dias_cobro_saldo', self::DIAS_COBRO_SALDO_POR_DEFECTO);
+
+        //Primero, las que deben y su plazo. En un grupo, el plazo es el más temprano de las unidades que deben:
+        //así el mail del grupo sale en los mismos días en que después se cancelaría todo junto.
+        $deudoras = [];
+        $limiteDelGrupo = [];//grupo_id → el plazo más temprano
         foreach ($consulta->fetchAll() as $reserva) {
             $debe = self::debe($reserva);
-            $enviados = (int) $reserva['enviados'];
-            $fechaCobro = self::fechaDeCobro($reserva, $diasCobro);
-            $limite = self::limiteDePago($fechaCobro, (string) $reserva['fecha_ingreso'], $diasVencimiento);
-
             if ($debe === null) {
-                continue;   //ya pagó todo
+                continue;   //ya pagó todo (o pagó el total al reservar)
             }
-            if ($enviados >= $maximo) {
-                continue;   //se le avisó todas las veces que corresponde; de acá en más es una deuda (RN-16)
+            $fechaCobro = self::fechaDeCobro($reserva, $diasCobro);
+            $reserva['debe'] = $debe;
+            $reserva['fecha_cobro'] = $fechaCobro;
+            $reserva['limite'] = self::limiteDePago($fechaCobro, (string) $reserva['fecha_ingreso']);
+            if ($reserva['grupo_id'] !== null) {
+                $grupo = (int) $reserva['grupo_id'];
+                $limiteDelGrupo[$grupo] = min($limiteDelGrupo[$grupo] ?? $reserva['limite'], $reserva['limite']);
             }
-            if ($fechaCobro > $hoy) {
-                continue;   //todavía no es momento de pedirle el saldo
+            $deudoras[] = $reserva;
+        }
+
+        $pendientes = [];
+        foreach ($deudoras as $reserva) {
+            $limite = $reserva['grupo_id'] === null ? $reserva['limite'] : $limiteDelGrupo[(int) $reserva['grupo_id']];
+            $numero = self::recordatorioQueToca($hoy, $limite);
+            if ($numero === null) {
+                continue;   //todavía no es momento, o ya se le pasó el plazo (lo que corresponde es cancelarla)
             }
-            if ($limite < $hoy) {
-                continue;   //se le pasó el plazo: lo que corresponde es cancelarla (#23), no mandarle otro mail
-            }
-            if ($reserva['ultimo_envio'] !== null && self::horasDesde((string) $reserva['ultimo_envio'], $ahora) < $horas) {
-                continue;   //se le mandó uno hace poco: no se lo atosiga
+            if ((int) $reserva['ultimo_numero'] >= $numero) {
+                continue;   //ese recordatorio (o uno posterior) ya se le mandó
             }
 
             $pendientes[] = [
-                'reserva_id'  => (int) $reserva['id'],
-                'numero'      => $enviados + 1,
-                'ultimo'      => $enviados + 1 >= $maximo,
-                'debe'        => $debe,
-                'ingreso'     => $reserva['fecha_ingreso'],
-                'egreso'      => $reserva['fecha_egreso'],
-                'fecha_cobro' => $fechaCobro,
-                'limite'      => $limite,
-                'vence_hoy'   => $limite === $hoy,
-                'unidad'      => $reserva['unidad'],
-                'huesped'     => ['id' => (int) $reserva['huesped_id'], 'nombre' => $reserva['huesped'], 'mail' => $reserva['mail']],
-                'grupo_id'    => $reserva['grupo_id'] === null ? null : (int) $reserva['grupo_id'],
+                'reserva_id'     => (int) $reserva['id'],
+                'numero'         => $numero,
+                'ultimo'         => $numero === count(self::AVISOS),
+                'debe'           => $reserva['debe'],
+                'ingreso'        => $reserva['fecha_ingreso'],
+                'egreso'         => $reserva['fecha_egreso'],
+                'fecha_cobro'    => $reserva['fecha_cobro'],
+                'limite'         => $limite,
+                'dias_restantes' => self::diasEntre($hoy, $limite),
+                'vence_hoy'      => $limite === $hoy,
+                'unidad'         => $reserva['unidad'],
+                'huesped'        => ['id' => (int) $reserva['huesped_id'], 'nombre' => $reserva['huesped'], 'mail' => $reserva['mail']],
+                'grupo_id'       => $reserva['grupo_id'] === null ? null : (int) $reserva['grupo_id'],
                 'otras_reservas' => [],
             ];
         }
         return self::juntarGrupos($pendientes);
     }
 
+    //Qué recordatorio le toca hoy a una reserva cuyo último día para pagar es $limite (AAAA-MM-DD), o null si ninguno.
+    //Es el del aviso más cercano que ya llegó: a 3 o 2 días le toca el 1, a 1 día el 2 y el mismo día el 3. Si el cron
+    //no corrió algún día, o reservó con 2 días de margen, se manda el que corresponde a hoy y no los atrasados.
+    //Sin base ni reloj, para probarla sola.
+    public static function recordatorioQueToca(string $hoy, string $limite): ?int
+    {
+        $dias = self::diasEntre($hoy, $limite);
+        if ($dias < 0) {
+            return null;    //se le pasó el plazo
+        }
+        $numero = null;
+        foreach (self::AVISOS as $posicion => $antes) {
+            if ($dias <= $antes) {
+                $numero = $posicion + 1;
+            }
+        }
+        return $numero;     //null si faltan más de 3 días
+    }
+
     //Las unidades de una reserva grupal (US4.4) pagan el saldo juntas: en lugar de un mail por unidad, va UNO con el
     //total y los nombres de todas. Queda en la primera del grupo; 'otras_reservas' son las demás, para que el script
-    //anote el recordatorio en todas y la cuenta de cada una siga igual.
+    //anote el recordatorio en todas y la cuenta de cada una siga igual. El plazo ya es el mismo para todas.
     private static function juntarGrupos(array $pendientes): array
     {
         $resultado = [];
@@ -122,28 +147,22 @@ class CobroDelSaldo
             $primera = &$resultado[$primeraDelGrupo[$grupo]];
             $primera['debe'] = bcadd($primera['debe'], $recordatorio['debe'], 2);
             $primera['unidad'] .= ', ' . $recordatorio['unidad'];
-            $primera['limite'] = min($primera['limite'], $recordatorio['limite']);
-            $primera['vence_hoy'] = $primera['vence_hoy'] || $recordatorio['vence_hoy'];
             $primera['otras_reservas'][] = $recordatorio['reserva_id'];
             unset($primera);
         }
         return $resultado;
     }
 
-    //El último día en que el huésped puede pagar el saldo (decisión #23 de docs/pagos-decisiones.md):
-    //dias_vencimiento_saldo días después de la fecha de cobro, o el día del ingreso si llega antes (pasa cuando
-    //se reservó con poca anticipación). Ese día lo puede pagar al llegar, porque sin el saldo no se registra
-    //el ingreso (#25). Pasado el plazo, la reserva se cancela sola con el tramo de menos de 15 días.
+    //El último día en que el huésped puede pagar el saldo (decisión #75 de docs/pagos-decisiones.md): la fecha de
+    //cobro, hasta el final de ese día, sin días de gracia. Nunca después del ingreso: sin el saldo no se registra (#25).
+    //Pasado ese día, la reserva se cancela sola con el tramo de menos de 15 días.
     //
-    //Es público porque la cancelación automática (el script con cron del Rol 2) tiene que usar el MISMO plazo
-    //que anuncian los recordatorios: si cada uno lo calculara por su cuenta, el mail diría una fecha y la
+    //Es público porque la cancelación automática (scripts/cancelar-saldos-vencidos.php), el pago del saldo y los
+    //mails tienen que usar el MISMO plazo: si cada uno lo calculara por su cuenta, el mail diría una fecha y la
     //reserva se cancelaría en otra.
-    public static function limiteDePago(string $fechaCobro, string $fechaIngreso, ?int $dias = null): string
+    public static function limiteDePago(string $fechaCobro, string $fechaIngreso): string
     {
-        $dias ??= self::parametro('dias_vencimiento_saldo', self::DIAS_VENCIMIENTO_SALDO_POR_DEFECTO);
-        $vencimiento = (new \DateTimeImmutable($fechaCobro))->modify("+$dias days")->format('Y-m-d');
-        //nunca antes de la fecha de cobro: si el ingreso fuera anterior, igual se le da ese día para pagar
-        return max($fechaCobro, min($vencimiento, $fechaIngreso));
+        return min($fechaCobro, $fechaIngreso);
     }
 
     //Anota que se mandó el recordatorio. Devuelve false si otro proceso ya lo había anotado,
@@ -201,10 +220,10 @@ class CobroDelSaldo
         return (int) $entera * 100 + (int) substr(str_pad($decimal, 2, '0'), 0, 2);
     }
 
-    //Horas entre dos momentos guardados como "AAAA-MM-DD HH:MM:SS" en UTC
-    private static function horasDesde(string $desde, string $hasta): float
+    //Días de calendario de $desde a $hasta (AAAA-MM-DD), negativo si $hasta ya pasó
+    private static function diasEntre(string $desde, string $hasta): int
     {
-        return (strtotime("$hasta UTC") - strtotime("$desde UTC")) / 3600;
+        return (int) ValidadorFechas::fecha($desde)->diff(ValidadorFechas::fecha($hasta))->format('%r%a');
     }
 
     //Un parámetro entero de la plataforma; si falta o no sirve, el valor por defecto

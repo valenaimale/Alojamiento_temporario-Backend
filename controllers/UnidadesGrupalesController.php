@@ -206,13 +206,14 @@ class UnidadesGrupalesController
                 'noches'                => $armada['noches'],
                 'importe_sin_descuento' => $armada['importe_sin_descuento'],
                 'precio_total'          => $armada['precio_total'],
-                'unidades'              => array_map([$this, 'unidadDelDetalle'], $armada['unidades']),
+                'unidades'              => array_map(fn (array $unidad) => $this->unidadDelDetalle($unidad, $fechas['ingreso']), $armada['unidades']),
             ],
         ]);
     }
 
     //Una unidad del detalle de la grupal: lo mismo que el detalle de una unidad suelta, con su estadía y su seña
-    private function unidadDelDetalle(array $unidad): array
+    //$ingreso: con 5 días o menos, la seña es el total (#75)
+    private function unidadDelDetalle(array $unidad, \DateTimeImmutable $ingreso): array
     {
         $pdo = Conexion::obtener();
         $consulta = $pdo->prepare(
@@ -243,7 +244,8 @@ class UnidadesGrupalesController
                 'importe_sin_descuento' => $estadia['importe_sin_descuento'],
                 'porcentaje_descuento'  => $estadia['porcentaje_descuento'],
                 'precio_total'          => $estadia['precio_total'],
-                'sena'                  => Estadia::sena($estadia['precio_total'], $datos['porcentaje_sena']),
+                'sena'                  => $sena = Estadia::senaAlReservar($estadia['precio_total'], $datos['porcentaje_sena'], $ingreso),
+                'pago_total'            => bccomp($sena, $estadia['precio_total'], 2) === 0,
             ],
         ];
     }

@@ -211,9 +211,9 @@ final class CancelacionTest extends CasoDeIntegracion
         return [$codigo, $salida];
     }
 
-    // ---------- saldo vencido (decisión #23) ----------
+    // ---------- saldo vencido (decisiones #23 y #75) ----------
 
-    //Pasado el plazo del saldo (3 días después del cobro) sin pagarlo, el script la cancela sola con el tramo de
+    //Pasada la fecha de cobro sin pagar el saldo (sin días de gracia, #75), el script la cancela sola con el tramo de
     //menos de 15 días: se retiene el 70 % de la seña ($29.400) y se devuelven $12.600. Las que están a tiempo,
     //las que pagaron el saldo y las que ya ingresaron no se tocan.
     public function testElSaldoVencidoCancelaLaReservaSola(): void
@@ -225,8 +225,8 @@ final class CancelacionTest extends CasoDeIntegracion
         $this->pagar($cliente, $pagada, 'saldo');
         $ingresada = $this->reservaConfirmada($cliente, 80);
         $cambiarCobro = $this->pdo()->prepare('UPDATE reservas SET fecha_cobro = ? WHERE id = ?');
-        $cambiarCobro->execute([$this->fecha('-4 days'), $vencida]);  //el plazo venció ayer
-        $cambiarCobro->execute([$this->fecha('-3 days'), $aTiempo]);  //el plazo vence hoy: todavía puede pagar
+        $cambiarCobro->execute([$this->fecha('-1 day'), $vencida]);   //la fecha de cobro fue ayer: ya venció
+        $cambiarCobro->execute([$this->fecha(), $aTiempo]);           //la fecha de cobro es hoy: todavía puede pagar
         $cambiarCobro->execute([$this->fecha('-10 days'), $pagada]);
         $cambiarCobro->execute([$this->fecha('-10 days'), $ingresada]);
         $this->pdo()->prepare(

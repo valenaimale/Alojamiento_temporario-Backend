@@ -123,16 +123,70 @@ final class PagosTest extends CasoDeIntegracion
         $this->assertSame('207900.00', $fila['monto_faltante']);//$210.000 menos la seña de $2.100
     }
 
-    //El saldo y su fecha de cobro quedan anotados al reservar: dias_cobro_saldo (5) antes del ingreso,
-    //o hoy si se reserva con menos anticipación
+    //El saldo y su fecha de cobro quedan anotados al reservar: dias_cobro_saldo (5) antes del ingreso
     public function testGuardaElSaldoYLaFechaDeCobro(): void
     {
         $cliente = $this->huesped();
         $lejana = $this->filaReserva($this->reservar($cliente));
-        $cercana = $this->filaReserva($this->reservar($cliente, ['ingreso' => $this->fecha('+2 days'), 'egreso' => $this->fecha('+5 days')]));
 
         $this->assertSame(['168000.00', $this->fecha('+5 days')], [$lejana['monto_faltante'], $lejana['fecha_cobro']]);
-        $this->assertSame($this->fecha(), $cercana['fecha_cobro']);
+    }
+
+    //Con 5 días o menos para el ingreso se paga el total al reservar (#75): la seña es el total, sin saldo, como una extensión
+    public function test_ConCincoDiasOMenosLaSenaEsElTotal(): void
+    {
+        // Arrange
+        $cliente = $this->huesped();
+
+        // Act
+        $cercana = $this->filaReserva($this->reservar($cliente, ['ingreso' => $this->fecha('+5 days'), 'egreso' => $this->fecha('+8 days')]));
+
+        // Assert
+        $this->assertSame([$cercana['importe_total'], '100.00', '0.00', $this->fecha()],
+            [$cercana['importe_sena'], $cercana['porcentaje_sena'], $cercana['monto_faltante'], $cercana['fecha_cobro']]);
+    }
+
+    //Con 6 días todavía es seña y saldo: el corte es justo en dias_cobro_saldo
+    public function test_ConSeisDiasSigueSiendoSenaYSaldo(): void
+    {
+        // Arrange
+        $cliente = $this->huesped();
+
+        // Act
+        $fila = $this->filaReserva($this->reservar($cliente, ['ingreso' => $this->fecha('+6 days'), 'egreso' => $this->fecha('+9 days')]));
+
+        // Assert
+        $this->assertSame(['20.00', $this->fecha('+1 day')], [$fila['porcentaje_sena'], $fila['fecha_cobro']]);
+        $this->assertSame(1, bccomp($fila['monto_faltante'], '0', 2));
+    }
+
+    //El detalle avisa que con esas fechas se paga el total (pago_total), y la seña que muestra es el total
+    public function test_ElDetalleAvisaElPagoTotal(): void
+    {
+        // Arrange
+        $consulta = ['id' => $this->unidadId, 'ingreso' => $this->fecha('+3 days'), 'egreso' => $this->fecha('+6 days')];
+
+        // Act
+        $estadia = $this->cliente()->get('/alojamiento', $consulta)->json()['estadia'] ?? [];
+
+        // Assert
+        $this->assertSame([true, $estadia['precio_total'] ?? null], [$estadia['pago_total'] ?? null, $estadia['sena'] ?? null]);
+    }
+
+    //Pagar una reserva de pago total la deja confirmada y paga: no hay saldo que pedir después
+    public function test_PagarElTotalDejaLaReservaPaga(): void
+    {
+        // Arrange
+        $cliente = $this->huesped();
+        $reservaId = $this->reservar($cliente, ['ingreso' => $this->fecha('+2 days'), 'egreso' => $this->fecha('+5 days')]);
+
+        // Act
+        $respuesta = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash()]);
+
+        // Assert
+        $this->assertSame([200, 'Pagaste el total: tu reserva en Cabaña del Mar está confirmada y paga'],
+            [$respuesta->codigo, $respuesta->json()['ok'] ?? $respuesta->cuerpo]);
+        $this->assertSame(['error' => 'El saldo de esa reserva ya está pagado'], $cliente->get('/pagos/saldo', ['reserva_id' => $reservaId])->json());
     }
 
     // ---------- pagar la seña ----------
@@ -252,7 +306,7 @@ final class PagosTest extends CasoDeIntegracion
         $this->assertSame([
             'reserva_id' => $reservaId, 'tipo' => 'saldo', 'monto_pesos' => '168000.00', 'monto_wei' => '1680000000000000',
             'pesos_por_eth' => '100000000', 'red' => 31337, 'fecha_cobro' => $this->fecha('+5 days'), 'vencido' => false,
-            'limite_pago' => $this->fecha('+8 days'),//3 días después del cobro, antes del ingreso (decisión #23)
+            'limite_pago' => $this->fecha('+5 days'),//la misma fecha de cobro, sin días de gracia (decisión #75)
             'pago' => ['contrato' => null, 'funcion' => 'pagarSaldo', 'simulado' => true],
         ], $saldo->json());
         $mia = $cliente->get('/reservas/mias')->json()['reservas'][0];
@@ -292,9 +346,8 @@ final class PagosTest extends CasoDeIntegracion
         $respuesta = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash('dead'), 'tipo' => 'saldo']);
 
         $this->assertSame(402, $respuesta->codigo, $respuesta->cuerpo);
-        //decisión #23: el plazo es 3 días después del cobro, o el ingreso si llega antes
-        //con los días explícitos: sin ellos, limiteDePago lee el parámetro con la conexión de la app, no la de prueba
-        $limite = CobroDelSaldo::limiteDePago($this->fecha('+5 days'), $this->filaReserva($reservaId)['fecha_ingreso'], 3);
+        //decisión #75: el plazo es la fecha de cobro, sin días de gracia
+        $limite = CobroDelSaldo::limiteDePago($this->fecha('+5 days'), $this->filaReserva($reservaId)['fecha_ingreso']);
         $dia = (new \DateTimeImmutable($limite))->format('d/m/Y');
         $this->assertSame([
             'error'       => "No pudimos confirmar el pago del saldo: La transacción falló en la red. Tenés tiempo hasta el $dia inclusive: si no, la reserva se cancela sola.",
@@ -330,20 +383,51 @@ final class PagosTest extends CasoDeIntegracion
         }
     }
 
-    //Pasada la fecha de cobro el saldo se puede seguir pagando, pero figura vencido (RF-26)
-    public function testElSaldoVencidoSeSiguePagando(): void
+    //El mismo día de la fecha de cobro todavía se paga: el plazo es hasta el final de ese día (#75)
+    public function test_ElUltimoDiaTodaviaSePagaElSaldo(): void
     {
+        // Arrange
+        $cliente = $this->huesped();
+        $reservaId = $this->reservaConfirmada($cliente);
+        $this->pdo()->prepare('UPDATE reservas SET fecha_cobro = ? WHERE id = ?')->execute([$this->fecha(), $reservaId]);
+
+        // Act
+        $saldo = $cliente->get('/pagos/saldo', ['reserva_id' => $reservaId]);
+
+        // Assert
+        $this->assertSame([200, false, $this->fecha()], [$saldo->codigo, $saldo->json()['vencido'], $saldo->json()['limite_pago']]);
+    }
+
+    //Pasada la fecha de cobro no hay días de gracia (#75): ya no se arma un pago nuevo del saldo, la reserva se cancela sola
+    public function test_PasadaLaFechaDeCobroNoSePagaElSaldo(): void
+    {
+        // Arrange
         $cliente = $this->huesped();
         $reservaId = $this->reservaConfirmada($cliente);
         $this->pdo()->prepare('UPDATE reservas SET fecha_cobro = ? WHERE id = ?')->execute([$this->fecha('-1 day'), $reservaId]);
 
-        $saldo = $cliente->get('/pagos/saldo', ['reserva_id' => $reservaId])->json();
-        $limite = CobroDelSaldo::limiteDePago($this->fecha('-1 day'), $this->filaReserva($reservaId)['fecha_ingreso'], 3);
-        $this->assertSame([true, $limite], [$saldo['vencido'], $saldo['limite_pago']]);
-        $fallido = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash('dead')]);
-        $dia = (new \DateTimeImmutable($limite))->format('d/m/Y');
-        $this->assertStringEndsWith("Tenés tiempo hasta el $dia inclusive: si no, la reserva se cancela sola.", $fallido->json()['error']);
-        $this->assertSame(200, $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash()])->codigo);
+        // Act
+        $saldo = $cliente->get('/pagos/saldo', ['reserva_id' => $reservaId]);
+
+        // Assert
+        $dia = (new \DateTimeImmutable($this->fecha('-1 day')))->format('d/m/Y');
+        $this->assertSame([409, ['error' => "Se venció el plazo para pagar el saldo (era hasta el $dia): la reserva se cancela sola"]],
+            [$saldo->codigo, $saldo->json()]);
+    }
+
+    //Si firmó la transacción a tiempo y se confirma pasada la medianoche, el pago se registra igual: el ETH ya está en el contrato
+    public function test_UnPagoFirmadoATiempoSeRegistraAunqueSeConfirmeDespues(): void
+    {
+        // Arrange
+        $cliente = $this->huesped();
+        $reservaId = $this->reservaConfirmada($cliente);
+        $this->pdo()->prepare('UPDATE reservas SET fecha_cobro = ? WHERE id = ?')->execute([$this->fecha('-1 day'), $reservaId]);
+
+        // Act
+        $respuesta = $cliente->post('/pagos/confirmar', ['reserva_id' => $reservaId, 'tx_hash' => $this->hash()]);
+
+        // Assert
+        $this->assertSame([200, '0.00'], [$respuesta->codigo, $this->filaReserva($reservaId)['monto_faltante']]);
     }
 
     // ---------- vencimiento ----------

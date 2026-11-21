@@ -1,4 +1,4 @@
-# Recordatorios del saldo (RF-25)
+# Recordatorios del saldo (RF-25 y decisión #75)
 
 Cuando el huésped paga la seña, la reserva queda confirmada y le queda el **saldo**. Unos días antes del ingreso hay que cobrárselo, y si no paga hay que recordárselo. Esto es lo que hace `scripts/enviar-recordatorios.php`.
 
@@ -18,10 +18,11 @@ Con la billetera no se puede: una transferencia la tiene que **firmar el huéspe
 | El huésped **todavía no ingresó** (no tiene fila en `estadias`) | Si ya está adentro, el saldo ya está pagado: sin el saldo no se registra el ingreso (#25) |
 | El ingreso es de hoy en adelante | Una estadía que ya pasó no se arregla con un mail |
 | `monto_faltante` es mayor que 0 | Es lo que falta pagar. Lo deja en 0 el Rol 2 cuando se paga el saldo (decisión #20 de [`pagos-decisiones.md`](pagos-decisiones.md)). Si una reserva vieja no lo tiene, se calcula como antes: el total menos lo cobrado (#26) |
-| Ya llegó la fecha de cobro | `reservas.fecha_cobro`, que guarda el Rol 2 al reservar (#19). Si una reserva vieja no la tiene, se calcula: `dias_cobro_saldo` antes del ingreso, o el día en que reservó si reservó con menos anticipación |
+| Hoy es día de recordatorio | **3 días antes** de la fecha de cobro, **el día anterior** o **el mismo día** (`CobroDelSaldo::AVISOS`, decisión #75). La fecha de cobro es `reservas.fecha_cobro`, que guarda el Rol 2 al reservar (#19); si una reserva vieja no la tiene, se calcula: `dias_cobro_saldo` antes del ingreso, o el día en que reservó |
 | **Todavía no se le pasó el plazo para pagar** | Pasado el plazo, lo que corresponde es cancelar la reserva (#23), no volver a pedirle la plata |
-| Se le mandaron menos de `max_recordatorios_cobro` | Después del último deja de ser un olvido y pasa a ser una deuda (RN-16) |
-| Pasaron `horas_entre_recordatorios` desde el anterior | Para no atosigarlo |
+| No se le mandó ese recordatorio (ni uno posterior) | Cada uno sale una sola vez. Si el cron no corrió algún día, se manda el que corresponde a hoy y no los atrasados |
+
+Quien reserva con 5 días o menos **paga todo al reservar** (#75): no le queda saldo y no recibe recordatorios. En una **reserva grupal** cuenta la fecha de cobro más temprana del grupo y sale **un solo mail** para todas las unidades (#79).
 
 Las **canceladas**, las **expiradas** y las **finalizadas** quedan afuera por el estado, que es lo que corresponde: a una reserva que ya no sigue en pie no se le pide plata. Y como la cancelación automática del saldo vencido deja la reserva `cancelada`, una vez cancelada no recibe nada más.
 
@@ -29,28 +30,25 @@ Los parámetros están en la tabla `parametros` y los administra el backoffice:
 
 | Parámetro | Por defecto | Para qué |
 |---|---|---|
-| `dias_cobro_saldo` | 5 | Cuántos días antes del ingreso se empieza a pedir el saldo |
-| `max_recordatorios_cobro` | 3 | Cuántos recordatorios se mandan como máximo |
-| `horas_entre_recordatorios` | 24 | Cada cuánto |
-| `dias_vencimiento_saldo` | 3 | Cuántos días hay para pagar desde la fecha de cobro (ver abajo) |
+| `dias_cobro_saldo` | 5 | Cuántos días antes del ingreso vence el saldo. Reservando con esa anticipación o menos, se paga el total al reservar |
 
-`dias_vencimiento_saldo` **todavía no está en la tabla**: lo tiene que agregar la migración de la cancelación automática (es del Rol 2). Hasta entonces, `CobroDelSaldo` usa 3, que es el valor de la decisión #23.
+Los días de los recordatorios (3, 1 y 0) son fijos: son la regla del plan del 28/11. `max_recordatorios_cobro` y `horas_entre_recordatorios` se borraron con la migración `20261120180000_regla_del_saldo.php`.
 
 ## Hasta cuándo se puede pagar
 
-Por la decisión **#23** de [`pagos-decisiones.md`](pagos-decisiones.md), el saldo impago tiene una consecuencia: pasado el plazo, **la reserva se cancela sola** como una cancelación del huésped con el tramo de **menos de 15 días** (se le retiene ese % de la seña y se le devuelve el resto).
+Por las decisiones **#23** y **#75** de [`pagos-decisiones.md`](pagos-decisiones.md), el saldo impago tiene una consecuencia: pasado el plazo, **la reserva se cancela sola** como una cancelación del huésped con el tramo de **menos de 15 días** (se le retiene ese % de la seña y se le devuelve el resto).
 
 El plazo lo calcula `CobroDelSaldo::limiteDePago()`:
 
 ```
-límite = mínimo(fecha_cobro + dias_vencimiento_saldo, fecha_ingreso)
+límite = mínimo(fecha_cobro, fecha_ingreso)    hasta las 23:59 de ese día, sin días de gracia (#75)
 ```
 
-El tope en el día del ingreso es porque **sin el saldo pago no se registra el ingreso** (#25): ese día el huésped lo paga al llegar, pero no puede estirarlo más. Pasa cuando se reservó con menos de 3 días de anticipación.
+El tope en el día del ingreso es porque **sin el saldo pago no se registra el ingreso** (#25). Pasado el límite, `GET /pagos/saldo` ya no arma un pago nuevo (409) y la tarea diaria de la mañana siguiente cancela la reserva.
 
-`limiteDePago()` es **pública a propósito**: el script con cron que cancela las vencidas (pendiente del Rol 2) tiene que usar **el mismo** plazo que anuncian los mails. Si cada uno lo calculara por su cuenta, el mail diría una fecha y la reserva se cancelaría en otra.
+`limiteDePago()` es **pública a propósito**: el script que cancela las vencidas (`cancelar-saldos-vencidos.php`) tiene que usar **el mismo** plazo que anuncian los mails. Si cada uno lo calculara por su cuenta, el mail diría una fecha y la reserva se cancelaría en otra.
 
-**Todos** los recordatorios dicen hasta qué día se puede pagar y qué pasa si no se paga, no solo el último: el huésped tiene que poder decidir desde el primero. El del último día del plazo lo dice en el asunto («Hoy es el último día…»).
+**Todos** los recordatorios dicen hasta qué día se puede pagar y qué pasa si no se paga, no solo el último: el huésped tiene que poder decidir desde el primero. El asunto cambia con los días que quedan: «Te quedan 3 días…», «Mañana es el último día…» y «Hoy es el último día…». Todos enlazan la guía **«Cómo pagar»** del front (`/vistas/ayuda/pagos.html`).
 
 ## Cómo se corre
 
@@ -61,9 +59,9 @@ php scripts/enviar-recordatorios.php            # muestra a quién le escribirí
 php scripts/enviar-recordatorios.php --enviar   # manda los mails
 ```
 
-Pensado para un **cron diario** de Railway. Correrlo dos veces el mismo día no manda nada dos veces: cada recordatorio se **anota antes de mandarse**, y el índice único de `recordatorios_saldo` (`reserva_id`, `numero`) no deja anotar el mismo dos veces, ni siquiera si dos procesos corren a la vez.
+Corre con las **tareas diarias** de Railway (6 de Argentina), así el del mismo día llega a la mañana. Correrlo dos veces el mismo día no manda nada dos veces: cada recordatorio se **anota antes de mandarse**, y el índice único de `recordatorios_saldo` (`reserva_id`, `numero`) no deja anotar el mismo dos veces, ni siquiera si dos procesos corren a la vez.
 
-Se anota antes y se manda después a propósito: si el mail falla (el servidor de correo caído, por ejemplo), queda en el log y no se reintenta en la misma corrida, así el huésped no recibe tres mails iguales por un error de red. El recordatorio siguiente le llega cuando pasen las horas.
+Se anota antes y se manda después a propósito: si el mail falla (el servidor de correo caído, por ejemplo), queda en el log y no se reintenta en la misma corrida, así el huésped no recibe tres mails iguales por un error de red. El recordatorio siguiente le llega el día que le toca.
 
 ## Qué le llega al huésped
 

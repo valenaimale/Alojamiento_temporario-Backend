@@ -11,7 +11,7 @@ class NuevaReserva
 {
     //Inserta la reserva (dentro de la transacción de quien la llama, con la unidad ya trabada) y devuelve su id.
     //$unidad: la fila de la unidad con porcentaje_sena y la política; $estadia: Estadia::calcular ya disponible;
-    //$sena: Estadia::sena del precio total; $ahora y $expiraEn en UTC; $grupoId: el grupo, si es parte de una grupal.
+    //$sena: Estadia::senaAlReservar (el total, si se reserva con 5 días o menos: #75); $ahora y $expiraEn en UTC; $grupoId: el grupo, si es parte de una grupal.
     public static function insertar(array $unidad, int $huespedId, \DateTimeImmutable $ingreso, \DateTimeImmutable $egreso,
                                     int $personas, array $estadia, string $sena, string $ahora, string $expiraEn,
                                     ?int $grupoId = null): int
@@ -34,7 +34,8 @@ class NuevaReserva
             $estadia['importe_sin_descuento'],//foto del descuento por estadía larga (#69)
             $estadia['porcentaje_descuento'],
             $estadia['precio_total'],//con el descuento: de acá salen la seña, el saldo y la retención
-            $unidad['porcentaje_sena'],
+            //pago total (#75, reservó con 5 días o menos): la seña es el total, como en una extensión (#70), y no queda saldo
+            bccomp($sena, $estadia['precio_total'], 2) === 0 ? '100.00' : $unidad['porcentaje_sena'],
             $sena,
             bcsub($estadia['precio_total'], $sena, 2),//el saldo
             Estadia::fechaCobro($ingreso)->format('Y-m-d'),

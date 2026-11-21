@@ -24,7 +24,7 @@ Cada reserva trae campos nuevos:
 | `puede_pagar` | `true` en las pendientes sin vencer. | Botón **"Pagar la seña"** → `pagar.html?reserva_id={id}&tipo=sena`. |
 | `puede_cancelar` | **Cambió:** ahora es `true` en las pendientes sin vencer **y en las confirmadas antes del día del ingreso**. | Una confirmada tiene devolución: ver la sección 3. |
 | `saldo` | Lo que falta pagar, como texto (`"168000.00"`). `"0.00"` si ya está pago. `null` en reservas viejas. | Mostrarlo como "Saldo", o "Saldo pagado" si es 0. |
-| `fecha_cobro` | Hasta cuándo se paga el saldo (`AAAA-MM-DD`, día de Argentina). | Mostrar "Pagá el saldo antes del dd/mm/aaaa". Si ya pasó, "Saldo vencido: pagalo antes de ingresar". |
+| `fecha_cobro` | El último día para pagar el saldo (`AAAA-MM-DD`, día de Argentina), hasta las 23:59, sin días de gracia (decisión #75). | Mostrar "Pagá el saldo hasta el dd/mm/aaaa". Pasado ese día ya no se puede pagar: la reserva se cancela sola. |
 | `puede_pagar_saldo` | `true` en las confirmadas con saldo. | Botón **"Pagar el saldo"** → `pagar.html?reserva_id={id}&tipo=saldo`. |
 
 **Ojo con el filtro de "próximas"** (`["pendiente", "confirmada"].includes(r.estado)`): una pendiente vencida ahora llega como `expirada`, así que ya queda afuera, que es lo correcto.

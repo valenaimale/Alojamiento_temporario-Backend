@@ -81,7 +81,7 @@ final class AlojamientoTest extends CasoDeIntegracion
         $this->assertSame([
             'disponible' => true, 'noches' => 5,
             'importe_sin_descuento' => '350000.00', 'porcentaje_descuento' => '0.00',//sin descuentos por estadía larga (#69)
-            'precio_total' => '350000.00', 'sena' => '70000.00',
+            'precio_total' => '350000.00', 'sena' => '70000.00', 'pago_total' => false,//faltan más de 5 días: seña y saldo (#75)
         ], $respuesta->json()['estadia']);
     }
 

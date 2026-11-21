@@ -109,15 +109,42 @@ class Estadia
         return number_format(round((float) $precioTotal * (float) $porcentajeSena / 100, 2), 2, '.', '');
     }
 
+    //Lo que se paga al reservar (decisión #75 de docs/pagos-decisiones.md): la seña, o el TOTAL si se reserva con
+    //dias_cobro_saldo días o menos de anticipación (5 por defecto). En ese caso la fecha de cobro del saldo ya llegó:
+    //no queda un saldo con plazo, se paga todo junto. Es lo que usan el detalle (para mostrarlo), la búsqueda de una
+    //grupal y la reserva común y la grupal (para guardarlo), así todas cobran lo mismo.
+    public static function senaAlReservar(string $precioTotal, string $porcentajeSena, \DateTimeImmutable $ingreso): string
+    {
+        return self::pagaTodoAlReservar($ingreso, ValidadorFechas::hoy(), self::diasCobroSaldo())
+            ? number_format((float) $precioTotal, 2, '.', '')
+            : self::sena($precioTotal, $porcentajeSena);
+    }
+
+    //Si una reserva con ese ingreso, hecha $hoy, se paga entera al reservar (#75): faltan $diasCobro días o menos.
+    //Sin base ni reloj, para probarla sola. Con 5: reservar hoy para dentro de 5 días es pago total; para dentro de 6, no.
+    public static function pagaTodoAlReservar(\DateTimeImmutable $ingreso, \DateTimeImmutable $hoy, int $diasCobro): bool
+    {
+        $ingreso = ValidadorFechas::fecha($ingreso->format('Y-m-d'));
+        $hoy = ValidadorFechas::fecha($hoy->format('Y-m-d'));
+        return (int) $hoy->diff($ingreso)->format('%r%a') <= $diasCobro;
+    }
+
     //El día en que se cobra el saldo de una estadía: dias_cobro_saldo antes del ingreso (parámetro, 5 por defecto),
     //o hoy si se reserva con menos anticipación. Los tramos de la política de cancelación se cuentan hasta esta fecha.
+    //Es también el último día para pagar el saldo, sin días de gracia (#75): pasado ese día la reserva se cancela sola.
     public static function fechaCobro(\DateTimeImmutable $ingreso): \DateTimeImmutable
+    {
+        $cobro = $ingreso->modify('-' . self::diasCobroSaldo() . ' days');
+        return max($cobro, ValidadorFechas::hoy());
+    }
+
+    //El parámetro dias_cobro_saldo (5 si falta o no sirve)
+    private static function diasCobroSaldo(): int
     {
         $consulta = Conexion::obtener()->prepare("SELECT valor FROM parametros WHERE clave = 'dias_cobro_saldo'");
         $consulta->execute();
         $dias = filter_var($consulta->fetchColumn(), FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
-        $cobro = $ingreso->modify('-' . ($dias === false ? 5 : $dias) . ' days');
-        return max($cobro, ValidadorFechas::hoy());
+        return $dias === false ? 5 : $dias;
     }
 
     //Las noches ocupadas del rango (las dos fechas incluidas), como ["AAAA-MM-DD" => true, ...].

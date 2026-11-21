@@ -66,7 +66,7 @@ Los datos de una unidad para el huésped. **Las fechas y las personas son opcion
     "porcentaje_sena": "20.00",
     "politica": {"retencion_mas_de_30": "30.00", "retencion_de_15_a_30": "50.00", "retencion_menos_de_15": "70.00", "dias_cobro_saldo": 5}
   },
-  "estadia": {"disponible": true, "noches": 5, "precio_total": "350000.00", "sena": "70000.00"}
+  "estadia": {"disponible": true, "noches": 5, "precio_total": "350000.00", "sena": "70000.00", "pago_total": false}
 }
 ```
 
@@ -75,7 +75,7 @@ Los datos de una unidad para el huésped. **Las fechas y las personas son opcion
 | `fotos` | Las URLs en orden: la primera es la principal. |
 | `deposito_garantia` | Informativo (o `null`): se cobra y se devuelve **por fuera de la aplicación** (US2.6). |
 | `politica` | Qué % de la seña retiene el propietario si el huésped cancela, según los días que falten para el **cobro del saldo**, que es `dias_cobro_saldo` días antes del ingreso. |
-| `estadia` | `null` si no vinieron fechas. Si se puede reservar: `noches`, `precio_total` y `sena` (el `porcentaje_sena` del total). Si no: `{"disponible": false, "motivo": "..."}`, con el motivo para el huésped: `"Hay noches ocupadas en esas fechas"`, `"Hay noches sin precio en esas fechas"`, `"Mínimo 7 noches en temporada alta"` o `"Tiene lugar para 4 personas"`. |
+| `estadia` | `null` si no vinieron fechas. Si se puede reservar: `noches`, `precio_total`, `sena` (el `porcentaje_sena` del total) y `pago_total`. Si el ingreso es dentro de `dias_cobro_saldo` días o menos, `pago_total` es `true` y `sena` es **el total**: se paga todo al reservar (decisión #75). Si no: `{"disponible": false, "motivo": "..."}`, con el motivo para el huésped: `"Hay noches ocupadas en esas fechas"`, `"Hay noches sin precio en esas fechas"`, `"Mínimo 7 noches en temporada alta"` o `"Tiene lugar para 4 personas"`. |
 
 ## Calendario de un alojamiento
 
