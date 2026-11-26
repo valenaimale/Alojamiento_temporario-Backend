@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Autorizacion\Autorizacion;
 use App\Database\Conexion;
 use App\Mail\AvisoPagoMail;
+use App\Repository\ReservaRepository;
 use App\Request\Request;
 use App\Request\Respuesta;
 use App\Validacion\CobroDelSaldo;
@@ -82,7 +83,7 @@ class PagosController
             $problema = $this->problemaParaPagar($tipo, $reserva);
             if ($problema !== null) {
                 if (VencimientoReserva::vencida($reserva['estado'], $reserva['bloqueo_expira_en'])) {
-                    $pdo->prepare("UPDATE reservas SET estado = 'expirada' WHERE id = ? AND estado = 'pendiente'")->execute([$reserva['id']]);
+                    ReservaRepository::marcarExpirada((int) $reserva['id']);
                     $pdo->commit();
                 } else {
                     $pdo->rollBack();
@@ -133,10 +134,11 @@ class PagosController
                 ]);
             }
             if ($confirmado) {
-                $pdo->prepare($tipo === self::SENA
-                    ? "UPDATE reservas SET estado = 'confirmada' WHERE id = ?"
-                    : 'UPDATE reservas SET monto_faltante = 0 WHERE id = ?'
-                )->execute([$reserva['id']]);
+                if ($tipo === self::SENA) {
+                    ReservaRepository::confirmar((int) $reserva['id']);
+                } else {
+                    ReservaRepository::limpiarSaldo((int) $reserva['id']);
+                }
             }
             $pdo->commit();
         } catch (\PDOException $e) {

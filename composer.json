@@ -38,6 +38,7 @@
             "App\\Request\\":"request/",
             "App\\Exceptions\\":"exceptions/",
             "App\\Database\\": "database/",
+            "App\\Repository\\": "repository/",
             "App\\Autorizacion\\": "autorizacion/",
             "App\\Config\\": "config/",
             "App\\Validacion\\": "validacion/",

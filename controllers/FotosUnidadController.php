@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
+use App\Repository\UnidadRepository;
 use App\Request\Request;
 use App\Request\Respuesta;
 use PDO;
@@ -41,7 +42,7 @@ class FotosUnidadController
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
         try {
-            $this->trabarUnidad($pdo, $unidad['id']);
+            UnidadRepository::lockPorId((int) $unidad['id']);
 
             //se cuentan después de trabar la unidad: así dos subidas juntas no toman el mismo orden
             $consulta = $pdo->prepare('SELECT COUNT(*) FROM fotos_unidad WHERE unidad_id = ?');
@@ -80,7 +81,7 @@ class FotosUnidadController
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
         try {
-            $this->trabarUnidad($pdo, $unidad['id']);
+            UnidadRepository::lockPorId((int) $unidad['id']);
 
             $foto = $this->buscarFoto($pdo, $datos['foto_id'] ?? '', $unidad['id']);
             if ($foto === null) {
@@ -113,7 +114,7 @@ class FotosUnidadController
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
         try {
-            $this->trabarUnidad($pdo, $unidad['id']);
+            UnidadRepository::lockPorId((int) $unidad['id']);
 
             $foto = $this->buscarFoto($pdo, $datos['foto_id'] ?? '', $unidad['id']);
             if ($foto === null) {
@@ -155,7 +156,7 @@ class FotosUnidadController
         $pdo = Conexion::obtener();
         $pdo->beginTransaction();
         try {
-            $this->trabarUnidad($pdo, $unidad['id']);
+            UnidadRepository::lockPorId((int) $unidad['id']);
             $foto = $this->buscarFoto($pdo, $datos['foto_id'] ?? '', $unidad['id']);
             if ($foto === null) {
                 $pdo->rollBack();
@@ -205,12 +206,6 @@ class FotosUnidadController
             $fotos[] = ['id' => (int) $foto['id'], 'url' => $foto['url'], 'orden' => (int) $foto['orden']];
         }
         return $fotos;
-    }
-
-    //Traba la fila de la unidad hasta el commit: los pedidos de fotos de esa unidad se atienden de a uno
-    private function trabarUnidad(PDO $pdo, int|string $unidadId): void
-    {
-        $pdo->prepare('SELECT id FROM unidades WHERE id = ? FOR UPDATE')->execute([$unidadId]);
     }
 
     //La foto [id, orden] si es de esa unidad; si no existe, es de otra unidad o el id no es válido, null
