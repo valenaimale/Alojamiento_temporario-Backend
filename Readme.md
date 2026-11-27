@@ -342,6 +342,7 @@ Las funcionalidades que salieron de la devolución del profesor se documentan en
 
 | Documento | Contenido |
 |---|---|
+| [`docs/arquitectura.md`](docs/arquitectura.md) | **Cómo está organizado el back:** controllers, services, models y repository; qué va en cada capa, las convenciones y el plan para migrar lo viejo. Leerlo antes de agregar algo nuevo. |
 | [`docs/api/cuentas-y-roles.md`](docs/api/cuentas-y-roles.md) | Registro completo y "hacerme propietario" (Tarea 1). |
 | [`docs/api/verificacion-y-backoffice.md`](docs/api/verificacion-y-backoffice.md) | Verificación de mail y administración de usuarios (Tarea 2). |
 | [`docs/escalado-horizontal.md`](docs/escalado-horizontal.md) | Sesiones compartidas en Redis y *session affinity* (Tarea 3). |
