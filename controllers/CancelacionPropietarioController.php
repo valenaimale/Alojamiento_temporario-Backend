@@ -86,7 +86,7 @@ class CancelacionPropietarioController
     {
         Autorizacion::requiere('propietario');
         $id = $this->id(Request::parametroGet('reserva_id'));
-        $reserva = $id === false ? false : ExcepcionDeCancelacion::reserva($id, (int) $_SESSION['usuario']['id']);
+        $reserva = $id === null ? false : ExcepcionDeCancelacion::reserva($id, (int) $_SESSION['usuario']['id']);
         if ($reserva === false) {
             return Respuesta::error('No encontramos esa reserva', 404);
         }
@@ -100,7 +100,7 @@ class CancelacionPropietarioController
         Autorizacion::requiere('propietario');
         $datos = Request::datosJson();
         $id = $this->id($datos['reserva_id'] ?? null);
-        if ($id === false) {
+        if ($id === null) {
             return Respuesta::error('No encontramos esa reserva', 404);
         }
         $resultado = ExcepcionDeCancelacion::dar($id, $datos['monto'] ?? null, (int) $_SESSION['usuario']['id']);
@@ -117,7 +117,7 @@ class CancelacionPropietarioController
         Autorizacion::requiere('propietario');
         $datos = Request::datosJson();
         $id = $this->id($datos['reserva_id'] ?? null);
-        if ($id === false) {
+        if ($id === null) {
             return Respuesta::error('No encontramos esa reserva', 404);
         }
         $resultado = ExcepcionDeCancelacion::renunciar($id, (int) $_SESSION['usuario']['id']);
@@ -131,7 +131,7 @@ class CancelacionPropietarioController
     private function reserva(mixed $id, int $propietarioId): array|false
     {
         $reservaId = $this->id($id);
-        if ($reservaId === false) {
+        if ($reservaId === null) {
             return false;
         }
         $consulta = Conexion::obtener()->prepare(
@@ -146,9 +146,9 @@ class CancelacionPropietarioController
         return $consulta->fetch();
     }
 
-    //El id de la reserva: un entero positivo (del query string o del JSON), o false
-    private function id(mixed $valor): int|false
+    //El id de la reserva: un entero positivo (del query string o del JSON), o null
+    private function id(mixed $valor): ?int
     {
-        return is_bool($valor) ? false : filter_var($valor ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        return Request::entero($valor);
     }
 }

@@ -25,20 +25,18 @@ class BusquedaController
         if (isset($fechas['error'])) {
             return Respuesta::error($fechas['error']);
         }
-        $personas = filter_var(Request::parametroGet('personas'), FILTER_VALIDATE_INT, [
-            'options' => ['min_range' => 1, 'max_range' => self::MAXIMO_PERSONAS],
-        ]);
-        if ($personas === false) {
+        $personas = Request::enteroDeLaUrl('personas', 1, self::MAXIMO_PERSONAS);
+        if ($personas === null) {
             return Respuesta::error('Indicá cuántas personas van a ser (de 1 a ' . self::MAXIMO_PERSONAS . ')');
         }
 
         $pdo = Conexion::obtener();
         $localidadId = null;
         if (Request::parametroGet('localidad_id') !== '') {
-            $localidadId = filter_var(Request::parametroGet('localidad_id'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            $localidadId = Request::enteroDeLaUrl('localidad_id');
             $consulta = $pdo->prepare('SELECT 1 FROM localidades WHERE id = ? AND activa = 1');
-            $consulta->execute([$localidadId === false ? 0 : $localidadId]);
-            if ($localidadId === false || !$consulta->fetchColumn()) {
+            $consulta->execute([$localidadId ?? 0]);
+            if ($localidadId === null || !$consulta->fetchColumn()) {
                 return Respuesta::error('Elegí una localidad de la lista');
             }
         }

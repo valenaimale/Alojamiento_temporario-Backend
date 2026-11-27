@@ -128,8 +128,8 @@ class AlojamientoController
     //o está fuera de servicio (para el huésped, en esos casos la unidad "no existe")
     private function unidadPublicada(string $textoId): ?array
     {
-        $id = filter_var($textoId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($id === false) {
+        $id = Request::entero($textoId);
+        if ($id === null) {
             return null;
         }
         $consulta = Conexion::obtener()->prepare(
@@ -148,8 +148,8 @@ class AlojamientoController
     private function estadia(array $unidad, array $fechas, string $textoPersonas): array
     {
         if ($textoPersonas !== '') {
-            $personas = filter_var($textoPersonas, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 50]]);
-            if ($personas === false) {
+            $personas = Request::entero($textoPersonas, 1, 50);
+            if ($personas === null) {
                 return ['error' => 'Indicá cuántas personas van a ser (de 1 a 50)'];
             }
             if ($personas > (int) $unidad['capacidad']) {

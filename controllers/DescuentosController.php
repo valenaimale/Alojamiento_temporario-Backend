@@ -17,7 +17,7 @@ class DescuentosController
     //GET /unidades/descuentos?id=5: los escalones de la unidad, de menos a más noches
     public function ver()
     {
-        $unidad = PermisosUnidad::delPropietario($_GET['id'] ?? '');//si no puede, responde y corta acá
+        $unidad = PermisosUnidad::delPropietario(Request::parametroGet('id'));//si no puede, responde y corta acá
 
         Respuesta::json(['descuentos' => Descuentos::deLaUnidad((int) $unidad['id'])]);
     }

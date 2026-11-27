@@ -2,6 +2,7 @@
 
 namespace App\Validacion;
 
+use App\Request\Request;
 use App\Database\Conexion;
 
 //Descuentos por estadía larga de cada unidad (US2.10, decisión #69 de docs/pagos-decisiones.md).
@@ -56,9 +57,8 @@ class Descuentos
             if (!is_array($escalon)) {
                 return ['error' => 'Cada descuento tiene que tener noches y porcentaje'];
             }
-            $noches = is_bool($escalon['noches_minimas'] ?? null) ? false : filter_var($escalon['noches_minimas'] ?? '', FILTER_VALIDATE_INT,
-                ['options' => ['min_range' => self::NOCHES_MINIMAS, 'max_range' => self::NOCHES_MAXIMAS]]);
-            if ($noches === false) {
+            $noches = Request::entero($escalon['noches_minimas'] ?? null, self::NOCHES_MINIMAS, self::NOCHES_MAXIMAS);
+            if ($noches === null) {
                 return ['error' => 'Las noches tienen que ser un número de ' . self::NOCHES_MINIMAS . ' a ' . self::NOCHES_MAXIMAS];
             }
             $porcentaje = self::porcentajeValido($escalon['porcentaje'] ?? null);

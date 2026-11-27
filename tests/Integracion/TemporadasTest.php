@@ -61,6 +61,17 @@ final class TemporadasTest extends CasoDeIntegracion
         ], $consulta->fetch());
     }
 
+    //{"minimo_noches": true} no se toma como 1 noche (Request::entero): se rechaza
+    public function testElMinimoDeNochesTieneQueSerUnNumero(): void
+    {
+        [$cliente, $unidadId] = $this->propietarioConUnidad();
+
+        $respuesta = $cliente->post('/unidades/temporadas/crear', $this->temporada($unidadId, ['minimo_noches' => true]));
+
+        $this->assertSame(422, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertStringStartsWith('El mínimo de noches tiene que ser un número', $respuesta->json()['error']);
+    }
+
     //Cada dato inválido se rechaza con un mensaje que dice qué está mal
     public function testValidaLosDatos(): void
     {

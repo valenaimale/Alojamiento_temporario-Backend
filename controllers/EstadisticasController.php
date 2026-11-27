@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Request\Request;
 use App\Autorizacion\PermisosUnidad;
 use App\Validacion\Estadisticas;
 use App\Validacion\ValidadorFechas;
@@ -20,7 +21,7 @@ class EstadisticasController
     //vacío de "todavía no hay datos", es que primero hay que cargar una temporada.
     public function ver()
     {
-        $unidad = PermisosUnidad::delPropietarioOAdministrador($_GET['id'] ?? '');//si no puede, responde y corta acá
+        $unidad = PermisosUnidad::delPropietarioOAdministrador(Request::parametroGet('id'));//si no puede, responde y corta acá
 
         $temporadas = Estadisticas::temporadasDeLaUnidad((int) $unidad['id']);
         $temporada  = $this->temporadaPedida($temporadas);
@@ -42,8 +43,8 @@ class EstadisticasController
     //Si todas son futuras (una unidad nueva), la más próxima a hoy, que es la última de la lista.
     private function temporadaPedida(array $temporadas): ?array
     {
-        $pedida = filter_var($_GET['temporada_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($pedida !== false) {
+        $pedida = Request::enteroDeLaUrl('temporada_id');
+        if ($pedida !== null) {
             foreach ($temporadas as $temporada) {
                 if ($temporada['id'] === $pedida) {
                     return $temporada;

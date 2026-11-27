@@ -89,6 +89,28 @@ final class BackofficeTest extends CasoDeIntegracion
         $this->assertSame(200, $login->codigo);
     }
 
+    //Un id que no es un número entero no se toma como otro número: antes (int) leía "5abc" como 5, id[]=x como 1
+    //y {"id": true} como 1, y mostraba o deshabilitaba otra cuenta (Request::entero)
+    public function testUnIdQueNoEsUnNumeroNoSeConvierteEnOtroUsuario(): void
+    {
+        // Arrange
+        [, , $usuario] = $this->registrar();
+        $deshabilitadas = fn () => (int) $this->pdo()->query('SELECT COUNT(*) FROM usuarios WHERE activo = 0')->fetchColumn();
+        $antes = $deshabilitadas();
+
+        // Act
+        $conLetras = $this->backoffice->get('/backoffice/usuario', ['id' => $usuario['id'] . 'abc']);
+        $conLista = $this->backoffice->get('/backoffice/usuario', ['id' => [$usuario['id']]]);
+        $conTrue = $this->backoffice->post('/backoffice/usuario/estado', ['id' => true, 'activo' => false]);
+
+        // Assert
+        $this->assertSame(422, $conLetras->codigo, $conLetras->cuerpo);
+        $this->assertSame(422, $conLista->codigo, $conLista->cuerpo);
+        $this->assertSame(422, $conTrue->codigo, $conTrue->cuerpo);
+        $this->assertSame('Usuario inválido', $conTrue->json()['error']);
+        $this->assertSame($antes, $deshabilitadas());//no se deshabilitó ninguna cuenta
+    }
+
     //El backoffice no se puede deshabilitar a sí mismo (se quedaría sin acceso)
     public function testNoPuedeDeshabilitarSuPropiaCuenta(): void
     {

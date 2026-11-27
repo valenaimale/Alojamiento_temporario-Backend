@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Request\Request;
 use App\Autorizacion\PermisosUnidad;
 use App\Database\Conexion;
 use App\Validacion\ReglasPublicacion;
@@ -14,7 +15,7 @@ class ResumenUnidadController
     //GET /unidades/resumen?id=5 — el propietario o el administrador asignado
     public function resumen()
     {
-        $unidad = PermisosUnidad::delPropietarioOAdministrador($_GET['id'] ?? '');//si no puede, responde y corta acá
+        $unidad = PermisosUnidad::delPropietarioOAdministrador(Request::parametroGet('id'));//si no puede, responde y corta acá
 
         $consulta = Conexion::obtener()->prepare('SELECT nombre, provincia FROM localidades WHERE id = ?');
         $consulta->execute([$unidad['localidad_id']]);

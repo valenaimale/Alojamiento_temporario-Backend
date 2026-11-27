@@ -132,8 +132,8 @@ class HuespedesReservaController
 
     private function reserva(mixed $id, bool $bloquear = false): array|false
     {
-        $numero = is_bool($id) ? false : filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($numero === false) return false;
+        $numero = Request::entero($id);
+        if ($numero === null) return false;
         $usuario = $_SESSION['usuario'];
         if (!in_array($usuario['rol'], ['huesped', 'propietario', 'administrador'], true)) return false;
         $q = Conexion::obtener()->prepare('SELECT r.*, u.nombre AS unidad_nombre, u.propietario_id, a.administrador_id, h.nombre AS titular_nombre, h.dni AS titular_dni, e.ingreso_en FROM reservas r JOIN unidades u ON u.id = r.unidad_id JOIN usuarios h ON h.id = r.huesped_id LEFT JOIN administraciones a ON a.unidad_id = u.id LEFT JOIN estadias e ON e.reserva_id = r.id WHERE r.id = ?' . ($bloquear ? ' FOR UPDATE' : ''));

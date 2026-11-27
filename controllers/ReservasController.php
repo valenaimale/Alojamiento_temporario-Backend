@@ -34,18 +34,16 @@ class ReservasController
         }
         $datos = Request::datosJson();
 
-        $unidadId = filter_var($datos['unidad_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($unidadId === false || is_bool($datos['unidad_id'] ?? null)) {
+        $unidadId = Request::entero($datos['unidad_id'] ?? null);
+        if ($unidadId === null) {
             return Respuesta::error('No encontramos ese alojamiento', 404);
         }
         $fechas = Estadia::validarFechas((string) ($datos['ingreso'] ?? ''), (string) ($datos['egreso'] ?? ''));
         if (isset($fechas['error'])) {
             return Respuesta::error($fechas['error']);
         }
-        $personas = is_bool($datos['personas'] ?? null)//filter_var tomaría true como 1
-            ? false
-            : filter_var($datos['personas'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 50]]);
-        if ($personas === false) {
+        $personas = Request::entero($datos['personas'] ?? null, 1, 50);
+        if ($personas === null) {
             return Respuesta::error('Indicá cuántas personas van a ser (de 1 a 50)');
         }
         if (($datos['acepta_politica'] ?? null) !== true) {
@@ -367,8 +365,8 @@ class ReservasController
     //reservas ajenas probando números. $bloquear: FOR UPDATE, dentro de una transacción.
     private function reservaParaCancelar(mixed $id, bool $bloquear = false): array|false
     {
-        $reservaId = is_bool($id) ? false : filter_var($id ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($reservaId === false) {
+        $reservaId = Request::entero($id);
+        if ($reservaId === null) {
             return false;
         }
         $consulta = Conexion::obtener()->prepare(

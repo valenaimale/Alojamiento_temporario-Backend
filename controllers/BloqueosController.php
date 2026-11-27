@@ -24,7 +24,7 @@ class BloqueosController
     //GET /unidades/bloqueos?id=5: los bloqueos que todavía no terminaron, ordenados por fecha, con quién los cargó
     public function listar()
     {
-        $unidad = PermisosUnidad::delPropietarioOAdministrador($_GET['id'] ?? '');//si no puede, responde y corta acá
+        $unidad = PermisosUnidad::delPropietarioOAdministrador(Request::parametroGet('id'));//si no puede, responde y corta acá
 
         $consulta = Conexion::obtener()->prepare(
             'SELECT b.id, b.fecha_desde, b.fecha_hasta, b.motivo, b.detalle, u.nombre AS creado_por
@@ -122,8 +122,8 @@ class BloqueosController
         $datos = Request::datosJson();
         $unidad = PermisosUnidad::delPropietarioOAdministrador($datos['unidad_id'] ?? '');
 
-        $bloqueoId = filter_var($datos['bloqueo_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($bloqueoId === false) {
+        $bloqueoId = Request::entero($datos['bloqueo_id'] ?? null);
+        if ($bloqueoId === null) {
             return Respuesta::error('Bloqueo inválido');
         }
 

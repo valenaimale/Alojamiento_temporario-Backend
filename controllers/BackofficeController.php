@@ -25,7 +25,7 @@ class BackofficeController{
         $buscar = trim(Request::parametroGet('buscar'));//parametroGet rechaza ?buscar[]=... (una lista en vez de un texto)
         $rol    = Request::parametroGet('rol');
         $activo = Request::parametroGet('activo');
-        $pagina = max(1, (int) ($_GET['pagina'] ?? 1));//(int) de algo que no es número da 0, y max lo lleva a 1
+        $pagina = Request::enteroDeLaUrl('pagina') ?? 1;//sin página, o con algo que no es un número, la primera
 
         //El WHERE se arma con dos arrays: las condiciones son texto fijo del código y los valores
         //viajan siempre como parámetros, así no hay forma de inyectar SQL desde la búsqueda.
@@ -89,8 +89,8 @@ class BackofficeController{
     public function detalle(){
         Autorizacion::requiere('backoffice');
 
-        $id = (int) ($_GET['id'] ?? 0);
-        if($id <= 0){
+        $id = Request::enteroDeLaUrl('id');
+        if($id === null){
             return Respuesta::error('Usuario inválido');
         }
 
@@ -107,10 +107,10 @@ class BackofficeController{
         Autorizacion::requiere('backoffice');
 
         $datos  = Request::datosJson();
-        $id     = (int) ($datos['id'] ?? 0);
+        $id     = Request::entero($datos['id'] ?? null);
         $activo = $datos['activo'] ?? null;
 
-        if($id <= 0){
+        if($id === null){
             return Respuesta::error('Usuario inválido');
         }
         if(!is_bool($activo)){//tiene que llegar true o false, no "1" ni 1

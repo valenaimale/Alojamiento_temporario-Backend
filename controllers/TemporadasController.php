@@ -24,7 +24,7 @@ class TemporadasController
     //Las ven el propietario y el administrador asignado.
     public function listar()
     {
-        $unidad = PermisosUnidad::delPropietarioOAdministrador($_GET['id'] ?? '');//si no puede, responde y corta acá
+        $unidad = PermisosUnidad::delPropietarioOAdministrador(Request::parametroGet('id'));//si no puede, responde y corta acá
 
         $consulta = Conexion::obtener()->prepare(
             'SELECT id, nombre, fecha_inicio, fecha_fin, minimo_noches
@@ -178,10 +178,8 @@ class TemporadasController
             return ['error' => 'Una temporada puede durar hasta ' . self::MAXIMO_NOCHES . ' noches'];
         }
 
-        $minimo = filter_var($datos['minimo_noches'] ?? '', FILTER_VALIDATE_INT, [
-            'options' => ['min_range' => 1, 'max_range' => self::MAXIMO_MINIMO_NOCHES],
-        ]);
-        if ($minimo === false) {
+        $minimo = Request::entero($datos['minimo_noches'] ?? null, 1, self::MAXIMO_MINIMO_NOCHES);
+        if ($minimo === null) {
             return ['error' => 'El mínimo de noches tiene que ser un número de 1 a ' . self::MAXIMO_MINIMO_NOCHES];
         }
 
@@ -196,8 +194,7 @@ class TemporadasController
     //El temporada_id del cuerpo como entero positivo, o null si no lo es
     private function idTemporada(array $datos): ?int
     {
-        $id = filter_var($datos['temporada_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        return $id === false ? null : $id;
+        return Request::entero($datos['temporada_id'] ?? null);
     }
 
     //Si la temporada se superpone con otra de la unidad, devuelve el mensaje que lo dice; si no, null.

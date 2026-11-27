@@ -2,6 +2,7 @@
 
 namespace App\Autorizacion;
 
+use App\Request\Request;
 use App\Request\Respuesta;
 use App\Database\Conexion;
 
@@ -51,8 +52,8 @@ class PermisosUnidad
     //El id llega del query string o del JSON, como texto o número: tiene que ser un entero positivo
     private static function id(mixed $valor): int
     {
-        $id = filter_var($valor, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($id === false) {
+        $id = Request::entero($valor);
+        if ($id === null) {
             self::cortar(422, 'Unidad inválida');
         }
         return $id;

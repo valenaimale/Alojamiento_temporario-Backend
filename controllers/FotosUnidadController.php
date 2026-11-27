@@ -148,8 +148,8 @@ class FotosUnidadController
         $datos = Request::datosJson();
         $unidad = PermisosUnidad::delPropietarioOAdministrador($datos['unidad_id'] ?? '');
         $valor = $datos['posicion'] ?? null;
-        $posicion = is_bool($valor) ? false : filter_var($valor, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 10]]);
-        if ($posicion === false) {
+        $posicion = Request::entero($valor, 1, 10);
+        if ($posicion === null) {
             return Respuesta::error('Elegí una posición válida para la foto', 422);
         }
 
@@ -211,8 +211,8 @@ class FotosUnidadController
     //La foto [id, orden] si es de esa unidad; si no existe, es de otra unidad o el id no es válido, null
     private function buscarFoto(PDO $pdo, mixed $fotoId, int|string $unidadId): ?array
     {
-        $id = is_bool($fotoId) ? false : filter_var($fotoId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($id === false) {
+        $id = Request::entero($fotoId);
+        if ($id === null) {
             return null;
         }
         $consulta = $pdo->prepare('SELECT id, orden FROM fotos_unidad WHERE id = ? AND unidad_id = ?');

@@ -25,9 +25,9 @@ class PreciosController
     //Lo ven el propietario y el administrador asignado.
     public function ver()
     {
-        $unidad = PermisosUnidad::delPropietarioOAdministrador($_GET['id'] ?? '');//si no puede, responde y corta acá
+        $unidad = PermisosUnidad::delPropietarioOAdministrador(Request::parametroGet('id'));//si no puede, responde y corta acá
 
-        $rango = $this->validarRango((string) ($_GET['desde'] ?? ''), (string) ($_GET['hasta'] ?? ''));
+        $rango = $this->validarRango(Request::parametroGet('desde'), Request::parametroGet('hasta'));
         if (isset($rango['error'])) {
             return Respuesta::error($rango['error']);
         }
