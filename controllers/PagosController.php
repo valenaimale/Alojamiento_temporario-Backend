@@ -257,8 +257,8 @@ class PagosController
     //$bloquear: FOR UPDATE, dentro de una transacción (si es una extensión, traba antes su reserva original).
     private function reservaDelHuesped(mixed $id, bool $bloquear = false): array|false
     {
-        $reservaId = is_bool($id) ? false : filter_var($id ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($reservaId === false) {
+        $reservaId = Request::entero($id);
+        if ($reservaId === null) {
             return false;
         }
         if ($bloquear) {

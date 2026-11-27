@@ -97,12 +97,12 @@ class LiquidacionesController
     {
         Autorizacion::requiereSesion();
 
-        $id = filter_var(Request::parametroGet('id'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $id = Request::enteroDeLaUrl('id');
         $rol = $_SESSION['usuario']['rol'];
         $usuarioId = (int) $_SESSION['usuario']['id'];
 
         $fila = false;
-        if ($id !== false) {
+        if ($id !== null) {
             //la liquidación de otro "no existe" (404), así nadie averigua importes ajenos probando números
             $condicion = match ($rol) {
                 'propietario'   => 'q.id = ? AND q.propietario_id = ?',
@@ -208,10 +208,8 @@ class LiquidacionesController
         Autorizacion::requiere('backoffice');
         $datos = Request::datosJson();
 
-        $id = is_bool($datos['liquidacion_id'] ?? null)
-            ? false
-            : filter_var($datos['liquidacion_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($id === false) {
+        $id = Request::entero($datos['liquidacion_id'] ?? null);
+        if ($id === null) {
             return Respuesta::error('No encontramos esa liquidación', 404);
         }
 

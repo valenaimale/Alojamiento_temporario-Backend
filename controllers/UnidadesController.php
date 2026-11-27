@@ -186,9 +186,7 @@ class UnidadesController
         $nombre = trim((string) ($datos['nombre'] ?? ''));
         $direccion = trim((string) ($datos['direccion'] ?? ''));
         $caracteristicas = trim((string) ($datos['caracteristicas'] ?? ''));
-        $capacidad = is_bool($datos['capacidad'] ?? null)//filter_var tomaría true como 1
-            ? false
-            : filter_var($datos['capacidad'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 50]]);
+        $capacidad = Request::entero($datos['capacidad'] ?? null, 1, 50);
 
         if (mb_strlen($nombre) < 3 || mb_strlen($nombre) > 100) {
             return ['error' => 'El nombre tiene que tener entre 3 y 100 caracteres'];
@@ -200,7 +198,7 @@ class UnidadesController
         if (mb_strlen($direccion) < 5 || mb_strlen($direccion) > 200) {
             return ['error' => 'La dirección tiene que tener entre 5 y 200 caracteres'];
         }
-        if ($capacidad === false) {
+        if ($capacidad === null) {
             return ['error' => 'La capacidad tiene que ser de 1 a 50 personas'];
         }
         if (mb_strlen($caracteristicas) > 2000) {
@@ -231,8 +229,8 @@ class UnidadesController
     //El id de la localidad si existe y está activa; si no, null (una localidad dada de baja no recibe unidades nuevas)
     private function localidadActiva(mixed $valor): ?int
     {
-        $id = is_bool($valor) ? false : filter_var($valor, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($id === false) {
+        $id = Request::entero($valor);
+        if ($id === null) {
             return null;
         }
         $consulta = Conexion::obtener()->prepare('SELECT 1 FROM localidades WHERE id = ? AND activa = 1');

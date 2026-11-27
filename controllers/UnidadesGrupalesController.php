@@ -162,9 +162,9 @@ class UnidadesGrupalesController
     //Si para esas fechas y personas la grupal no corresponde (ver UnidadGrupal::armar), responde 409.
     public function detalle()
     {
-        $id = filter_var(Request::parametroGet('id'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $id = Request::enteroDeLaUrl('id');
         $grupal = false;
-        if ($id !== false) {
+        if ($id !== null) {
             $consulta = Conexion::obtener()->prepare(
                 'SELECT g.id, g.titulo, l.nombre AS localidad, l.provincia
                  FROM unidades_grupales g
@@ -182,8 +182,8 @@ class UnidadesGrupalesController
         if (isset($fechas['error'])) {
             return Respuesta::error($fechas['error']);
         }
-        $personas = filter_var(Request::parametroGet('personas'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 50]]);
-        if ($personas === false) {
+        $personas = Request::enteroDeLaUrl('personas', 1, 50);
+        if ($personas === null) {
             return Respuesta::error('Indicá cuántas personas van a ser (de 1 a 50)');
         }
 
@@ -258,8 +258,8 @@ class UnidadesGrupalesController
     //El id de la grupal si es del administrador, o null (la de otro "no existe": 404)
     private function grupalPropia(mixed $id, int $administradorId): ?int
     {
-        $grupalId = is_bool($id) ? false : filter_var($id ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($grupalId === false) {
+        $grupalId = Request::entero($id);
+        if ($grupalId === null) {
             return null;
         }
         $consulta = Conexion::obtener()->prepare('SELECT id FROM unidades_grupales WHERE id = ? AND administrador_id = ?');

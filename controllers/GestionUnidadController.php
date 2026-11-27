@@ -20,7 +20,7 @@ class GestionUnidadController
     //Lo ven el propietario y el administrador asignado (el administrador maneja el operador).
     public function ver()
     {
-        $unidad = PermisosUnidad::delPropietarioOAdministrador($_GET['id'] ?? '');//si no puede, responde y corta acá
+        $unidad = PermisosUnidad::delPropietarioOAdministrador(Request::parametroGet('id'));//si no puede, responde y corta acá
         $pdo = Conexion::obtener();
 
         $consulta = $pdo->prepare(

@@ -20,11 +20,11 @@ class EstadiasController
         }
         header('Cache-Control: no-store');
         $d = Request::datosJson();
-        $id = is_bool($d['reserva_id'] ?? null) ? false : filter_var($d['reserva_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $id = Request::entero($d['reserva_id'] ?? null);
         $tipo = $d['tipo'] ?? '';
         $evento = $d['evento_id'] ?? '';
         $textoFecha = $d['ocurrido_en'] ?? '';
-        if ($id === false) { Respuesta::error('No encontramos esa reserva', 404); return; }
+        if ($id === null) { Respuesta::error('No encontramos esa reserva', 404); return; }
         if (!in_array($tipo, ['ingreso', 'egreso'], true) || !is_string($evento) || !preg_match('/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/D', $evento)) {
             Respuesta::error('El movimiento no es válido'); return;
         }

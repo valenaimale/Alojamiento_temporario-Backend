@@ -56,4 +56,27 @@ class Request{
         }
         return $valor;
     }
+
+    //Un número entero de lo que mandó el front (un campo del cuerpo JSON o un parámetro de la URL), entre $minimo y
+    //$maximo, o null si no lo es. Es la única forma de leer un id o una cantidad: antes cada controlador lo validaba
+    //a su manera y en algunos se colaban valores que no son números.
+    //Acepta 5 y "5". Rechaza true/false (filter_var tomaría true como 1), listas, null, decimales como 3.5 y textos
+    //como "5abc" (un (int) los convertiría en 5).
+    public static function entero(mixed $valor, int $minimo = 1, ?int $maximo = null): ?int
+    {
+        if ($valor === null || is_bool($valor) || is_array($valor) || is_object($valor)) {
+            return null;
+        }
+        $opciones = ['min_range' => $minimo] + ($maximo === null ? [] : ['max_range' => $maximo]);
+        $entero = filter_var($valor, FILTER_VALIDATE_INT, ['options' => $opciones]);
+        return $entero === false ? null : $entero;
+    }
+
+    //Un parámetro de la URL como entero (Request::entero), o null si falta o no es un número válido:
+    //?id=5 → 5; ?id=5abc, ?id=0 o ?id[]=5 → null
+    public static function enteroDeLaUrl(string $nombre, int $minimo = 1, ?int $maximo = null): ?int
+    {
+        $valor = $_GET[$nombre] ?? null;
+        return is_string($valor) ? self::entero($valor, $minimo, $maximo) : null;
+    }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Validacion;
 
+use App\Request\Request;
 use App\Database\Conexion;
 use App\Log\Log;
 use App\Mail\ExtensionMail;
@@ -205,14 +206,12 @@ class Extension
     //Valida el reserva_id y las noches del pedido. Devuelve ['reserva_id' => n, 'noches' => n] o un error.
     private static function validarPedido(mixed $reservaId, mixed $noches): array
     {
-        $id = is_bool($reservaId) ? false : filter_var($reservaId ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($id === false) {
+        $id = Request::entero($reservaId);
+        if ($id === null) {
             return self::error('No encontramos esa reserva', 404);
         }
-        $cantidad = is_bool($noches)//filter_var tomaría true como 1
-            ? false
-            : filter_var($noches ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => self::MAXIMO_NOCHES]]);
-        if ($cantidad === false) {
+        $cantidad = Request::entero($noches, 1, self::MAXIMO_NOCHES);
+        if ($cantidad === null) {
             return self::error('Indicá cuántas noches más (de 1 a ' . self::MAXIMO_NOCHES . ')', 422);
         }
         return ['reserva_id' => $id, 'noches' => $cantidad];

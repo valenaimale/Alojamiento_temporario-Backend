@@ -38,18 +38,16 @@ class ReservasGrupalesController
         }
         $datos = Request::datosJson(['unidad_ids']);
 
-        $grupalId = is_bool($datos['grupal_id'] ?? null) ? false
-            : filter_var($datos['grupal_id'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        if ($grupalId === false) {
+        $grupalId = Request::entero($datos['grupal_id'] ?? null);
+        if ($grupalId === null) {
             return Respuesta::error('No encontramos esa reserva grupal', 404);
         }
         $fechas = Estadia::validarFechas((string) ($datos['ingreso'] ?? ''), (string) ($datos['egreso'] ?? ''));
         if (isset($fechas['error'])) {
             return Respuesta::error($fechas['error']);
         }
-        $personas = is_bool($datos['personas'] ?? null) ? false
-            : filter_var($datos['personas'] ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 50]]);
-        if ($personas === false) {
+        $personas = Request::entero($datos['personas'] ?? null, 1, 50);
+        if ($personas === null) {
             return Respuesta::error('Indicá cuántas personas van a ser (de 1 a 50)');
         }
         $unidadIds = $this->ids($datos['unidad_ids'] ?? null);
@@ -327,8 +325,8 @@ class ReservasGrupalesController
         }
         $ids = [];
         foreach ($lista as $id) {
-            $entero = is_bool($id) ? false : filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-            if ($entero === false) {
+            $entero = Request::entero($id);
+            if ($entero === null) {
                 return null;
             }
             $ids[$entero] = $entero;
@@ -339,7 +337,6 @@ class ReservasGrupalesController
     //El id del grupo como entero, o null si no es válido
     private function grupoId(mixed $id): ?int
     {
-        $grupoId = is_bool($id) ? false : filter_var($id ?? '', FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        return $grupoId === false ? null : $grupoId;
+        return Request::entero($id);
     }
 }

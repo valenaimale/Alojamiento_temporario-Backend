@@ -36,7 +36,7 @@ class PoliticaController
     //(el front lo usa para explicar desde cuándo se cuentan los tramos)
     public function ver()
     {
-        $unidad = PermisosUnidad::delPropietario($_GET['id'] ?? '');//si no puede, responde y corta acá
+        $unidad = PermisosUnidad::delPropietario(Request::parametroGet('id'));//si no puede, responde y corta acá
 
         $consulta = Conexion::obtener()->prepare("SELECT valor FROM parametros WHERE clave = 'dias_cobro_saldo'");
         $consulta->execute();

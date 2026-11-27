@@ -2,6 +2,7 @@
 
 namespace App\Validacion;
 
+use App\Request\Request;
 use App\Database\Conexion;
 
 //Las reglas de una unidad grupal (US4.4): qué unidades puede tener y cómo se arma para una búsqueda.
@@ -33,8 +34,8 @@ class UnidadGrupal
         }
         $unidadIds = [];
         foreach ($ids as $id) {
-            $entero = is_bool($id) ? false : filter_var($id, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-            if ($entero === false) {
+            $entero = Request::entero($id);
+            if ($entero === null) {
                 return ['error' => 'Elegí las unidades de la reserva grupal'];
             }
             $unidadIds[$entero] = $entero;//sin repetidas

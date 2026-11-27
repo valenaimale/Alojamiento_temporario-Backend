@@ -166,6 +166,17 @@ final class BloqueosTest extends CasoDeIntegracion
 
     // ---------- liberar ----------
 
+    //{"bloqueo_id": true} no se toma como el bloqueo 1 (Request::entero): se rechaza
+    public function testUnBloqueoIdQueNoEsUnNumeroSeRechaza(): void
+    {
+        [$cliente, $unidadId] = $this->propietarioConUnidad();
+
+        $respuesta = $cliente->post('/unidades/bloqueos/liberar', ['unidad_id' => $unidadId, 'bloqueo_id' => true]);
+
+        $this->assertSame(422, $respuesta->codigo, $respuesta->cuerpo);
+        $this->assertSame('Bloqueo inválido', $respuesta->json()['error']);
+    }
+
     //Un bloqueo que todavía no empezó se borra
     public function testLiberarUnBloqueoFuturoLoBorra(): void
     {
